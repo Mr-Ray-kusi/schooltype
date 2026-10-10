@@ -63,8 +63,36 @@ export const OFFLINE_MUTATION_PREFIXES = [
   '/api/attendance',
   '/api/classes',
   '/api/subjects',
+  '/api/academic-terms',
   '/api/scanner/mark',
 ];
+
+const MAX_PENDING = 80;
+
+const stableBody = (data) => {
+  if (data == null) return '';
+  if (typeof data === 'string') {
+    try {
+      return JSON.stringify(JSON.parse(data));
+    } catch {
+      return data;
+    }
+  }
+  try {
+    return JSON.stringify(data);
+  } catch {
+    return String(data);
+  }
+};
+
+const mutationKey = (item) => {
+  const method = String(item?.method || 'post').toLowerCase();
+  const url = String(item?.url || '').split('?')[0];
+  if (method === 'put' || method === 'patch' || method === 'delete') {
+    return `${method}:${url}`;
+  }
+  return `${method}:${url}:${stableBody(item?.data)}`;
+};
 
 export const isOfflineMutationUrl = (url = '') => {
   const path = String(url).split('?')[0];
@@ -81,9 +109,50 @@ export async function enqueueMutation({ method, url, data, headers, label }) {
     label: label || `${String(method || 'POST').toUpperCase()} ${url}`,
     createdAt: new Date().toISOString(),
   };
+  const key = mutationKey(item);
+  const existing = await listPending();
+  const duplicates = existing.filter((row) => mutationKey(row) === key);
+  if (duplicates.length) {
+    await withStore(STORE_PENDING, 'readwrite', (store) => {
+      duplicates.forEach((row) => store.delete(row.id));
+      store.put(item);
+    });
+    notify();
+    return item;
+  }
+  if (existing.length >= MAX_PENDING) {
+    const oldest = [...existing].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))[0];
+    if (oldest) {
+      await withStore(STORE_PENDING, 'readwrite', (store) => {
+        store.delete(oldest.id);
+        store.put(item);
+      });
+      notify();
+      return item;
+    }
+  }
   await withStore(STORE_PENDING, 'readwrite', (store) => store.put(item));
   notify();
   return item;
+}
+
+export async function compactPendingQueue() {
+  const items = await listPending();
+  if (items.length < 2) return items;
+  const sorted = [...items].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+  const keepByKey = new Map();
+  for (const item of sorted) {
+    keepByKey.set(mutationKey(item), item);
+  }
+  let keep = [...keepByKey.values()].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+  if (keep.length > MAX_PENDING) keep = keep.slice(keep.length - MAX_PENDING);
+  const keepIds = new Set(keep.map((item) => item.id));
+  const drop = items.filter((item) => !keepIds.has(item.id));
+  if (!drop.length) return keep;
+  await withStore(STORE_PENDING, 'readwrite', (store) => {
+    drop.forEach((item) => store.delete(item.id));
+  });
+  return keep;
 }
 
 export async function listPending() {
@@ -136,7 +205,7 @@ export async function readCachedGet(key) {
 }
 
 export async function syncPending(axios) {
-  const pending = await listPending();
+  const pending = await compactPendingQueue();
   const results = { synced: 0, failed: 0 };
   for (const item of pending.sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))) {
     try {
@@ -172,5 +241,6 @@ export function mutationLabel(method, url, data) {
   if (path.includes('/attendance')) return 'Attendance mark';
   if (path.includes('/classes')) return `Class${name}`;
   if (path.includes('/subjects')) return `Subject${name}`;
+  if (path.includes('/academic-terms')) return 'Academic terms';
   return `${String(method || 'POST').toUpperCase()} ${path}`;
 }

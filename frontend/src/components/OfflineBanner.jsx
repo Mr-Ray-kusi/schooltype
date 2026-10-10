@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
-import { listPending, subscribeOffline, syncPending } from '../utils/offlineQueue';
+import toast from 'react-hot-toast';
+import { compactPendingQueue, listPending, subscribeOffline, syncPending } from '../utils/offlineQueue';
 import axios from 'axios';
 import { invalidateCache } from '../utils/requestCache';
 
@@ -15,6 +16,7 @@ const OfflineBanner = () => {
       if (typeof navigator !== 'undefined' && !navigator.onLine) return;
       if (skipUntilOnlineRef.current && !force) return;
 
+      await compactPendingQueue();
       const items = await listPending();
       if (!items.length) {
         skipUntilOnlineRef.current = false;
@@ -43,6 +45,8 @@ const OfflineBanner = () => {
     const onOffline = () => {
       skipUntilOnlineRef.current = true;
     };
+
+    toast.dismiss();
 
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);

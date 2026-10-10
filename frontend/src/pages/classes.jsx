@@ -72,7 +72,7 @@ const Setup = () => {
       }
       setCurrentTerm(termData?.current || null);
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to load setup');
+      if (error.response) toast.error(error.response?.data?.error || 'Failed to load setup');
     } finally {
       setLoading(false);
     }
@@ -135,7 +135,9 @@ const Setup = () => {
       setCurrentTerm(data.current || null);
       toast.success('Academic terms saved');
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to save terms');
+      if (!error.offlineQueued && error.response) {
+        toast.error(error.response?.data?.error || 'Failed to save terms');
+      }
     } finally {
       setSavingTerms(false);
     }
@@ -163,7 +165,9 @@ const Setup = () => {
       toast.success('Classes saved');
       await load();
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to save classes');
+      if (!error.offlineQueued && error.response) {
+        toast.error(error.response?.data?.error || 'Failed to save classes');
+      }
     } finally {
       setSavingClasses(false);
     }
@@ -187,7 +191,9 @@ const Setup = () => {
       toast.success('Subjects saved');
       await load();
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to save subjects');
+      if (!error.offlineQueued && error.response) {
+        toast.error(error.response?.data?.error || 'Failed to save subjects');
+      }
     } finally {
       setSavingSubjects(false);
     }
@@ -213,7 +219,9 @@ const Setup = () => {
       toast.success('Class fees saved');
       await load();
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to save class fees');
+      if (!error.offlineQueued && error.response) {
+        toast.error(error.response?.data?.error || 'Failed to save class fees');
+      }
     } finally {
       setSavingFees(false);
     }
@@ -226,7 +234,9 @@ const Setup = () => {
       invalidateCache('classes');
       load();
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to delete class');
+      if (!error.offlineQueued && error.response) {
+        toast.error(error.response?.data?.error || 'Failed to delete class');
+      }
     }
   };
 
@@ -237,7 +247,9 @@ const Setup = () => {
       invalidateCache('subjects');
       load();
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to delete subject');
+      if (!error.offlineQueued && error.response) {
+        toast.error(error.response?.data?.error || 'Failed to delete subject');
+      }
     }
   };
 
