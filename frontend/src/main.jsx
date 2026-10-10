@@ -3,7 +3,6 @@ import ReactDOM from 'react-dom/client'
 import axios from 'axios'
 import App from './app'
 import { Toaster } from 'react-hot-toast'
-import toast from 'react-hot-toast'
 import './index.css'
 import { enqueueMutation, isOfflineMutationUrl, mutationLabel } from './utils/offlineQueue'
 
@@ -23,6 +22,7 @@ if (typeof window !== 'undefined') {
 }
 
 axios.interceptors.request.use(async (config) => {
+  if (config.skipOfflineQueue) return config;
   const method = String(config.method || 'get').toLowerCase();
   const url = config.url || '';
   const mutating = method !== 'get' && method !== 'head' && method !== 'options';
@@ -36,7 +36,6 @@ axios.interceptors.request.use(async (config) => {
       headers: config.headers,
       label: mutationLabel(method, url, config.data),
     });
-    toast.success('Saved offline — it will sync when you are back online');
     const error = new Error('Queued offline');
     error.offlineQueued = true;
     return Promise.reject(error);
@@ -49,6 +48,7 @@ axios.interceptors.response.use(
   (response) => response,
   async (error) => {
     if (error?.offlineQueued) return Promise.reject(error);
+    if (error?.config?.skipOfflineQueue) return Promise.reject(error);
     const config = error?.config;
     const offline = typeof navigator !== 'undefined' && !navigator.onLine;
     const noResponse = !error?.response;
@@ -63,7 +63,6 @@ axios.interceptors.response.use(
           headers: config.headers,
           label: mutationLabel(method, url, config.data),
         });
-        toast.success('Saved offline — it will sync when you are back online');
         error.offlineQueued = true;
       }
     }

@@ -146,6 +146,7 @@ export async function syncPending(axios) {
         data: item.data,
         headers: item.headers,
         timeout: 25000,
+        skipOfflineQueue: true,
       });
       await removePending(item.id);
       results.synced += 1;

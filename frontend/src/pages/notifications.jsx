@@ -58,7 +58,7 @@ const Notifications = () => {
       const nextItems = data.items || [];
       setItems((prev) => (silent ? mergeNotificationItems(prev, nextItems) : nextItems));
     } catch (err) {
-      if (!silent) {
+      if (!silent && err.response) {
         toast.error(err.response?.data?.error || 'Failed to load notifications');
       }
     } finally {
@@ -239,7 +239,7 @@ const Notifications = () => {
     } catch (err) {
       setItems((prev) => prev.filter((n) => n.id !== tempId));
       setReply(bodyText);
-      toast.error(err.response?.data?.error || 'Failed to send reply');
+      if (err.response) toast.error(err.response?.data?.error || 'Failed to send reply');
     } finally {
       setSending(false);
     }
@@ -278,7 +278,7 @@ const Notifications = () => {
       }
       toast.success(`Sent to ${data.count} school${data.count === 1 ? '' : 's'}`);
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Failed to send notification');
+      if (err.response) toast.error(err.response?.data?.error || 'Failed to send notification');
     } finally {
       setSending(false);
     }

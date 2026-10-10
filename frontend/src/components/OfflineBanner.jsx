@@ -1,27 +1,56 @@
-import React, { useEffect, useState } from 'react';
-import { WifiOff, RefreshCw } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { RefreshCw } from 'lucide-react';
 import { listPending, subscribeOffline, syncPending } from '../utils/offlineQueue';
 import axios from 'axios';
-import toast from 'react-hot-toast';
 import { invalidateCache } from '../utils/requestCache';
 
 const OfflineBanner = () => {
-  const [online, setOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine);
-  const [pending, setPending] = useState(0);
   const [syncing, setSyncing] = useState(false);
-
-  const refreshPending = async () => {
-    const items = await listPending();
-    setPending(items.length);
-  };
+  const syncingRef = useRef(false);
+  const skipUntilOnlineRef = useRef(false);
 
   useEffect(() => {
-    const onOnline = () => setOnline(true);
-    const onOffline = () => setOnline(false);
+    const runSync = async ({ force = false } = {}) => {
+      if (syncingRef.current) return;
+      if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+      if (skipUntilOnlineRef.current && !force) return;
+
+      const items = await listPending();
+      if (!items.length) {
+        skipUntilOnlineRef.current = false;
+        return;
+      }
+
+      syncingRef.current = true;
+      setSyncing(true);
+      try {
+        const result = await syncPending(axios);
+        if (result.synced) invalidateCache();
+        // Network still down: wait for the next `online` event instead of looping the banner.
+        skipUntilOnlineRef.current = result.failed > 0;
+      } catch {
+        skipUntilOnlineRef.current = true;
+      } finally {
+        syncingRef.current = false;
+        setSyncing(false);
+      }
+    };
+
+    const onOnline = () => {
+      skipUntilOnlineRef.current = false;
+      runSync({ force: true });
+    };
+    const onOffline = () => {
+      skipUntilOnlineRef.current = true;
+    };
+
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
-    const unsub = subscribeOffline(refreshPending);
-    refreshPending();
+    const unsub = subscribeOffline(() => {
+      runSync();
+    });
+    runSync();
+
     return () => {
       window.removeEventListener('online', onOnline);
       window.removeEventListener('offline', onOffline);
@@ -29,39 +58,12 @@ const OfflineBanner = () => {
     };
   }, []);
 
-  useEffect(() => {
-    if (!online || pending === 0) return undefined;
-    let cancelled = false;
-    (async () => {
-      setSyncing(true);
-      try {
-        const result = await syncPending(axios);
-        if (!cancelled && result.synced) {
-          invalidateCache();
-          toast.success(`Synced ${result.synced} offline ${result.synced === 1 ? 'change' : 'changes'}`);
-        }
-      } catch {
-        // stay queued
-      } finally {
-        if (!cancelled) setSyncing(false);
-        refreshPending();
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [online, pending]);
-
-  if (online && pending === 0) return null;
+  if (!syncing) return null;
 
   return (
-    <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-2.5 text-sm text-amber-100">
-      <span className="inline-flex items-center gap-2">
-        {!online ? <WifiOff className="h-4 w-4" /> : <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />}
-        {!online
-          ? `Offline mode — ${pending} change${pending === 1 ? '' : 's'} saved on this device`
-          : `Syncing ${pending} offline change${pending === 1 ? '' : 's'}…`}
-      </span>
+    <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-sky-500/40 bg-sky-500/10 px-4 py-2.5 text-sm text-sky-100">
+      <RefreshCw className="h-4 w-4 animate-spin" />
+      Syncing offline changes
     </div>
   );
 };
