@@ -143,8 +143,8 @@ const Dashboard = () => {
           </div>
         </header>
 
-        <section className="mb-8 md:mb-10">
-          <div className="mb-4 flex items-end justify-between gap-3">
+        <section className="mb-10 md:mb-12">
+          <div className="mb-5 flex items-end justify-between gap-3">
             <div>
               <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                 At a glance
@@ -152,34 +152,36 @@ const Dashboard = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 md:gap-3 xl:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4 lg:gap-5">
             {statCards.map((stat) => {
               const locked = !isPlanApproved;
               const Icon = stat.icon;
               const content = (
                 <>
-                  <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-start justify-between gap-3">
                     <div
-                      className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border md:h-10 md:w-10 md:rounded-xl ${stat.accent}`}
+                      className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl border sm:h-12 sm:w-12 ${stat.accent}`}
                     >
-                      <Icon className="h-4 w-4 md:h-5 md:w-5" />
+                      <Icon className="h-5 w-5 sm:h-6 sm:w-6" />
                     </div>
-                    {!locked && <ArrowUpRight className="hidden h-4 w-4 text-slate-500 md:block" />}
-                    {locked && <Lock className="h-3.5 w-3.5 text-amber-400/80 md:h-4 md:w-4" />}
+                    {!locked && <ArrowUpRight className="hidden h-5 w-5 text-slate-500 sm:block" />}
+                    {locked && <Lock className="h-4 w-4 text-amber-400/80 sm:h-5 sm:w-5" />}
                   </div>
-                  <p className="mt-2 text-[11px] leading-tight text-slate-400 md:mt-5 md:text-sm">
-                    {stat.title}
-                  </p>
-                  <p className="mt-0.5 font-display text-xl font-bold tabular-nums text-white md:mt-1 md:text-3xl">
-                    {locked ? '—' : Number(stat.value || 0).toLocaleString()}
-                  </p>
-                  {locked && (
-                    <p className="mt-1 text-[10px] text-amber-400/90 md:mt-2 md:text-xs">Locked until approved</p>
-                  )}
+                  <div className="mt-6 sm:mt-8">
+                    <p className="text-xs leading-tight text-slate-400 sm:text-sm">
+                      {stat.title}
+                    </p>
+                    <p className="mt-1.5 font-display text-3xl font-bold tabular-nums tracking-tight text-white sm:text-4xl">
+                      {locked ? '—' : Number(stat.value || 0).toLocaleString()}
+                    </p>
+                    {locked && (
+                      <p className="mt-2 text-[11px] text-amber-400/90 sm:text-xs">Locked until approved</p>
+                    )}
+                  </div>
                 </>
               );
 
-              const className = `rounded-xl border border-slate-700/80 bg-slate-900/50 p-3 transition md:rounded-2xl md:p-5 ${
+              const className = `flex min-h-[9.5rem] flex-col justify-between rounded-3xl border border-slate-700/80 bg-slate-900/50 p-4 transition sm:min-h-[11.5rem] sm:p-6 lg:min-h-[13rem] lg:p-7 ${
                 locked
                   ? 'opacity-80'
                   : 'hover:border-slate-500 hover:bg-slate-900/80'
