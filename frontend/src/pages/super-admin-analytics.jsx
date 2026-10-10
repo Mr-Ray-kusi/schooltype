@@ -3,6 +3,8 @@ import axios from 'axios';
 import {
   Activity,
   AlertTriangle,
+  ChevronDown,
+  ChevronUp,
   DollarSign,
   Gauge,
   LogIn,
@@ -67,10 +69,68 @@ const StatCard = ({ title, value, subtitle, icon: Icon, color }) => (
 
 const EmptyRow = ({ text }) => <p className="px-1 py-6 text-center text-sm text-zinc-500">{text}</p>;
 
-const PreviewNote = ({ shown, total }) =>
-  total > shown ? (
-    <p className="mt-3 text-xs text-zinc-500">Showing latest {shown} of {total.toLocaleString()}</p>
-  ) : null;
+const COLLAPSED_LOGS = 8;
+
+const formatTime = (iso) => {
+  if (!iso) return '—';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleString();
+};
+
+const visibleLogs = (list, expanded) => (expanded ? list : list.slice(0, COLLAPSED_LOGS));
+
+const ShowMoreBar = ({ total, expanded, onToggle }) => {
+  if (total <= COLLAPSED_LOGS) return null;
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="mt-3 text-xs font-semibold text-sky-300 transition hover:text-sky-200"
+    >
+      {expanded ? 'Show less' : `Show more · ${total - COLLAPSED_LOGS} more logs`}
+    </button>
+  );
+};
+
+const DetailLine = ({ label, value }) => {
+  if (value == null || value === '') return null;
+  return (
+    <p className="text-sm leading-relaxed text-zinc-300">
+      <span className="text-zinc-500">{label}: </span>
+      {value}
+    </p>
+  );
+};
+
+const ExpandableLog = ({ title, hint, time, children }) => {
+  const [open, setOpen] = useState(false);
+  return (
+    <li className="py-0.5">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-start justify-between gap-3 py-2 text-left"
+      >
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-medium text-white">{title}</span>
+          {!open && hint ? <span className="mt-0.5 block truncate text-xs text-zinc-500">{hint}</span> : null}
+        </span>
+        <span className="flex shrink-0 items-center gap-2 pt-0.5">
+          <span className="text-xs text-zinc-500">{time}</span>
+          {open ? (
+            <ChevronUp className="h-4 w-4 text-zinc-400" />
+          ) : (
+            <ChevronDown className="h-4 w-4 text-zinc-400" />
+          )}
+        </span>
+      </button>
+      {open ? (
+        <div className="mb-2 space-y-1 rounded-xl border border-white/10 bg-zinc-950/70 px-3 py-3">{children}</div>
+      ) : null}
+    </li>
+  );
+};
 
 const SuperAdminAnalytics = () => {
   const [data, setData] = useState(null);
@@ -78,6 +138,11 @@ const SuperAdminAnalytics = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedPanel, setSelectedPanel] = useState('pages');
   const [range, setRange] = useState('1w');
+  const [showAll, setShowAll] = useState({});
+
+  const toggleShowAll = (panelId) => {
+    setShowAll((prev) => ({ ...prev, [panelId]: !prev[panelId] }));
+  };
 
   const fetchData = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setRefreshing(true);
@@ -338,17 +403,24 @@ const SuperAdminAnalytics = () => {
             ) : (
               <>
                 <ul className="divide-y divide-white/5">
-                  {activeUsers.slice(0, 8).map((user) => (
-                    <li key={`${user.schoolId || ''}-${user.email || user.lastSeen}`} className="flex items-center justify-between gap-3 py-2.5">
-                      <p className="min-w-0 truncate text-sm text-white">
-                        {user.schoolName || 'Unknown school'}
-                        <span className="text-zinc-500"> · {user.email || 'No email'}</span>
-                      </p>
-                      <span className="shrink-0 text-xs text-emerald-300">{relativeTime(user.lastSeen)}</span>
-                    </li>
+                  {visibleLogs(activeUsers, showAll.active).map((user) => (
+                    <ExpandableLog
+                      key={`${user.schoolId || ''}-${user.email || user.lastSeen}`}
+                      title={user.schoolName || 'Unknown school'}
+                      hint={user.email || 'No email'}
+                      time={relativeTime(user.lastSeen)}
+                    >
+                      <DetailLine label="Email" value={user.email || 'No email'} />
+                      <DetailLine
+                        label="Role"
+                        value={user.role === 'super_admin' ? 'Platform admin' : user.role || 'admin'}
+                      />
+                      <DetailLine label="Last page" value={user.page || user.path || '—'} />
+                      <DetailLine label="Last seen" value={formatTime(user.lastSeen)} />
+                    </ExpandableLog>
                   ))}
                 </ul>
-                <PreviewNote shown={Math.min(8, activeUsers.length)} total={activeUsers.length} />
+                <ShowMoreBar total={activeUsers.length} expanded={Boolean(showAll.active)} onToggle={() => toggleShowAll('active')} />
               </>
             ))}
 
@@ -356,171 +428,211 @@ const SuperAdminAnalytics = () => {
             (loginsBySchool.length === 0 ? (
               <EmptyRow text="No school logins recorded yet this week." />
             ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-sm">
-                  <thead className="text-left text-xs uppercase tracking-wide text-zinc-500">
-                    <tr>
-                      <th className="py-3 pr-5">School</th>
-                      <th className="py-3 pr-5">Today</th>
-                      <th className="py-3">This week</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-white/5">
-                    {loginsBySchool.slice(0, 8).map((row) => (
-                      <tr key={row.schoolId || row.email}>
-                        <td className="py-3 pr-5">
-                          <p className="font-medium text-white">{row.schoolName}</p>
-                          <p className="text-xs text-zinc-500">{row.email}</p>
-                        </td>
-                        <td className="py-3 pr-5 text-zinc-200">{row.daily}</td>
-                        <td className="py-3 text-zinc-200">{row.weekly}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <PreviewNote shown={Math.min(8, loginsBySchool.length)} total={loginsBySchool.length} />
-              </div>
+              <>
+                <ul className="divide-y divide-white/5">
+                  {visibleLogs(loginsBySchool, showAll.logins).map((row) => (
+                    <ExpandableLog
+                      key={row.schoolId || row.email}
+                      title={row.schoolName}
+                      hint={`${row.daily} today · ${row.weekly} this week`}
+                      time=""
+                    >
+                      <DetailLine label="Email" value={row.email} />
+                      <DetailLine label="Logins today" value={row.daily} />
+                      <DetailLine label="Logins this week" value={row.weekly} />
+                    </ExpandableLog>
+                  ))}
+                </ul>
+                <ShowMoreBar total={loginsBySchool.length} expanded={Boolean(showAll.logins)} onToggle={() => toggleShowAll('logins')} />
+              </>
             ))}
 
           {selectedPanel === 'pages' &&
             (topPages.length === 0 ? (
               <EmptyRow text="No page visits recorded in this range." />
             ) : (
-              <ul className="divide-y divide-white/5">
-                {topPages.slice(0, 8).map((row) => {
-                  const max = topPages[0]?.count || 1;
-                  return (
-                    <li key={row.page} className="py-3">
-                      <div className="mb-1 flex items-center justify-between gap-3">
-                        <span className="font-medium text-white">{row.page}</span>
-                        <span className="text-sm text-zinc-300">{row.count}</span>
-                      </div>
-                      <div className="h-1.5 overflow-hidden rounded-full bg-zinc-800">
-                        <div
-                          className="h-full rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-500"
-                          style={{ width: `${Math.max(8, Math.round((row.count / max) * 100))}%` }}
-                        />
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
+              <>
+                <ul className="divide-y divide-white/5">
+                  {visibleLogs(topPages, showAll.pages).map((row) => {
+                    const max = topPages[0]?.count || 1;
+                    return (
+                      <ExpandableLog
+                        key={row.page}
+                        title={row.page}
+                        hint={`${row.count} views`}
+                        time=""
+                      >
+                        <DetailLine label="Page" value={row.page} />
+                        <DetailLine label="Path" value={row.path} />
+                        <DetailLine label="Views in range" value={row.count} />
+                        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-zinc-800">
+                          <div
+                            className="h-full rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-500"
+                            style={{ width: `${Math.max(8, Math.round((row.count / max) * 100))}%` }}
+                          />
+                        </div>
+                      </ExpandableLog>
+                    );
+                  })}
+                </ul>
+                <ShowMoreBar total={topPages.length} expanded={Boolean(showAll.pages)} onToggle={() => toggleShowAll('pages')} />
+              </>
             ))}
 
           {selectedPanel === 'slow' &&
             (slowPages.length === 0 ? (
               <EmptyRow text="No slow pages in this range." />
             ) : (
-              <ul className="divide-y divide-white/5">
-                {slowPages.slice(0, 8).map((row) => (
-                  <li key={row.page} className="flex items-center justify-between gap-3 py-3">
-                    <div>
-                      <p className="font-medium text-white">{row.page}</p>
-                      <p className="text-xs text-zinc-500">
-                        {row.count} slow load{row.count === 1 ? '' : 's'}
-                      </p>
-                    </div>
-                    <span className="text-sm text-amber-300">{(row.avgMs / 1000).toFixed(1)}s avg</span>
-                  </li>
-                ))}
-              </ul>
+              <>
+                <ul className="divide-y divide-white/5">
+                  {visibleLogs(slowPages, showAll.slow).map((row) => (
+                    <ExpandableLog
+                      key={row.page}
+                      title={row.page}
+                      hint={`${row.count} slow load${row.count === 1 ? '' : 's'}`}
+                      time={`${(row.avgMs / 1000).toFixed(1)}s avg`}
+                    >
+                      <DetailLine label="Page" value={row.page} />
+                      <DetailLine label="Path" value={row.path} />
+                      <DetailLine label="Slow loads" value={row.count} />
+                      <DetailLine label="Average time" value={`${(row.avgMs / 1000).toFixed(1)} seconds`} />
+                      <DetailLine
+                        label="Why"
+                        value={`This page took longer than ${data?.slowPageMs || 3000} ms to load.`}
+                      />
+                    </ExpandableLog>
+                  ))}
+                </ul>
+                <ShowMoreBar total={slowPages.length} expanded={Boolean(showAll.slow)} onToggle={() => toggleShowAll('slow')} />
+              </>
             ))}
 
           {selectedPanel === 'events' &&
             (keyEvents.length === 0 ? (
               <EmptyRow text="No key events yet." />
             ) : (
-              <ul className="divide-y divide-white/5">
-                {keyEvents.slice(0, 8).map((event) => (
-                  <li key={event.id} className="flex items-center justify-between gap-3 py-2.5">
-                    <p className="min-w-0 truncate text-sm text-white">
-                      {event.label}
-                      <span className="text-zinc-500">
-                        {' '}
-                        ·{' '}
-                        {event.type === 'payment_failed'
-                          ? event.schoolName
-                            ? event.schoolName
-                            : 'School not identified'
-                          : event.schoolName || event.email || 'Unknown'}
-                      </span>
-                    </p>
-                    <span className="shrink-0 text-xs text-zinc-500">{relativeTime(event.createdAt)}</span>
-                  </li>
-                ))}
-              </ul>
+              <>
+                <ul className="divide-y divide-white/5">
+                  {visibleLogs(keyEvents, showAll.events).map((event) => (
+                    <ExpandableLog
+                      key={event.id}
+                      title={event.label}
+                      hint={event.schoolName || event.email || 'Unknown'}
+                      time={relativeTime(event.createdAt)}
+                    >
+                      <DetailLine label="What happened" value={event.description || event.label} />
+                      <DetailLine label="Why" value={event.message && event.message !== event.description ? event.message : event.reason} />
+                      <DetailLine label="School" value={event.schoolName} />
+                      <DetailLine label="Email" value={event.email} />
+                      <DetailLine label="Student" value={event.studentName} />
+                      <DetailLine label="Student ID" value={event.studentCode} />
+                      <DetailLine label="Page" value={event.page || event.path} />
+                      <DetailLine label="Source" value={event.source} />
+                      <DetailLine
+                        label="Load time"
+                        value={event.durationMs ? `${Math.round(event.durationMs)} ms` : null}
+                      />
+                      <DetailLine label="When" value={formatTime(event.createdAt)} />
+                    </ExpandableLog>
+                  ))}
+                </ul>
+                <ShowMoreBar total={keyEvents.length} expanded={Boolean(showAll.events)} onToggle={() => toggleShowAll('events')} />
+              </>
             ))}
-            {selectedPanel === 'events' && keyEvents.length > 0 ? (
-              <PreviewNote shown={Math.min(8, keyEvents.length)} total={counts.keyEventsInRange ?? keyEvents.length} />
-            ) : null}
 
           {selectedPanel === 'newUsers' &&
             (newUsers.length === 0 ? (
               <EmptyRow text="No new schools in this range." />
             ) : (
-              <ul className="divide-y divide-white/5">
-                {newUsers.slice(0, 8).map((user) => (
-                  <li key={user.schoolId || user.email} className="flex items-center justify-between gap-3 py-2.5">
-                    <p className="min-w-0 truncate text-sm text-white">
-                      {user.schoolName || 'New school'}
-                      {user.email ? <span className="text-zinc-500"> · {user.email}</span> : null}
-                    </p>
-                    <span className="shrink-0 text-xs text-zinc-500">{relativeTime(user.createdAt)}</span>
-                  </li>
-                ))}
-              </ul>
+              <>
+                <ul className="divide-y divide-white/5">
+                  {visibleLogs(newUsers, showAll.newUsers).map((user) => (
+                    <ExpandableLog
+                      key={user.schoolId || user.email}
+                      title={user.schoolName || 'New school'}
+                      hint={user.email}
+                      time={relativeTime(user.createdAt)}
+                    >
+                      <DetailLine label="School" value={user.schoolName || 'New school'} />
+                      <DetailLine label="Email" value={user.email} />
+                      <DetailLine label="Joined" value={formatTime(user.createdAt)} />
+                      <DetailLine label="Source" value={user.source === 'signup' ? 'Signup event' : 'School record'} />
+                    </ExpandableLog>
+                  ))}
+                </ul>
+                <ShowMoreBar total={newUsers.length} expanded={Boolean(showAll.newUsers)} onToggle={() => toggleShowAll('newUsers')} />
+              </>
             ))}
-            {selectedPanel === 'newUsers' && newUsers.length > 0 ? (
-              <PreviewNote shown={Math.min(8, newUsers.length)} total={counts.newUsersInRange ?? newUsers.length} />
-            ) : null}
 
           {selectedPanel === 'errors' &&
             ((errors.recent || []).length === 0 ? (
               <EmptyRow text="No failed logins or payments in this range." />
             ) : (
-              <ul className="divide-y divide-white/5">
-                {(errors.recent || []).slice(0, 8).map((event) => (
-                  <li key={event.id} className="flex items-center justify-between gap-3 py-2.5">
-                    <p className="min-w-0 truncate text-sm text-white">
-                      {event.label}
-                      <span className="text-zinc-500">
-                        {' '}
-                        ·{' '}
-                        {event.type === 'payment_failed'
-                          ? event.schoolName || 'School not identified'
-                          : event.schoolName || event.email || 'Unknown'}
-                      </span>
-                    </p>
-                    <span className="shrink-0 text-xs text-zinc-500">{relativeTime(event.createdAt)}</span>
-                  </li>
-                ))}
-              </ul>
+              <>
+                <ul className="divide-y divide-white/5">
+                  {visibleLogs(errors.recent || [], showAll.errors).map((event) => (
+                    <ExpandableLog
+                      key={event.id}
+                      title={event.label}
+                      hint={event.description || event.schoolName || event.email || 'Attempt failed'}
+                      time={relativeTime(event.createdAt)}
+                    >
+                      <DetailLine label="Why it failed" value={event.description || 'Attempt failed'} />
+                      <DetailLine
+                        label="System reason"
+                        value={event.reason ? String(event.reason).replaceAll('_', ' ') : null}
+                      />
+                      <DetailLine label="Provider message" value={event.message && event.message !== event.description ? event.message : null} />
+                      <DetailLine
+                        label="School"
+                        value={
+                          event.type === 'payment_failed'
+                            ? event.schoolName || 'School not identified'
+                            : event.schoolName
+                        }
+                      />
+                      <DetailLine label="Email" value={event.email} />
+                      <DetailLine label="Student" value={event.studentName} />
+                      <DetailLine label="Student ID" value={event.studentCode} />
+                      <DetailLine label="Source" value={event.source} />
+                      <DetailLine label="When" value={formatTime(event.createdAt)} />
+                    </ExpandableLog>
+                  ))}
+                </ul>
+                <ShowMoreBar
+                  total={(errors.recent || []).length}
+                  expanded={Boolean(showAll.errors)}
+                  onToggle={() => toggleShowAll('errors')}
+                />
+              </>
             ))}
-            {selectedPanel === 'errors' && (errors.recent || []).length > 0 ? (
-              <PreviewNote
-                shown={Math.min(8, (errors.recent || []).length)}
-                total={counts.errorsInRange ?? (errors.recent || []).length}
-              />
-            ) : null}
 
           {selectedPanel === 'fees' &&
             ((data?.feesPreview || []).length === 0 ? (
               <EmptyRow text="No fees paid in this range." />
             ) : (
-              <ul className="divide-y divide-white/5">
-                {(data.feesPreview || []).slice(0, 8).map((row) => (
-                  <li key={row.id} className="flex items-center justify-between gap-3 py-2.5">
-                    <div className="min-w-0">
-                      <p className="truncate font-medium text-white">{row.payerName}</p>
-                      <p className="text-xs capitalize text-zinc-500">{row.method || 'Payment'}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm font-semibold text-emerald-300">{formatMoney(row.amount)}</p>
-                      <p className="text-xs text-zinc-500">{relativeTime(row.createdAt)}</p>
-                    </div>
-                  </li>
-                ))}
-              </ul>
+              <>
+                <ul className="divide-y divide-white/5">
+                  {visibleLogs(data.feesPreview || [], showAll.fees).map((row) => (
+                    <ExpandableLog
+                      key={row.id}
+                      title={row.payerName}
+                      hint={formatMoney(row.amount)}
+                      time={relativeTime(row.createdAt)}
+                    >
+                      <DetailLine label="Payer" value={row.payerName} />
+                      <DetailLine label="Amount" value={formatMoney(row.amount)} />
+                      <DetailLine label="Method" value={row.method || 'Payment'} />
+                      <DetailLine label="When" value={formatTime(row.createdAt)} />
+                    </ExpandableLog>
+                  ))}
+                </ul>
+                <ShowMoreBar
+                  total={(data.feesPreview || []).length}
+                  expanded={Boolean(showAll.fees)}
+                  onToggle={() => toggleShowAll('fees')}
+                />
+              </>
             ))}
         </div>
         </div>
