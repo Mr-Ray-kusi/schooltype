@@ -113,16 +113,17 @@ const Dashboard = () => {
 
   return (
     <>
-      <div className="relative space-y-5 md:space-y-8">
+      <div className="relative">
         <PlanPendingBanner />
         <SubscriptionBanner />
 
-        <header className="relative sticky top-0 z-20 -mx-4 -mt-16 mb-2 flex min-h-[13rem] flex-col justify-end overflow-hidden border-b border-white/10 px-4 pb-4 pt-16 sm:-mx-6 sm:px-6 md:static md:z-auto md:mb-0 md:min-h-[16rem] md:px-8 md:pb-8 md:pt-10 lg:-mt-6">
+        <header className="relative mt-8 mb-10 h-20 overflow-hidden rounded-[1.75rem] md:mt-10 md:mb-14 md:h-24">
           {school?.logo_url ? (
-            <div
-              aria-hidden
-              className="absolute inset-0 bg-cover bg-center bg-no-repeat"
-              style={{ backgroundImage: `url("${String(school.logo_url).replace(/"/g, '\\"')}")` }}
+            <img
+              src={school.logo_url}
+              alt=""
+              decoding="async"
+              className="absolute inset-0 h-full w-full object-contain object-center"
             />
           ) : (
             <div
@@ -136,28 +137,28 @@ const Dashboard = () => {
           )}
           <div
             aria-hidden
-            className="absolute inset-0 bg-gradient-to-b from-slate-950/70 via-slate-950/55 to-slate-950/85"
+            className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-950/35 to-slate-950/15"
           />
 
-          <div className="relative z-10 flex flex-col gap-3 md:flex-row md:items-end md:justify-between md:gap-5">
+          <div className="relative z-10 flex h-full items-end justify-between gap-3 px-5 py-3 md:px-6 md:py-3.5">
             <div className="min-w-0">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-sky-200 md:text-xs">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-sky-200">
                 Overview
               </p>
-              <h1 className="mt-0.5 truncate font-display text-2xl font-bold tracking-tight text-white drop-shadow md:mt-1 md:text-3xl lg:text-4xl">
+              <h1 className="mt-0.5 truncate font-display text-xl font-bold tracking-tight text-white md:text-2xl">
                 {school?.name || 'Dashboard'}
               </h1>
-              <p className="mt-1 text-sm text-slate-200/90">{todayLabel}</p>
+              <p className="mt-0.5 truncate text-sm text-white/80">{todayLabel}</p>
             </div>
             {school?.plan_name && (
-              <div className="w-fit rounded-full border border-white/20 bg-slate-950/55 px-3 py-1.5 text-xs text-slate-100 backdrop-blur-sm md:px-4 md:py-2">
+              <div className="w-fit shrink-0 rounded-full border border-white/20 bg-slate-950/55 px-3 py-1 text-xs text-slate-100 backdrop-blur-sm">
                 Plan · <span className="font-semibold text-white">{school.plan_name}</span>
               </div>
             )}
           </div>
         </header>
 
-        <section>
+        <section className="mb-8 md:mb-10">
           <div className="mb-4 flex items-end justify-between gap-3">
             <div>
               <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
@@ -216,7 +217,9 @@ const Dashboard = () => {
           </div>
         </section>
 
-        <SchoolAnalyticsChart />
+        <div className="mt-8 md:mt-12">
+          <SchoolAnalyticsChart />
+        </div>
       </div>
     </>
   );
