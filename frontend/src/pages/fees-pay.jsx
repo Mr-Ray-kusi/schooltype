@@ -113,9 +113,11 @@ const FeesPay = () => {
     if (!reference) return undefined;
 
     const remaining = Math.max(0, 30000 - (Date.now() - (momoWaitStartedAtRef.current || Date.now())));
-    const timeout = window.setTimeout(() => {
-      abortPayment('MoMo PIN was not confirmed. Tap Continue to payment to start again.');
-    }, remaining);
+    const timeout = momoPrompt.needs_code
+      ? null
+      : window.setTimeout(() => {
+          abortPayment('MoMo PIN was not confirmed. Tap Continue to payment to start again.');
+        }, remaining);
 
     const onLeave = () => {
       fetch('/api/public/fees/cancel', {
@@ -149,12 +151,6 @@ const FeesPay = () => {
           window.location.href = `/pay/receipt?reference=${encodeURIComponent(reference)}`;
           return;
         }
-        if (data.status === 'failed' || data.status === 'timeout' || data.status === 'cancelled') {
-          abortPayment(
-            data.display_text || 'Payment was cancelled on the phone. Tap Continue to payment to start again.'
-          );
-          return;
-        }
         if (data.needs_code) {
           setMomoPrompt((prev) => ({
             ...prev,
@@ -163,6 +159,12 @@ const FeesPay = () => {
             display_text: data.display_text || prev?.display_text,
           }));
           setPaying(false);
+          return;
+        }
+        if (data.status === 'failed' || data.status === 'timeout' || data.status === 'cancelled') {
+          abortPayment(
+            data.display_text || 'Payment was cancelled on the phone. Tap Continue to payment to start again.'
+          );
           return;
         }
         if (data.display_text) {
@@ -179,12 +181,12 @@ const FeesPay = () => {
     return () => {
       cancelled = true;
       window.clearInterval(interval);
-      window.clearTimeout(timeout);
+      if (timeout) window.clearTimeout(timeout);
       window.removeEventListener('pagehide', onLeave);
       window.removeEventListener('beforeunload', onLeave);
       window.removeEventListener('pageshow', onPageShow);
     };
-  }, [momoPrompt?.reference, abortPayment]);
+  }, [momoPrompt?.reference, momoPrompt?.needs_code, abortPayment]);
 
   const lookupStudent = async (event) => {
     event?.preventDefault();
@@ -248,7 +250,10 @@ const FeesPay = () => {
           window.location.href = data.authorization_url;
           return;
         }
-        if (data.status === 'cancelled' || data.status === 'failed' || data.status === 'timeout') {
+        if (
+          !data.needs_code &&
+          (data.status === 'cancelled' || data.status === 'failed' || data.status === 'timeout')
+        ) {
           setPaying(false);
           setStep(2);
           setError(
@@ -310,6 +315,16 @@ const FeesPay = () => {
       }
       if (data.status === 'success') {
         window.location.href = `/pay/receipt?reference=${encodeURIComponent(data.reference || momoPrompt.reference)}`;
+        return;
+      }
+      if (data.needs_code) {
+        setMomoPrompt((prev) => ({
+          ...prev,
+          reference: data.reference || prev?.reference,
+          needs_code: true,
+          display_text: data.display_text || prev?.display_text || 'Enter the 6-digit code sent for this payment.',
+        }));
+        setPaying(false);
         return;
       }
       if (data.status === 'failed' || data.status === 'timeout' || data.status === 'cancelled') {

@@ -283,17 +283,29 @@ export function isPaystackPendingStatus(status) {
 
 export function isPaystackFailedStatus(status) {
   const value = String(status || '').toLowerCase();
-  return value === 'failed' || value === 'timeout' || value === 'reversed' || value === 'abandoned';
+  return value === 'failed' || value === 'timeout' || value === 'reversed';
 }
 
 export function isPaystackUserCancelled(charge) {
   const status = String(charge?.status || '').toLowerCase();
-  if (status === 'abandoned') return true;
+  if (
+    status === 'success' ||
+    status === 'send_otp' ||
+    status === 'send_pin' ||
+    status === 'pay_offline' ||
+    status === 'pending' ||
+    status === 'ongoing' ||
+    status === 'open_url'
+  ) {
+    return false;
+  }
   const text = `${charge?.display_text || ''} ${charge?.gateway_response || ''} ${charge?._paystack_message || ''}`.toLowerCase();
   if (!text.trim()) return false;
   return (
-    (status === 'failed' || status === 'timeout' || status === 'abandoned') &&
-    /(cancel|declin|abort|not (been )?complet|user rejected|customer rejected)/i.test(text)
+    (status === 'failed' || status === 'timeout') &&
+    /(cancelled by (the )?(user|customer|holder)|user cancelled|customer cancelled|canceled by (the )?(user|customer)|declined by (the )?(user|customer))/i.test(
+      text
+    )
   );
 }
 

@@ -77,6 +77,12 @@ function chargeNeedsCode(status) {
   return value === 'send_otp' || value === 'send_pin';
 }
 
+function chargeLooksLikeCodePrompt(charge) {
+  if (chargeNeedsCode(charge?.status)) return true;
+  const text = `${charge?.display_text || ''} ${charge?.gateway_response || ''}`.toLowerCase();
+  return /enter (the )?(otp|pin|voucher|code)|verification code|send_otp|one[- ]time|voucher/.test(text);
+}
+
 function chargeInstructionReady(status) {
   const value = String(status || '').toLowerCase();
   return (
@@ -93,7 +99,7 @@ async function waitForMomoInstruction(reference, initial, { attempts = 2, delayM
   let charge = initial;
   for (let i = 0; i < attempts; i++) {
     const status = String(charge?.status || '').toLowerCase();
-    if (chargeInstructionReady(status)) return charge;
+    if (chargeInstructionReady(status) || chargeLooksLikeCodePrompt(charge)) return charge;
     await sleep(delayMs);
     charge = (await readCharge(reference)) || charge;
   }
@@ -386,6 +392,15 @@ async function resolveFeePayment(reference) {
     };
   }
 
+  if (chargeLooksLikeCodePrompt(charge) || chargeStatus === 'send_otp' || chargeStatus === 'send_pin') {
+    return {
+      status: chargeNeedsCode(chargeStatus) ? chargeStatus : 'send_otp',
+      payload: charge,
+      needs_code: true,
+      display_text: charge?.display_text || 'Enter the 6-digit code sent for this payment.',
+    };
+  }
+
   if (isCancelledFee(reference)) {
     return {
       status: 'cancelled',
@@ -395,7 +410,7 @@ async function resolveFeePayment(reference) {
     };
   }
 
-  if (charge && (chargeStatus === 'abandoned' || isPaystackUserCancelled(charge))) {
+  if (charge && isPaystackUserCancelled(charge)) {
     rememberCancelledFee(reference);
     const meta = parsePaystackMetadata(charge.metadata);
     noteFeePaymentFailed({
@@ -436,15 +451,6 @@ async function resolveFeePayment(reference) {
     };
   }
 
-  if (chargeStatus === 'send_otp' || chargeStatus === 'send_pin') {
-    return {
-      status: chargeStatus,
-      payload: charge,
-      needs_code: true,
-      display_text: charge.display_text || 'Enter the verification code sent for this payment.',
-    };
-  }
-
   if (charge && isPaystackPendingStatus(chargeStatus)) {
     try {
       const verified = await verifyTransaction(reference);
@@ -453,7 +459,15 @@ async function resolveFeePayment(reference) {
         await settleSchoolFeeFromPaystack(verified);
         return { status: 'success', payload: verified, needs_code: false, display_text: null };
       }
-      if (txStatus === 'abandoned' || isPaystackUserCancelled(verified)) {
+      if (chargeLooksLikeCodePrompt(verified) || chargeNeedsCode(txStatus)) {
+        return {
+          status: chargeNeedsCode(txStatus) ? txStatus : 'send_otp',
+          payload: verified,
+          needs_code: true,
+          display_text: verified?.display_text || charge.display_text || 'Enter the 6-digit code sent for this payment.',
+        };
+      }
+      if (isPaystackUserCancelled(verified) && txStatus !== 'abandoned') {
         rememberCancelledFee(reference);
         const meta = parsePaystackMetadata(verified?.metadata || charge.metadata);
         noteFeePaymentFailed({
@@ -510,7 +524,15 @@ async function resolveFeePayment(reference) {
       await settleSchoolFeeFromPaystack(verified);
       return { status: 'success', payload: verified, needs_code: false, display_text: null };
     }
-    if (txStatus === 'abandoned' || isPaystackUserCancelled(verified)) {
+    if (chargeLooksLikeCodePrompt(verified) || chargeNeedsCode(txStatus)) {
+      return {
+        status: chargeNeedsCode(txStatus) ? txStatus : 'send_otp',
+        payload: verified,
+        needs_code: true,
+        display_text: verified?.display_text || 'Enter the 6-digit code sent for this payment.',
+      };
+    }
+    if (isPaystackUserCancelled(verified) && txStatus !== 'abandoned') {
       rememberCancelledFee(reference);
       const meta = parsePaystackMetadata(verified?.metadata);
       noteFeePaymentFailed({
@@ -929,17 +951,18 @@ async function startFeePayment({
       charge = await waitForMomoInstruction(charge?.reference || reference, charge);
     }
     const status = String(charge?.status || 'pay_offline').toLowerCase();
-    const needsCode = status === 'send_otp' || status === 'send_pin';
+    const needsCode = chargeLooksLikeCodePrompt(charge);
     const liveMode = String(getPaystackConfig().secretKey || '').startsWith('sk_live_');
     const isTelecel = /vod|telecel/i.test(String(provider || ''));
+    const phoneCancelled = !needsCode && isPaystackUserCancelled(charge);
     let displayText = charge?.display_text || '';
-    if (status === 'abandoned' || isPaystackUserCancelled(charge)) {
+    if (phoneCancelled) {
       displayText = 'Payment was cancelled on the phone. Tap Continue to payment to start again.';
     } else if (!displayText) {
       if (needsCode && isTelecel) {
         displayText = 'Dial the Telecel USSD to get a voucher, then enter that voucher here.';
       } else if (needsCode) {
-        displayText = 'Enter the verification code sent for this payment.';
+        displayText = 'Enter the 6-digit code sent for this payment.';
       } else {
         displayText = `A confirmation prompt was sent to ${phoneLocal}. Approve it on your phone.`;
       }
@@ -947,7 +970,7 @@ async function startFeePayment({
     return {
       mode: 'momo',
       reference: charge?.reference || reference,
-      status: status === 'abandoned' || isPaystackUserCancelled(charge) ? 'cancelled' : status,
+      status: phoneCancelled ? 'cancelled' : needsCode && !chargeNeedsCode(status) ? 'send_otp' : status,
       needs_code: needsCode,
       code_type: status === 'send_pin' ? 'pin' : needsCode ? 'otp' : null,
       display_text: displayText,
