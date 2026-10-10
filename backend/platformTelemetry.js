@@ -160,6 +160,7 @@ function buildPerformanceSeries({ events, newUsers, range, now }) {
   const slow = new Map();
   const keyEvents = new Map();
   const failures = new Map();
+  const attacks = new Map();
   const active = new Map();
   const newcomers = new Map();
 
@@ -176,6 +177,7 @@ function buildPerformanceSeries({ events, newUsers, range, now }) {
     if (type === 'login') bump(logins, key);
     if (type === 'page_view') bump(pages, key);
     if (type === 'page_slow') bump(slow, key);
+    if (type === 'login_failed') bump(attacks, key);
     if (type === 'login_failed' || type === 'payment_failed') bump(failures, key);
     if (SERIES_KEY_TYPES.has(type)) bump(keyEvents, key);
     if (SERIES_ACTIVE_TYPES.has(type)) {
@@ -210,6 +212,8 @@ function buildPerformanceSeries({ events, newUsers, range, now }) {
       slow: toPoints(slow),
       events: toPoints(keyEvents),
       errors: toPoints(failures),
+      attacks: toPoints(attacks),
+      tracks: toPoints(active, true),
       newUsers: toPoints(newcomers),
     },
   };
@@ -418,35 +422,185 @@ function countBy(items, keyFn) {
 }
 
 function uniqueActiveUsers(events, now = Date.now()) {
-  const cutoff = now - ACTIVE_WINDOW_MS;
-  const byPerson = new Map();
-  for (const event of events) {
-    if (
-      event.event_type !== 'heartbeat' &&
-      event.event_type !== 'page_view' &&
-      event.event_type !== 'login' &&
-      event.event_type !== 'staff_login' &&
-      event.event_type !== 'staff_activity'
-    ) {
+  return buildUserTracks(events, new Date(now - ACTIVE_WINDOW_MS), now).filter((user) => user.online);
+}
+
+function isAttackEvent(event) {
+  const type = String(event?.event_type || '');
+  const meta = readEventMeta(event);
+  return type === 'login_failed' || String(meta.reason || '') === 'rate_limited';
+}
+
+function shouldKeepTrail(event) {
+  const type = String(event?.event_type || '');
+  return (
+    type === 'page_view' ||
+    type === 'page_slow' ||
+    type === 'login' ||
+    type === 'login_failed' ||
+    type === 'staff_login' ||
+    type === 'staff_activity' ||
+    type === 'payment_failed' ||
+    type === 'payment_success' ||
+    type === 'signup'
+  );
+}
+
+function compactTrail(items) {
+  const out = [];
+  for (const item of items) {
+    const last = out[out.length - 1];
+    if (last && last.page === item.page && last.label === item.label) {
+      last.count = (last.count || 1) + 1;
+      last.at = item.at;
       continue;
     }
+    out.push({ ...item, count: 1 });
+  }
+  return out.slice(0, 24);
+}
+
+function buildUserTracks(events, rangeStart, now = Date.now()) {
+  const startMs = rangeStart instanceof Date ? rangeStart.getTime() : new Date(rangeStart).getTime();
+  const byPerson = new Map();
+  for (const event of events || []) {
     const at = new Date(event.created_at).getTime();
-    if (at < cutoff) continue;
+    if (Number.isNaN(at) || at < startMs) continue;
     const key = `${event.school_id || ''}|${event.email || event.role || event.id}`;
-    const existing = byPerson.get(key);
-    if (!existing || at > new Date(existing.lastSeen).getTime()) {
-      byPerson.set(key, {
+    let row = byPerson.get(key);
+    if (!row) {
+      row = {
         schoolId: event.school_id,
         schoolName: event.school_name || (event.role === 'super_admin' ? 'Platform admin' : 'Unknown school'),
         email: event.email,
         role: event.role,
+        lastSeen: event.created_at,
         path: event.path,
         page: pageLabel(event.path),
-        lastSeen: event.created_at,
+        lastAction: eventLabel(event),
+        doing: null,
+        online: false,
+        pageViews: 0,
+        failedLogins: 0,
+        pages: [],
+        trail: [],
+        attacks: [],
+      };
+      byPerson.set(key, row);
+    }
+    if (at >= new Date(row.lastSeen).getTime()) {
+      row.lastSeen = event.created_at;
+      row.path = event.path || row.path;
+      row.page = pageLabel(event.path) || row.page;
+      row.lastAction = eventLabel(event);
+      row.role = event.role || row.role;
+      row.schoolName = event.school_name || row.schoolName;
+      row.email = event.email || row.email;
+    }
+    if (event.event_type === 'page_view') row.pageViews += 1;
+    if (event.event_type === 'login_failed') row.failedLogins += 1;
+    if (shouldKeepTrail(event)) {
+      row.trail.push({
+        at: event.created_at,
+        type: event.event_type,
+        label: eventLabel(event),
+        page: pageLabel(event.path),
+        path: event.path,
+        description: describePlatformError(event),
+      });
+    }
+    if (isAttackEvent(event)) {
+      const meta = readEventMeta(event);
+      row.attacks.push({
+        at: event.created_at,
+        type: event.event_type,
+        reason: meta.reason || null,
+        description: describePlatformError(event),
       });
     }
   }
-  return [...byPerson.values()].sort((a, b) => new Date(b.lastSeen) - new Date(a.lastSeen));
+
+  return [...byPerson.values()]
+    .map((row) => {
+      const trail = compactTrail(
+        [...row.trail].sort((a, b) => new Date(b.at) - new Date(a.at))
+      );
+      const pages = [];
+      for (const item of [...trail].reverse()) {
+        if (item.page && pages[pages.length - 1] !== item.page) pages.push(item.page);
+      }
+      const online = now - new Date(row.lastSeen).getTime() <= ACTIVE_WINDOW_MS;
+      const where = row.page || pageLabel(row.path);
+      return {
+        ...row,
+        online,
+        path: row.path,
+        page: where,
+        pages,
+        trail,
+        attacks: row.attacks
+          .sort((a, b) => new Date(b.at) - new Date(a.at))
+          .slice(0, 12),
+        doing: online ? `Viewing ${where}` : row.lastAction,
+        attackCount: row.attacks.length,
+      };
+    })
+    .sort((a, b) => Number(b.online) - Number(a.online) || new Date(b.lastSeen) - new Date(a.lastSeen))
+    .slice(0, 150);
+}
+
+function buildAttackReports(events, rangeStart) {
+  const startMs = rangeStart instanceof Date ? rangeStart.getTime() : new Date(rangeStart).getTime();
+  const byTarget = new Map();
+  for (const event of events || []) {
+    if (!isAttackEvent(event)) continue;
+    const at = new Date(event.created_at).getTime();
+    if (Number.isNaN(at) || at < startMs) continue;
+    const meta = readEventMeta(event);
+    const target = String(event.email || 'unknown').toLowerCase();
+    const current = byTarget.get(target) || {
+      email: event.email || 'Unknown account',
+      schoolName: event.school_name || null,
+      count: 0,
+      rateLimited: false,
+      reasons: [],
+      lastAt: event.created_at,
+      samples: [],
+    };
+    current.count += 1;
+    if (new Date(event.created_at) > new Date(current.lastAt)) {
+      current.lastAt = event.created_at;
+      current.schoolName = event.school_name || current.schoolName;
+    }
+    if (meta.reason === 'rate_limited') current.rateLimited = true;
+    const reason = meta.reason || event.event_type;
+    if (reason && !current.reasons.includes(reason)) current.reasons.push(reason);
+    if (current.samples.length < 8) {
+      current.samples.push({
+        at: event.created_at,
+        description: describePlatformError(event),
+        reason: meta.reason || null,
+        schoolName: event.school_name || null,
+      });
+    }
+    byTarget.set(target, current);
+  }
+
+  return [...byTarget.values()]
+    .map((row) => {
+      const level = row.rateLimited || row.count >= 8 ? 'attack' : row.count >= 3 ? 'suspicious' : 'failed';
+      const why =
+        row.rateLimited
+          ? 'Too many login attempts were blocked (rate limited).'
+          : row.count >= 8
+            ? `${row.count} failed logins on this account look like a brute-force attack.`
+            : row.count >= 3
+              ? `${row.count} failed logins on this account look suspicious.`
+              : describePlatformError({ event_type: 'login_failed', meta: { reason: row.reasons[0] } });
+      return { ...row, level, why };
+    })
+    .sort((a, b) => b.count - a.count || new Date(b.lastAt) - new Date(a.lastAt))
+    .slice(0, 100);
 }
 
 function loginAdoption(events, dayStart, weekStart) {
@@ -475,6 +629,8 @@ function eventLabel(event) {
   switch (event.event_type) {
     case 'login':
       return 'Signed in';
+    case 'heartbeat':
+      return `Active on ${pageLabel(event.path)}`;
     case 'login_failed':
       return 'Failed login';
     case 'signup':
@@ -836,6 +992,9 @@ export async function getPlatformAnalytics(options = {}) {
     };
   });
 
+  const userTracks = buildUserTracks(events, rangeStart, now.getTime());
+  const attackReports = buildAttackReports(events, rangeStart);
+
   const chart = buildPerformanceSeries({ events, newUsers, range, now });
   chart.series.fees = buildFeeSeries(feePayments, range, now);
 
@@ -845,7 +1004,9 @@ export async function getPlatformAnalytics(options = {}) {
     range,
     activeWindowMinutes: 5,
     slowPageMs: SLOW_PAGE_MS,
-    activeUsers: uniqueActiveUsers(events, now.getTime()),
+    activeUsers: userTracks.filter((user) => user.online),
+    userTracks,
+    attacks: attackReports,
     eventCounts: {
       loginsToday: inRange('login', dayStart).length,
       loginsThisWeek: inRange('login', weekStart).length,
@@ -856,6 +1017,8 @@ export async function getPlatformAnalytics(options = {}) {
       keyEventsInRange: keyEventsAll.length,
       errorsInRange: inRange('login_failed', rangeStart).length + inRange('payment_failed', rangeStart).length,
       newUsersInRange: newUsers.length,
+      userTracksInRange: userTracks.length,
+      attacksInRange: attackReports.reduce((sum, row) => sum + row.count, 0),
       heartbeatsToday: inRange('heartbeat', dayStart).length,
     },
     loginsBySchool: loginAdoption(events, dayStart, weekStart),

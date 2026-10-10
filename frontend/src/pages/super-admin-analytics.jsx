@@ -10,6 +10,8 @@ import {
   LogIn,
   MessageSquare,
   MousePointerClick,
+  Route,
+  ShieldAlert,
   UserPlus,
   Users,
 } from 'lucide-react';
@@ -103,6 +105,52 @@ const DetailLine = ({ label, value }) => {
   );
 };
 
+const UserTrackDetails = ({ user }) => (
+  <>
+    <DetailLine label="Currently doing" value={user.doing || user.lastAction} />
+    <DetailLine
+      label="Where"
+      value={user.page ? `${user.page}${user.path && user.path !== user.page ? ` · ${user.path}` : ''}` : user.path}
+    />
+    <DetailLine label="Email" value={user.email || 'No email'} />
+    <DetailLine
+      label="Role"
+      value={user.role === 'super_admin' ? 'Platform admin' : user.role || 'admin'}
+    />
+    <DetailLine label="Online" value={user.online ? 'Yes · last 5 minutes' : 'No'} />
+    <DetailLine label="Pages opened" value={user.pageViews || null} />
+    <DetailLine
+      label="Path taken"
+      value={(user.pages || []).length ? (user.pages || []).join(' → ') : null}
+    />
+    {(user.trail || []).length ? (
+      <div className="mt-2 space-y-1">
+        <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Activity track</p>
+        {(user.trail || []).slice(0, 12).map((item, index) => (
+          <p key={`${item.at}-${index}`} className="text-xs text-zinc-400">
+            {relativeTime(item.at)} · {item.label}
+            {item.page ? ` · ${item.page}` : ''}
+            {item.count > 1 ? ` ×${item.count}` : ''}
+          </p>
+        ))}
+      </div>
+    ) : null}
+    {(user.attacks || []).length ? (
+      <div className="mt-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2">
+        <p className="text-xs font-semibold text-rose-200">
+          {user.attackCount} attack / failed login attempt{user.attackCount === 1 ? '' : 's'}
+        </p>
+        {(user.attacks || []).slice(0, 5).map((item, index) => (
+          <p key={`${item.at}-${index}`} className="mt-1 text-xs text-rose-100/80">
+            {relativeTime(item.at)} · {item.description || item.reason || 'Failed login'}
+          </p>
+        ))}
+      </div>
+    ) : null}
+    <DetailLine label="Last seen" value={formatTime(user.lastSeen)} />
+  </>
+);
+
 const ExpandableLog = ({ title, hint, time, children }) => {
   const [open, setOpen] = useState(false);
   return (
@@ -168,6 +216,8 @@ const SuperAdminAnalytics = () => {
   }, [fetchData]);
 
   const activeUsers = data?.activeUsers || [];
+  const userTracks = data?.userTracks || [];
+  const attacks = data?.attacks || [];
   const loginsBySchool = data?.loginsBySchool || [];
   const topPages = data?.topPages || [];
   const slowPages = data?.slowPages || [];
@@ -227,6 +277,24 @@ const SuperAdminAnalytics = () => {
         formatValue: (value) => `${Number(value || 0).toLocaleString()} users`,
       },
       {
+        id: 'tracks',
+        title: 'User tracks',
+        value: counts.userTracksInRange ?? userTracks.length,
+        subtitle: `Where users went ${rangeLabel}`,
+        icon: Route,
+        unit: 'users',
+        formatValue: (value) => `${Number(value || 0).toLocaleString()} users`,
+      },
+      {
+        id: 'attacks',
+        title: 'Attacks',
+        value: counts.attacksInRange ?? attacks.reduce((sum, row) => sum + (Number(row.count) || 0), 0),
+        subtitle: 'Failed logins and brute-force attempts',
+        icon: ShieldAlert,
+        unit: 'attempts',
+        formatValue: (value) => `${Number(value || 0).toLocaleString()} attempts`,
+      },
+      {
         id: 'logins',
         title: 'Daily / weekly login',
         value: counts.loginsInRange ?? counts.loginsToday ?? 0,
@@ -256,6 +324,8 @@ const SuperAdminAnalytics = () => {
     ],
     [
       activeUsers.length,
+      attacks,
+      counts.attacksInRange,
       counts.errorsInRange,
       counts.keyEventsInRange,
       counts.loginsInRange,
@@ -264,6 +334,7 @@ const SuperAdminAnalytics = () => {
       counts.pageViewsInRange,
       counts.pageViewsThisWeek,
       counts.pageViewsToday,
+      counts.userTracksInRange,
       data?.activeWindowMinutes,
       data?.slowPageMs,
       errors.failedLoginsToday,
@@ -273,6 +344,7 @@ const SuperAdminAnalytics = () => {
       stats.feesPaidInRange,
       keyEvents.length,
       newUsers.length,
+      userTracks.length,
       rangeLabel,
       slowPages,
     ]
@@ -407,20 +479,84 @@ const SuperAdminAnalytics = () => {
                     <ExpandableLog
                       key={`${user.schoolId || ''}-${user.email || user.lastSeen}`}
                       title={user.schoolName || 'Unknown school'}
-                      hint={user.email || 'No email'}
+                      hint={user.doing || user.page || user.email || 'No email'}
                       time={relativeTime(user.lastSeen)}
                     >
-                      <DetailLine label="Email" value={user.email || 'No email'} />
-                      <DetailLine
-                        label="Role"
-                        value={user.role === 'super_admin' ? 'Platform admin' : user.role || 'admin'}
-                      />
-                      <DetailLine label="Last page" value={user.page || user.path || '—'} />
-                      <DetailLine label="Last seen" value={formatTime(user.lastSeen)} />
+                      <UserTrackDetails user={user} />
                     </ExpandableLog>
                   ))}
                 </ul>
                 <ShowMoreBar total={activeUsers.length} expanded={Boolean(showAll.active)} onToggle={() => toggleShowAll('active')} />
+              </>
+            ))}
+
+          {selectedPanel === 'tracks' &&
+            (userTracks.length === 0 ? (
+              <EmptyRow text="No user movement recorded in this range." />
+            ) : (
+              <>
+                <ul className="divide-y divide-white/5">
+                  {visibleLogs(userTracks, showAll.tracks).map((user) => (
+                    <ExpandableLog
+                      key={`${user.schoolId || ''}-${user.email || user.lastSeen}`}
+                      title={user.email || user.schoolName || 'Unknown user'}
+                      hint={`${user.online ? 'Online · ' : ''}${user.doing || user.page || 'No recent page'}`}
+                      time={relativeTime(user.lastSeen)}
+                    >
+                      <UserTrackDetails user={user} />
+                    </ExpandableLog>
+                  ))}
+                </ul>
+                <ShowMoreBar total={userTracks.length} expanded={Boolean(showAll.tracks)} onToggle={() => toggleShowAll('tracks')} />
+              </>
+            ))}
+
+          {selectedPanel === 'attacks' &&
+            (attacks.length === 0 ? (
+              <EmptyRow text="No login attacks or brute-force attempts in this range." />
+            ) : (
+              <>
+                <ul className="divide-y divide-white/5">
+                  {visibleLogs(attacks, showAll.attacks).map((row) => (
+                    <ExpandableLog
+                      key={row.email}
+                      title={row.email}
+                      hint={row.why}
+                      time={relativeTime(row.lastAt)}
+                    >
+                      <DetailLine
+                        label="Threat"
+                        value={
+                          row.level === 'attack'
+                            ? 'Likely attack'
+                            : row.level === 'suspicious'
+                              ? 'Suspicious'
+                              : 'Failed login'
+                        }
+                      />
+                      <DetailLine label="Why" value={row.why} />
+                      <DetailLine label="Attempts" value={row.count} />
+                      <DetailLine label="School" value={row.schoolName} />
+                      <DetailLine label="Rate limited" value={row.rateLimited ? 'Yes' : 'No'} />
+                      <DetailLine
+                        label="Reasons"
+                        value={(row.reasons || []).map((item) => String(item).replaceAll('_', ' ')).join(', ')}
+                      />
+                      {(row.samples || []).length ? (
+                        <div className="mt-2 space-y-1">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Recent attempts</p>
+                          {row.samples.map((item, index) => (
+                            <p key={`${item.at}-${index}`} className="text-xs text-rose-100/80">
+                              {relativeTime(item.at)} · {item.description || item.reason || 'Failed login'}
+                            </p>
+                          ))}
+                        </div>
+                      ) : null}
+                      <DetailLine label="Last attempt" value={formatTime(row.lastAt)} />
+                    </ExpandableLog>
+                  ))}
+                </ul>
+                <ShowMoreBar total={attacks.length} expanded={Boolean(showAll.attacks)} onToggle={() => toggleShowAll('attacks')} />
               </>
             ))}
 
