@@ -9,6 +9,21 @@ const MOMO_PROVIDERS = [
   { id: 'atl', label: 'AT (AirtelTigo)' },
 ];
 
+const momoNetworkFromPhone = (value) => {
+  const digits = String(value || '').replace(/\D/g, '');
+  const local =
+    digits.startsWith('233') && digits.length >= 12
+      ? `0${digits.slice(3)}`
+      : digits.length === 9
+        ? `0${digits}`
+        : digits;
+  const prefix = local.slice(0, 3);
+  if (['024', '025', '053', '054', '055', '059', '023'].includes(prefix)) return 'mtn';
+  if (['020', '050'].includes(prefix)) return 'vod';
+  if (['026', '027', '056', '057'].includes(prefix)) return 'atl';
+  return null;
+};
+
 const STEPS = [
   { id: 1, title: 'School & ID' },
   { id: 2, title: 'Verify' },
@@ -223,7 +238,7 @@ const FeesPay = () => {
         amount: Number(amount),
         method,
         phone: method === 'momo' ? phone : undefined,
-        provider: method === 'momo' ? provider : undefined,
+        provider: method === 'momo' ? momoNetworkFromPhone(phone) || provider : undefined,
       };
       const path = barcode
         ? `/api/public/fees/${encodeURIComponent(barcode)}/checkout`
@@ -536,7 +551,12 @@ const FeesPay = () => {
                     <input
                       className={`${fieldClass} mt-2`}
                       value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        setPhone(next);
+                        const network = momoNetworkFromPhone(next);
+                        if (network) setProvider(network);
+                      }}
                       placeholder="0551234567"
                       required={method === 'momo'}
                     />

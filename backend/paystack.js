@@ -201,6 +201,16 @@ export function ghanaMomoProvider(provider) {
   return value;
 }
 
+/** Paystack requires the telco that owns the MSISDN, not the dropdown label. */
+export function momoProviderFromGhanaPhone(phone) {
+  const local = normalizeGhanaPhone(phone);
+  const prefix = local.slice(0, 3);
+  if (['024', '025', '053', '054', '055', '059', '023'].includes(prefix)) return 'mtn';
+  if (['020', '050'].includes(prefix)) return 'vod';
+  if (['026', '027', '056', '057'].includes(prefix)) return 'atl';
+  return null;
+}
+
 export async function chargeMobileMoney({
   email,
   amountMinor,
@@ -220,6 +230,7 @@ export async function chargeMobileMoney({
 
   // Do not send subaccount/bearer here. Extra split fields make Paystack treat
   // the charge like card checkout and SMS a PIN instead of the MoMo prompt.
+  const providerCode = momoProviderFromGhanaPhone(phoneLocal) || ghanaMomoProvider(provider);
   return paystackRequest('/charge', {
     method: 'POST',
     body: {
@@ -230,7 +241,7 @@ export async function chargeMobileMoney({
       metadata,
       mobile_money: {
         phone: phoneLocal,
-        provider: ghanaMomoProvider(provider),
+        provider: providerCode,
       },
     },
   });

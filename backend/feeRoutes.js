@@ -13,6 +13,7 @@ import {
   toMinorUnits,
   fromMinorUnits,
   normalizeGhanaPhone,
+  momoProviderFromGhanaPhone,
 } from './paystack.js';
 import { getFrontendBaseUrl } from './emailVerification.js';
 import { makeWalletReference } from './schoolWalletStore.js';
@@ -895,14 +896,20 @@ async function startFeePayment({
   };
 
   if (payMethod === 'momo') {
-    if (!phone || !provider) {
-      const err = new Error('Enter the MoMo number and network, then confirm the PIN on your phone.');
+    if (!phone) {
+      const err = new Error('Enter the MoMo number, then confirm the PIN on your phone.');
       err.status = 400;
       throw err;
     }
     const phoneLocal = normalizeGhanaPhone(phone);
     if (!/^0\d{9}$/.test(phoneLocal)) {
       const err = new Error('Enter a Ghana MoMo number like 0551234567.');
+      err.status = 400;
+      throw err;
+    }
+    const momoNetwork = momoProviderFromGhanaPhone(phoneLocal) || provider;
+    if (!momoNetwork) {
+      const err = new Error('Enter the MoMo number and network, then confirm the PIN on your phone.');
       err.status = 400;
       throw err;
     }
@@ -914,7 +921,7 @@ async function startFeePayment({
     let charge = await chargeMobileMoney({
       ...chargeArgs,
       phone: phoneLocal,
-      provider,
+      provider: momoNetwork,
     });
     if (!chargeInstructionReady(charge?.status)) {
       charge = await waitForMomoInstruction(charge?.reference || reference, charge);
@@ -922,7 +929,7 @@ async function startFeePayment({
     const status = String(charge?.status || 'pay_offline').toLowerCase();
     const needsCode = chargeLooksLikeCodePrompt(charge);
     const liveMode = String(getPaystackConfig().secretKey || '').startsWith('sk_live_');
-    const isTelecel = /vod|telecel/i.test(String(provider || ''));
+    const isTelecel = /vod|telecel/i.test(String(momoNetwork || ''));
     const phoneCancelled = !needsCode && isPaystackUserCancelled(charge);
     let displayText = charge?.display_text || '';
     if (phoneCancelled) {
