@@ -371,191 +371,208 @@ const Home = () => {
       </section>
 
       {/* About */}
-      <section
-        id="about"
-        className="scroll-mt-28 border-t border-white/5 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 px-4 py-16 sm:px-6 md:px-10 lg:px-14 lg:py-20"
-      >
+      <section id="about" className="scroll-mt-28 bg-[#eef4fa] px-4 py-20 text-slate-900 sm:px-6 md:px-10 lg:px-14 lg:py-28">
         <div className="mx-auto max-w-6xl">
-          <div className="grid items-center gap-8 lg:grid-cols-2 lg:gap-14">
-            <div className="overflow-hidden rounded-3xl border border-white/10 shadow-[0_20px_60px_rgba(0,0,0,0.35)]">
-              <img
-                src="/landing-about.jpg"
-                alt="A teacher helping students in class"
-                className="h-56 w-full object-cover sm:h-72 lg:h-[28rem]"
-                loading="lazy"
-              />
+          <div className="grid items-end gap-10 lg:grid-cols-12 lg:gap-12">
+            <div className="relative lg:col-span-5">
+              <div className="absolute -left-3 top-8 hidden h-40 w-3 rounded-full bg-sky-500 sm:block" />
+              <div className="overflow-hidden rounded-[2rem] bg-[#ffffff] shadow-[0_24px_60px_rgba(15,23,42,0.12)]">
+                <img
+                  src="/landing-about.jpg"
+                  alt="A teacher helping students in class"
+                  className="h-64 w-full object-cover sm:h-80 lg:h-[30rem]"
+                  loading="lazy"
+                />
+              </div>
             </div>
-            <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-sky-400">About Schooltype</p>
-              <h2 className="mt-3 font-display text-2xl font-bold tracking-tight text-white sm:text-3xl md:text-4xl">
+            <div className="lg:col-span-7 lg:pb-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-sky-600">About Schooltype</p>
+              <h2 className="mt-4 font-display text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl md:text-5xl">
                 Built to connect every part of school life
               </h2>
-              <p className="mt-4 text-sm leading-relaxed text-slate-300 sm:text-base md:text-lg">
+              <p className="mt-5 max-w-xl text-base leading-relaxed text-slate-600 sm:text-lg">
                 Schooltype helps schools move from scattered registers and chats to one trusted system —
                 connecting people, attendance, academics, messaging, and payments under a single brand
                 your staff and parents can rely on.
               </p>
+              <div className="mt-8 flex flex-wrap gap-3">
+                {['Multi-tenant workspaces', 'End-to-end operations', 'Plan-ready packages'].map((label) => (
+                  <span
+                    key={label}
+                    className="rounded-full border border-slate-200 bg-[#ffffff] px-4 py-2 text-sm font-medium text-slate-700"
+                  >
+                    {label}
+                  </span>
+                ))}
+              </div>
             </div>
           </div>
 
-          <div className="mt-10 grid gap-6 sm:grid-cols-3">
-            {ABOUT_POINTS.map(({ Icon, title, body }) => (
-              <div key={title} className="rounded-3xl border border-white/10 bg-slate-900/50 p-5">
-                <Icon className="h-7 w-7 text-sky-400" strokeWidth={1.75} />
-                <h3 className="mt-4 font-display text-lg font-bold text-white sm:text-xl">{title}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-slate-400">{body}</p>
+          <div className="mt-14 grid gap-px overflow-hidden rounded-[2rem] bg-slate-200/80 sm:grid-cols-3">
+            {ABOUT_POINTS.map(({ Icon, title, body }, index) => (
+              <div key={title} className="bg-[#eef4fa] p-7 sm:bg-[#ffffff]">
+                <span className="font-display text-sm font-bold text-sky-500">0{index + 1}</span>
+                <Icon className="mt-5 h-8 w-8 text-slate-900" strokeWidth={1.6} />
+                <h3 className="mt-4 font-display text-xl font-bold text-slate-950">{title}</h3>
+                <p className="mt-3 text-sm leading-relaxed text-slate-600">{body}</p>
               </div>
             ))}
-          </div>
-
-          <div className="mt-10 grid gap-6 border-t border-white/10 pt-8 sm:grid-cols-3">
-            <div>
-              <p className="font-display text-2xl font-bold text-white sm:text-3xl">Multi-tenant</p>
-              <p className="mt-1 text-sm text-slate-400">Isolated school workspaces on one platform</p>
-            </div>
-            <div>
-              <p className="font-display text-2xl font-bold text-white sm:text-3xl">End-to-end</p>
-              <p className="mt-1 text-sm text-slate-400">People, attendance, academics & finance</p>
-            </div>
-            <div>
-              <p className="font-display text-2xl font-bold text-white sm:text-3xl">Plan-ready</p>
-              <p className="mt-1 text-sm text-slate-400">Starter to Enterprise feature packages</p>
-            </div>
           </div>
         </div>
       </section>
 
       {/* Features */}
-      <section id="features" className="scroll-mt-28 bg-slate-900/80 px-4 py-16 sm:px-6 md:px-10 lg:px-14 lg:py-20">
+      <section id="features" className="scroll-mt-28 bg-[#ffffff] px-4 py-20 text-slate-900 sm:px-6 md:px-10 lg:px-14 lg:py-28">
         <div className="mx-auto max-w-6xl">
-          <div className="grid items-center gap-8 lg:grid-cols-2 lg:gap-14">
-            <div className="order-2 overflow-hidden rounded-3xl border border-white/10 shadow-[0_20px_60px_rgba(0,0,0,0.35)] lg:order-1">
-              <img
-                src="/landing-features.jpg"
-                alt="A school administrator checking student attendance"
-                className="h-56 w-full object-cover sm:h-72 lg:h-[26rem]"
-                loading="lazy"
-              />
-            </div>
-            <div className="order-1 lg:order-2">
-              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-sky-400">Features</p>
-              <h2 className="mt-3 font-display text-2xl font-bold tracking-tight text-white sm:text-3xl md:text-4xl">
+          <div className="flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-2xl">
+              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-sky-600">Features</p>
+              <h2 className="mt-4 font-display text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl md:text-5xl">
                 Everything your school needs in one system
               </h2>
-              <p className="mt-4 text-sm leading-relaxed text-slate-300 sm:text-base md:text-lg">
+              <p className="mt-5 text-base leading-relaxed text-slate-600 sm:text-lg">
                 From student IDs and QR check-in to report cards, bulk messaging, and school wallets —
                 Schooltype covers the daily tools administrators actually use.
               </p>
             </div>
+            <div className="w-full max-w-sm overflow-hidden rounded-[1.75rem] shadow-[0_18px_50px_rgba(15,23,42,0.12)] lg:mb-1">
+              <img
+                src="/landing-features.jpg"
+                alt="A school administrator checking student attendance"
+                className="h-44 w-full object-cover sm:h-52"
+                loading="lazy"
+              />
+            </div>
           </div>
 
-          <div className="mt-12 grid gap-12 sm:grid-cols-2">
+          <div className="mt-14 grid gap-5 md:grid-cols-2">
             {SYSTEM_CAPABILITY_GROUPS.map((group, index) => {
               const Icon = FEATURE_ICONS[index] || Hexagon;
+              const accents = [
+                'bg-sky-50 text-sky-700',
+                'bg-emerald-50 text-emerald-700',
+                'bg-violet-50 text-violet-700',
+                'bg-amber-50 text-amber-700',
+              ];
               return (
-                <div key={group.title} className="border-l border-sky-500/40 pl-5">
+                <article
+                  key={group.title}
+                  className="rounded-[1.75rem] border border-slate-200/80 bg-slate-50/80 p-6 sm:p-8"
+                >
                   <div className="flex items-center gap-3">
-                    <Icon className="h-6 w-6 text-sky-400" strokeWidth={1.75} />
-                    <h3 className="font-display text-xl font-bold text-white">{group.title}</h3>
+                    <span className={`flex h-11 w-11 items-center justify-center rounded-2xl ${accents[index] || accents[0]}`}>
+                      <Icon className="h-5 w-5" strokeWidth={1.75} />
+                    </span>
+                    <h3 className="font-display text-xl font-bold text-slate-950">{group.title}</h3>
                   </div>
-                  <ul className="mt-4 space-y-2">
+                  <ul className="mt-6 space-y-3">
                     {group.items.map((item) => (
-                      <li key={item} className="flex items-start gap-2 text-sm text-slate-300">
-                        <Check className="mt-0.5 h-4 w-4 shrink-0 text-sky-400" strokeWidth={2.5} />
+                      <li key={item} className="flex items-start gap-3 text-sm text-slate-600">
+                        <Check className="mt-0.5 h-4 w-4 shrink-0 text-sky-500" strokeWidth={2.5} />
                         <span>{item}</span>
                       </li>
                     ))}
                   </ul>
-                </div>
+                </article>
               );
             })}
           </div>
 
-          <div className="mt-12 flex items-center gap-3 text-sm text-slate-400">
-            <Wallet className="h-5 w-5 text-sky-400" strokeWidth={1.75} />
-            <p>Plus school wallet, bank, and MoMo settings for deposits and payouts.</p>
-          </div>
+          <p className="mt-10 flex items-start gap-3 rounded-2xl bg-slate-950 px-5 py-4 text-sm text-slate-200 sm:items-center">
+            <Wallet className="mt-0.5 h-5 w-5 shrink-0 text-sky-400 sm:mt-0" strokeWidth={1.75} />
+            Plus school wallet, bank, and MoMo settings for deposits and payouts.
+          </p>
         </div>
       </section>
 
       {/* Fees payment */}
       <section
         id="fees"
-        className="scroll-mt-28 border-t border-white/5 bg-slate-950 px-4 py-16 sm:px-6 md:px-10 lg:px-14 lg:py-20"
+        className="scroll-mt-28 bg-gradient-to-br from-sky-600 via-sky-500 to-emerald-600 px-4 py-20 text-white sm:px-6 md:px-10 lg:px-14 lg:py-28"
       >
         <div className="mx-auto max-w-6xl">
-          <div className="grid items-center gap-8 lg:grid-cols-2 lg:gap-14">
+          <div className="grid items-center gap-10 lg:grid-cols-2 lg:gap-16">
             <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-sky-400">Fees payment</p>
-              <h2 className="mt-3 font-display text-2xl font-bold tracking-tight text-white sm:text-3xl md:text-4xl">
+              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-white/80">Fees payment</p>
+              <h2 className="mt-4 font-display text-3xl font-bold tracking-tight sm:text-4xl md:text-5xl">
                 Parents pay school fees online
               </h2>
-              <p className="mt-4 text-sm leading-relaxed text-slate-300 sm:text-base md:text-lg">
+              <p className="mt-5 max-w-lg text-base leading-relaxed text-sky-50 sm:text-lg">
                 Choose the school, enter the student ID, verify the student, then pay with MoMo or bank.
               </p>
+              <ol className="mt-10 space-y-5">
+                {[
+                  { step: '1', title: 'Select school and student ID', body: 'Pick the school, then enter the student ID from the ID card to search.' },
+                  { step: '2', title: 'Verify student details', body: 'Confirm the name, class, and fee belong to the right student before you pay.' },
+                  { step: '3', title: 'Pay and confirm', body: 'Choose MoMo or bank, enter the amount, and confirm the payment.' },
+                ].map((item) => (
+                  <li key={item.step} className="flex gap-4">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#ffffff] font-display text-sm font-bold text-sky-700">
+                      {item.step}
+                    </span>
+                    <div>
+                      <h3 className="font-display text-lg font-bold">{item.title}</h3>
+                      <p className="mt-1 text-sm leading-relaxed text-sky-50/90">{item.body}</p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+              <Link
+                to="/fees"
+                className="mt-10 inline-flex items-center justify-center rounded-full bg-[#ffffff] px-7 py-3.5 text-sm font-semibold text-sky-700 shadow-lg shadow-slate-950/20 transition hover:bg-sky-50"
+              >
+                Pay fees
+              </Link>
             </div>
-            <div className="overflow-hidden rounded-3xl border border-white/10 shadow-[0_20px_60px_rgba(0,0,0,0.35)]">
+            <div className="relative">
+              <div className="overflow-hidden rounded-[2rem] bg-white/10 shadow-[0_24px_60px_rgba(2,12,27,0.28)] ring-1 ring-white/20">
+                <img
+                  src="/landing-fees.jpg"
+                  alt="A parent paying school fees on a phone"
+                  className="h-72 w-full object-cover sm:h-[26rem]"
+                  loading="lazy"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Security */}
+      <section id="security" className="scroll-mt-28 bg-slate-950 px-4 py-20 sm:px-6 md:px-10 lg:px-14 lg:py-28">
+        <div className="mx-auto max-w-6xl">
+          <div className="grid gap-10 lg:grid-cols-12 lg:items-center">
+            <div className="lg:col-span-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-sky-400">Security</p>
+              <h2 className="mt-4 font-display text-3xl font-bold tracking-tight text-white sm:text-4xl">
+                Built to keep school data authentic and protected
+              </h2>
+              <p className="mt-5 text-base leading-relaxed text-slate-400 sm:text-lg">
+                Schooltype treats school records as sensitive operational data. Access is authenticated,
+                schools are isolated from each other, and critical actions stay behind verified
+                sessions and plan-approved roles.
+              </p>
+            </div>
+            <div className="overflow-hidden rounded-[2rem] lg:col-span-7">
               <img
-                src="/landing-fees.jpg"
-                alt="A parent paying school fees on a phone"
+                src="/landing-security.jpg"
+                alt="A school administrator reviewing records in a quiet office"
                 className="h-56 w-full object-cover sm:h-72 lg:h-80"
                 loading="lazy"
               />
             </div>
           </div>
 
-          <div className="mt-10 grid gap-6 sm:grid-cols-3">
-            {[
-              { step: '1', title: 'Select school and student ID', body: 'Pick the school, then enter the student ID from the ID card to search.' },
-              { step: '2', title: 'Verify student details', body: 'Confirm the name, class, and fee belong to the right student before you pay.' },
-              { step: '3', title: 'Pay and confirm', body: 'Choose MoMo or bank, enter the amount, and confirm the payment.' },
-            ].map((item) => (
-              <div key={item.step} className="rounded-3xl border border-white/10 bg-slate-900/60 p-6">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-400">Step {item.step}</p>
-                <h3 className="mt-3 font-display text-xl font-bold text-white">{item.title}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-slate-400">{item.body}</p>
-              </div>
-            ))}
-          </div>
-
-          <Link
-            to="/fees"
-            className="mt-10 inline-flex items-center justify-center rounded-full bg-sky-500 px-7 py-3.5 text-sm font-semibold text-white shadow-xl shadow-sky-500/30 transition hover:bg-sky-400"
-          >
-            Pay fees
-          </Link>
-        </div>
-      </section>
-
-      {/* Security */}
-      <section id="security" className="scroll-mt-28 bg-slate-900 px-4 py-16 sm:px-6 md:px-10 lg:px-14 lg:py-20">
-        <div className="mx-auto max-w-6xl">
-          <div className="relative mb-10 overflow-hidden rounded-3xl border border-white/10">
-            <img
-              src="/landing-security.jpg"
-              alt="A school administrator reviewing records in a quiet office"
-              className="h-48 w-full object-cover sm:h-64 md:h-80"
-              loading="lazy"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/50 to-transparent" />
-            <div className="absolute inset-x-0 bottom-0 p-5 sm:p-8">
-              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-sky-400">Security</p>
-              <h2 className="mt-2 max-w-2xl font-display text-2xl font-bold tracking-tight text-white sm:text-3xl md:text-4xl">
-                Built to keep school data authentic and protected
-              </h2>
-            </div>
-          </div>
-          <p className="max-w-2xl text-sm leading-relaxed text-slate-300 sm:text-base md:text-lg">
-            Schooltype treats school records as sensitive operational data. Access is authenticated,
-            schools are isolated from each other, and critical actions stay behind verified
-            sessions and plan-approved roles.
-          </p>
-
-          <div className="mt-12 grid gap-10 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {SECURITY_POINTS.map(({ Icon, title, body }) => (
-              <div key={title}>
-                <Icon className="h-7 w-7 text-sky-400" strokeWidth={1.75} />
-                <h3 className="mt-4 font-display text-lg font-bold text-white">{title}</h3>
+              <div
+                key={title}
+                className="rounded-3xl border border-white/10 bg-white/[0.03] p-6 backdrop-blur-sm"
+              >
+                <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-sky-500/15 text-sky-300">
+                  <Icon className="h-5 w-5" strokeWidth={1.75} />
+                </span>
+                <h3 className="mt-5 font-display text-lg font-bold text-white">{title}</h3>
                 <p className="mt-2 text-sm leading-relaxed text-slate-400">{body}</p>
               </div>
             ))}
@@ -563,13 +580,13 @@ const Home = () => {
         </div>
       </section>
 
-      <footer className="border-t border-white/10 px-6 py-10 md:px-10 lg:px-14">
-        <div className="mx-auto flex max-w-6xl flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+      <footer className="border-t border-white/10 bg-[#07111f] px-6 py-12 md:px-10 lg:px-14">
+        <div className="mx-auto flex max-w-6xl flex-col gap-8 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p className="font-display text-lg font-bold text-white">SCHOOLTYPE</p>
-            <p className="text-sm text-slate-500">Connect. Track. Manage.</p>
+            <p className="font-display text-2xl font-bold text-white">SCHOOLTYPE</p>
+            <p className="mt-1 text-sm text-slate-500">Connect. Track. Manage.</p>
           </div>
-          <div className="flex flex-wrap gap-4 text-sm text-slate-400">
+          <div className="flex flex-wrap gap-x-6 gap-y-3 text-sm text-slate-400">
             <Link to="/fees" className="hover:text-white">
               Fees payment
             </Link>
