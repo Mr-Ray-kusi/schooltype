@@ -278,13 +278,23 @@ export function isPaystackPendingStatus(status) {
     'send_birthday',
     'send_phone',
     'open_url',
-    'abandoned',
   ].includes(value);
 }
 
 export function isPaystackFailedStatus(status) {
   const value = String(status || '').toLowerCase();
-  return value === 'failed' || value === 'timeout' || value === 'reversed';
+  return value === 'failed' || value === 'timeout' || value === 'reversed' || value === 'abandoned';
+}
+
+export function isPaystackUserCancelled(charge) {
+  const status = String(charge?.status || '').toLowerCase();
+  if (status === 'abandoned') return true;
+  const text = `${charge?.display_text || ''} ${charge?.gateway_response || ''} ${charge?._paystack_message || ''}`.toLowerCase();
+  if (!text.trim()) return false;
+  return (
+    (status === 'failed' || status === 'timeout' || status === 'abandoned') &&
+    /(cancel|declin|abort|not (been )?complet|user rejected|customer rejected)/i.test(text)
+  );
 }
 
 export async function initiateTransfer({

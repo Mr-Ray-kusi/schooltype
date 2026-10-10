@@ -114,7 +114,7 @@ const FeesPay = () => {
 
     const remaining = Math.max(0, 30000 - (Date.now() - (momoWaitStartedAtRef.current || Date.now())));
     const timeout = window.setTimeout(() => {
-      abortPayment('MoMo PIN was not confirmed in 30 seconds. Tap Continue to payment to start again.');
+      abortPayment('MoMo PIN was not confirmed. Tap Continue to payment to start again.');
     }, remaining);
 
     const onLeave = () => {
@@ -134,20 +134,11 @@ const FeesPay = () => {
     };
     window.addEventListener('pageshow', onPageShow);
 
-    if (momoPrompt.needs_code) {
-      return () => {
-        window.clearTimeout(timeout);
-        window.removeEventListener('pagehide', onLeave);
-        window.removeEventListener('beforeunload', onLeave);
-        window.removeEventListener('pageshow', onPageShow);
-      };
-    }
-
     let cancelled = false;
     const poll = async () => {
       try {
         const { data } = await axios.get(`/api/public/fees/charge/${encodeURIComponent(reference)}`, {
-          timeout: 12000,
+          timeout: 8000,
         });
         if (cancelled) return;
         if (data.authorization_url) {
@@ -159,7 +150,9 @@ const FeesPay = () => {
           return;
         }
         if (data.status === 'failed' || data.status === 'timeout' || data.status === 'cancelled') {
-          abortPayment(data.display_text || 'Payment was cancelled. Tap Continue to payment to start again.');
+          abortPayment(
+            data.display_text || 'Payment was cancelled on the phone. Tap Continue to payment to start again.'
+          );
           return;
         }
         if (data.needs_code) {
@@ -182,7 +175,7 @@ const FeesPay = () => {
       }
     };
     poll();
-    const interval = window.setInterval(poll, 1500);
+    const interval = window.setInterval(poll, 800);
     return () => {
       cancelled = true;
       window.clearInterval(interval);
@@ -191,7 +184,7 @@ const FeesPay = () => {
       window.removeEventListener('beforeunload', onLeave);
       window.removeEventListener('pageshow', onPageShow);
     };
-  }, [momoPrompt?.reference, momoPrompt?.needs_code, abortPayment]);
+  }, [momoPrompt?.reference, abortPayment]);
 
   const lookupStudent = async (event) => {
     event?.preventDefault();
@@ -253,6 +246,17 @@ const FeesPay = () => {
       if (method === 'momo' || data.mode === 'momo') {
         if (data.authorization_url) {
           window.location.href = data.authorization_url;
+          return;
+        }
+        if (data.status === 'cancelled' || data.status === 'failed' || data.status === 'timeout') {
+          setPaying(false);
+          setStep(2);
+          setError(
+            data.display_text || 'Payment was cancelled on the phone. Tap Continue to payment to start again.'
+          );
+          if (data.reference) {
+            axios.post('/api/public/fees/cancel', { reference: data.reference }, { timeout: 8000 }).catch(() => {});
+          }
           return;
         }
         abortingRef.current = false;

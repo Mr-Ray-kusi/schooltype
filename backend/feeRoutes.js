@@ -5,6 +5,7 @@ import {
   fetchCharge,
   isPaystackFailedStatus,
   isPaystackPendingStatus,
+  isPaystackUserCancelled,
   chargeMobileMoney,
   submitChargeOtp,
   submitChargePin,
@@ -88,7 +89,7 @@ function chargeInstructionReady(status) {
   );
 }
 
-async function waitForMomoInstruction(reference, initial, { attempts = 5, delayMs = 550 } = {}) {
+async function waitForMomoInstruction(reference, initial, { attempts = 2, delayMs = 180 } = {}) {
   let charge = initial;
   for (let i = 0; i < attempts; i++) {
     const status = String(charge?.status || '').toLowerCase();
@@ -394,6 +395,27 @@ async function resolveFeePayment(reference) {
     };
   }
 
+  if (charge && (chargeStatus === 'abandoned' || isPaystackUserCancelled(charge))) {
+    rememberCancelledFee(reference);
+    const meta = parsePaystackMetadata(charge.metadata);
+    noteFeePaymentFailed({
+      schoolId: meta.school_id,
+      reason: 'abandoned',
+      message: charge.display_text || charge.gateway_response || 'Payment cancelled on the phone',
+      reference: charge.reference || reference,
+      student: studentFromPaystackMeta(meta),
+      amount: fromMinorUnits(charge.amount) || meta.amount_major,
+      channel: charge.channel,
+      meta,
+    });
+    return {
+      status: 'cancelled',
+      payload: charge,
+      needs_code: false,
+      display_text: 'Payment was cancelled on the phone. Tap Continue to payment to start again.',
+    };
+  }
+
   if (charge && isPaystackFailedStatus(chargeStatus)) {
     const meta = parsePaystackMetadata(charge.metadata);
     noteFeePaymentFailed({
@@ -424,6 +446,55 @@ async function resolveFeePayment(reference) {
   }
 
   if (charge && isPaystackPendingStatus(chargeStatus)) {
+    try {
+      const verified = await verifyTransaction(reference);
+      const txStatus = String(verified?.status || '').toLowerCase();
+      if (txStatus === 'success') {
+        await settleSchoolFeeFromPaystack(verified);
+        return { status: 'success', payload: verified, needs_code: false, display_text: null };
+      }
+      if (txStatus === 'abandoned' || isPaystackUserCancelled(verified)) {
+        rememberCancelledFee(reference);
+        const meta = parsePaystackMetadata(verified?.metadata || charge.metadata);
+        noteFeePaymentFailed({
+          schoolId: meta.school_id,
+          reason: 'abandoned',
+          message: verified?.gateway_response || 'Payment cancelled on the phone',
+          reference: verified?.reference || reference,
+          student: studentFromPaystackMeta(meta),
+          amount: fromMinorUnits(verified?.amount) || meta.amount_major,
+          channel: verified?.channel,
+          meta,
+        });
+        return {
+          status: 'cancelled',
+          payload: verified,
+          needs_code: false,
+          display_text: 'Payment was cancelled on the phone. Tap Continue to payment to start again.',
+        };
+      }
+      if (isPaystackFailedStatus(txStatus)) {
+        const meta = parsePaystackMetadata(verified?.metadata);
+        noteFeePaymentFailed({
+          schoolId: meta.school_id,
+          reason: 'provider_declined',
+          message: verified?.gateway_response || 'Payment attempt failed',
+          reference: verified?.reference || reference,
+          student: studentFromPaystackMeta(meta),
+          amount: fromMinorUnits(verified?.amount) || meta.amount_major,
+          channel: verified?.channel,
+          meta,
+        });
+        return {
+          status: 'failed',
+          payload: verified,
+          needs_code: false,
+          display_text: verified?.gateway_response || null,
+        };
+      }
+    } catch {
+      // Charge is still waiting for the phone prompt.
+    }
     return {
       status: 'pending',
       payload: charge,
@@ -439,11 +510,31 @@ async function resolveFeePayment(reference) {
       await settleSchoolFeeFromPaystack(verified);
       return { status: 'success', payload: verified, needs_code: false, display_text: null };
     }
+    if (txStatus === 'abandoned' || isPaystackUserCancelled(verified)) {
+      rememberCancelledFee(reference);
+      const meta = parsePaystackMetadata(verified?.metadata);
+      noteFeePaymentFailed({
+        schoolId: meta.school_id,
+        reason: 'abandoned',
+        message: verified?.gateway_response || 'Payment cancelled on the phone',
+        reference: verified?.reference || reference,
+        student: studentFromPaystackMeta(meta),
+        amount: fromMinorUnits(verified?.amount) || meta.amount_major,
+        channel: verified?.channel,
+        meta,
+      });
+      return {
+        status: 'cancelled',
+        payload: verified,
+        needs_code: false,
+        display_text: 'Payment was cancelled on the phone. Tap Continue to payment to start again.',
+      };
+    }
     if (isPaystackFailedStatus(txStatus)) {
       const meta = parsePaystackMetadata(verified?.metadata);
       noteFeePaymentFailed({
         schoolId: meta.school_id,
-        reason: txStatus === 'abandoned' ? 'abandoned' : 'provider_declined',
+        reason: 'provider_declined',
         message: verified?.gateway_response || 'Payment attempt failed',
         reference: verified?.reference || reference,
         student: studentFromPaystackMeta(meta),
@@ -782,7 +873,6 @@ async function startFeePayment({
     throw err;
   }
 
-  const payout = await getFeePayoutAccount(student.school_id, school?.name);
   const payMethod = normalizePayMethod(method) || 'bank';
   const reference = makeWalletReference('fee');
   const frontend = getFrontendBaseUrl();
@@ -798,10 +888,10 @@ async function startFeePayment({
     term_name: termName || month,
     amount_major: payAmount,
     payment_method: payMethod,
-    settle_mode: payout.subaccountCode ? 'subaccount' : payout.recipientCode ? 'transfer' : 'wallet',
-    subaccount_code: payout.subaccountCode || null,
-    recipient_code: payout.recipientCode || null,
-    account_id: payout.account?.id || null,
+    settle_mode: 'wallet',
+    subaccount_code: null,
+    recipient_code: null,
+    account_id: null,
     cancel_action: `${frontend}/fees`,
   };
 
@@ -825,9 +915,9 @@ async function startFeePayment({
       err.status = 400;
       throw err;
     }
-    // Split/subaccount on /charge makes Paystack SMS its own PIN instead of
-    // the telco MoMo prompt. Settle to the school after the charge succeeds.
-    metadata.settle_mode = payout.recipientCode ? 'transfer' : metadata.settle_mode;
+    // Do not look up/create a payout subaccount first — that extra Paystack
+    // call delayed the telco PIN prompt. Settle to the school after success.
+    metadata.settle_mode = 'transfer';
     metadata.subaccount_code = null;
 
     let charge = await chargeMobileMoney({
@@ -835,13 +925,17 @@ async function startFeePayment({
       phone: phoneLocal,
       provider,
     });
-    charge = await waitForMomoInstruction(charge?.reference || reference, charge);
+    if (!chargeInstructionReady(charge?.status)) {
+      charge = await waitForMomoInstruction(charge?.reference || reference, charge);
+    }
     const status = String(charge?.status || 'pay_offline').toLowerCase();
     const needsCode = status === 'send_otp' || status === 'send_pin';
     const liveMode = String(getPaystackConfig().secretKey || '').startsWith('sk_live_');
     const isTelecel = /vod|telecel/i.test(String(provider || ''));
     let displayText = charge?.display_text || '';
-    if (!displayText) {
+    if (status === 'abandoned' || isPaystackUserCancelled(charge)) {
+      displayText = 'Payment was cancelled on the phone. Tap Continue to payment to start again.';
+    } else if (!displayText) {
       if (needsCode && isTelecel) {
         displayText = 'Dial the Telecel USSD to get a voucher, then enter that voucher here.';
       } else if (needsCode) {
@@ -853,7 +947,7 @@ async function startFeePayment({
     return {
       mode: 'momo',
       reference: charge?.reference || reference,
-      status,
+      status: status === 'abandoned' || isPaystackUserCancelled(charge) ? 'cancelled' : status,
       needs_code: needsCode,
       code_type: status === 'send_pin' ? 'pin' : needsCode ? 'otp' : null,
       display_text: displayText,
@@ -862,10 +956,16 @@ async function startFeePayment({
       amount: payAmount,
       currency: 'GHS',
       month,
-      payout_ready: payout.hasPayout,
+      payout_ready: false,
       live_mode: liveMode,
     };
   }
+
+  const payout = await getFeePayoutAccount(student.school_id, school?.name);
+  metadata.settle_mode = payout.subaccountCode ? 'subaccount' : payout.recipientCode ? 'transfer' : 'wallet';
+  metadata.subaccount_code = payout.subaccountCode || null;
+  metadata.recipient_code = payout.recipientCode || null;
+  metadata.account_id = payout.account?.id || null;
 
   const checkoutArgs = {
     ...chargeArgs,
