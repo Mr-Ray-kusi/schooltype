@@ -6,6 +6,7 @@ const MEMORY_CAP = 8000;
 const ACTIVE_WINDOW_MS = 5 * 60 * 1000;
 const SLOW_PAGE_MS = 3000;
 const FETCH_LIMIT = 20000;
+const LOG_PREVIEW_LIMIT = 8;
 const ANALYTICS_RANGES = new Set(['1d', '1w', '1m', '6m', '1y']);
 const SERIES_ACTIVE_TYPES = new Set(['heartbeat', 'page_view', 'login', 'staff_login']);
 const SERIES_KEY_TYPES = new Set([
@@ -740,7 +741,7 @@ export async function getPlatformAnalytics(options = {}) {
   const feesPaidInRange = feesInRange.reduce((sum, row) => sum + successfulFeeAmount(row), 0);
   const feesPreview = feesInRange
     .filter((row) => successfulFeeAmount(row) > 0)
-    .slice(0, 20)
+    .slice(0, LOG_PREVIEW_LIMIT)
     .map((row) => ({
       id: row.id,
       amount: roundMoney(successfulFeeAmount(row)),
@@ -792,9 +793,9 @@ export async function getPlatformAnalytics(options = {}) {
   );
   const recentErrors = [...inRange('login_failed', rangeStart), ...inRange('payment_failed', rangeStart)]
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-    .slice(0, 20);
-  const schoolNameFor = await resolveSchoolNameLookup([...keyEventsAll.slice(0, 40), ...recentErrors]);
-  const keyEvents = keyEventsAll.slice(0, 40).map((event) => ({
+    .slice(0, LOG_PREVIEW_LIMIT);
+  const schoolNameFor = await resolveSchoolNameLookup([...keyEventsAll.slice(0, LOG_PREVIEW_LIMIT), ...recentErrors]);
+  const keyEvents = keyEventsAll.slice(0, LOG_PREVIEW_LIMIT).map((event) => ({
       id: event.id,
       type: event.event_type,
       label: eventLabel(event),
@@ -806,13 +807,13 @@ export async function getPlatformAnalytics(options = {}) {
       createdAt: event.created_at,
     }));
 
-  const topPages = countBy(pageViews, (event) => pageLabel(event.path)).slice(0, 12).map((row) => ({
+  const topPages = countBy(pageViews, (event) => pageLabel(event.path)).slice(0, LOG_PREVIEW_LIMIT).map((row) => ({
     page: row.key,
     count: row.count,
     path: row.sample.path,
   }));
 
-  const slowPageRows = countBy(slowPages, (event) => pageLabel(event.path) || event.path).slice(0, 10).map((row) => {
+  const slowPageRows = countBy(slowPages, (event) => pageLabel(event.path) || event.path).slice(0, LOG_PREVIEW_LIMIT).map((row) => {
     const matching = slowPages.filter((event) => pageLabel(event.path) === row.key);
     const avg = matching.reduce((sum, event) => sum + (Number(event.duration_ms) || 0), 0) / (matching.length || 1);
     return {
@@ -842,9 +843,10 @@ export async function getPlatformAnalytics(options = {}) {
       pageViewsInRange: pageViews.length,
       keyEventsInRange: keyEventsAll.length,
       errorsInRange: inRange('login_failed', rangeStart).length + inRange('payment_failed', rangeStart).length,
+      newUsersInRange: newUsers.length,
       heartbeatsToday: inRange('heartbeat', dayStart).length,
     },
-    loginsBySchool: loginAdoption(events, dayStart, weekStart),
+    loginsBySchool: loginAdoption(events, dayStart, weekStart).slice(0, LOG_PREVIEW_LIMIT),
     topPages,
     slowPages: slowPageRows,
     errors: {
@@ -871,7 +873,7 @@ export async function getPlatformAnalytics(options = {}) {
     },
     feesPreview,
     keyEvents,
-    newUsers: newUsers.slice(0, 30),
+    newUsers: newUsers.slice(0, LOG_PREVIEW_LIMIT),
     chart,
   };
 }

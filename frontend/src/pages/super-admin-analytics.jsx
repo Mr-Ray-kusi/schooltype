@@ -36,13 +36,6 @@ const formatMoney = (amount) =>
     amount || 0
   );
 
-const formatTime = (iso) => {
-  if (!iso) return '—';
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return '—';
-  return date.toLocaleString();
-};
-
 const relativeTime = (iso) => {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return '';
@@ -73,6 +66,11 @@ const StatCard = ({ title, value, subtitle, icon: Icon, color }) => (
 );
 
 const EmptyRow = ({ text }) => <p className="px-1 py-6 text-center text-sm text-zinc-500">{text}</p>;
+
+const PreviewNote = ({ shown, total }) =>
+  total > shown ? (
+    <p className="mt-3 text-xs text-zinc-500">Showing latest {shown} of {total.toLocaleString()}</p>
+  ) : null;
 
 const SuperAdminAnalytics = () => {
   const [data, setData] = useState(null);
@@ -338,22 +336,20 @@ const SuperAdminAnalytics = () => {
             (activeUsers.length === 0 ? (
               <EmptyRow text="Nobody is active right now." />
             ) : (
-              <ul className="divide-y divide-white/5">
-                {activeUsers.map((user) => (
-                  <li key={`${user.schoolId || ''}-${user.email || user.lastSeen}`} className="py-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="truncate font-medium text-white">{user.schoolName || 'Unknown school'}</p>
-                        <p className="truncate text-sm text-zinc-300">{user.email || 'No email'}</p>
-                        <p className="text-xs text-zinc-500">
-                          {user.role === 'super_admin' ? 'Platform admin' : user.role || 'admin'} · {user.page || user.path || '—'}
-                        </p>
-                      </div>
+              <>
+                <ul className="divide-y divide-white/5">
+                  {activeUsers.slice(0, 8).map((user) => (
+                    <li key={`${user.schoolId || ''}-${user.email || user.lastSeen}`} className="flex items-center justify-between gap-3 py-2.5">
+                      <p className="min-w-0 truncate text-sm text-white">
+                        {user.schoolName || 'Unknown school'}
+                        <span className="text-zinc-500"> · {user.email || 'No email'}</span>
+                      </p>
                       <span className="shrink-0 text-xs text-emerald-300">{relativeTime(user.lastSeen)}</span>
-                    </div>
-                  </li>
-                ))}
-              </ul>
+                    </li>
+                  ))}
+                </ul>
+                <PreviewNote shown={Math.min(8, activeUsers.length)} total={activeUsers.length} />
+              </>
             ))}
 
           {selectedPanel === 'logins' &&
@@ -370,7 +366,7 @@ const SuperAdminAnalytics = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5">
-                    {loginsBySchool.map((row) => (
+                    {loginsBySchool.slice(0, 8).map((row) => (
                       <tr key={row.schoolId || row.email}>
                         <td className="py-3 pr-5">
                           <p className="font-medium text-white">{row.schoolName}</p>
@@ -382,6 +378,7 @@ const SuperAdminAnalytics = () => {
                     ))}
                   </tbody>
                 </table>
+                <PreviewNote shown={Math.min(8, loginsBySchool.length)} total={loginsBySchool.length} />
               </div>
             ))}
 
@@ -390,7 +387,7 @@ const SuperAdminAnalytics = () => {
               <EmptyRow text="No page visits recorded in this range." />
             ) : (
               <ul className="divide-y divide-white/5">
-                {topPages.map((row) => {
+                {topPages.slice(0, 8).map((row) => {
                   const max = topPages[0]?.count || 1;
                   return (
                     <li key={row.page} className="py-3">
@@ -415,7 +412,7 @@ const SuperAdminAnalytics = () => {
               <EmptyRow text="No slow pages in this range." />
             ) : (
               <ul className="divide-y divide-white/5">
-                {slowPages.map((row) => (
+                {slowPages.slice(0, 8).map((row) => (
                   <li key={row.page} className="flex items-center justify-between gap-3 py-3">
                     <div>
                       <p className="font-medium text-white">{row.page}</p>
@@ -434,73 +431,85 @@ const SuperAdminAnalytics = () => {
               <EmptyRow text="No key events yet." />
             ) : (
               <ul className="divide-y divide-white/5">
-                {keyEvents.map((event) => (
-                  <li key={event.id} className="py-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="font-medium text-white">{event.label}</p>
-                        <p className="truncate text-sm text-zinc-300">
-                          {event.type === 'payment_failed'
+                {keyEvents.slice(0, 8).map((event) => (
+                  <li key={event.id} className="flex items-center justify-between gap-3 py-2.5">
+                    <p className="min-w-0 truncate text-sm text-white">
+                      {event.label}
+                      <span className="text-zinc-500">
+                        {' '}
+                        ·{' '}
+                        {event.type === 'payment_failed'
+                          ? event.schoolName
                             ? event.schoolName
-                              ? `Intended for ${event.schoolName}`
-                              : 'School not identified'
-                            : event.schoolName || event.email || 'Unknown'}
-                          {event.page ? ` · ${event.page}` : ''}
-                        </p>
-                      </div>
-                      <span className="shrink-0 text-xs text-zinc-500">{relativeTime(event.createdAt)}</span>
-                    </div>
+                            : 'School not identified'
+                          : event.schoolName || event.email || 'Unknown'}
+                      </span>
+                    </p>
+                    <span className="shrink-0 text-xs text-zinc-500">{relativeTime(event.createdAt)}</span>
                   </li>
                 ))}
               </ul>
             ))}
+            {selectedPanel === 'events' && keyEvents.length > 0 ? (
+              <PreviewNote shown={Math.min(8, keyEvents.length)} total={counts.keyEventsInRange ?? keyEvents.length} />
+            ) : null}
 
           {selectedPanel === 'newUsers' &&
             (newUsers.length === 0 ? (
               <EmptyRow text="No new schools in this range." />
             ) : (
               <ul className="divide-y divide-white/5">
-                {newUsers.map((user) => (
-                  <li key={user.schoolId || user.email} className="py-3">
-                    <p className="font-medium text-white">{user.schoolName || 'New school'}</p>
-                    <p className="text-sm text-zinc-300">{user.email}</p>
-                    <p className="text-xs text-zinc-500">{formatTime(user.createdAt)}</p>
+                {newUsers.slice(0, 8).map((user) => (
+                  <li key={user.schoolId || user.email} className="flex items-center justify-between gap-3 py-2.5">
+                    <p className="min-w-0 truncate text-sm text-white">
+                      {user.schoolName || 'New school'}
+                      {user.email ? <span className="text-zinc-500"> · {user.email}</span> : null}
+                    </p>
+                    <span className="shrink-0 text-xs text-zinc-500">{relativeTime(user.createdAt)}</span>
                   </li>
                 ))}
               </ul>
             ))}
+            {selectedPanel === 'newUsers' && newUsers.length > 0 ? (
+              <PreviewNote shown={Math.min(8, newUsers.length)} total={counts.newUsersInRange ?? newUsers.length} />
+            ) : null}
 
           {selectedPanel === 'errors' &&
             ((errors.recent || []).length === 0 ? (
               <EmptyRow text="No failed logins or payments in this range." />
             ) : (
               <ul className="divide-y divide-white/5">
-                {errors.recent.map((event) => (
-                  <li key={event.id} className="flex items-start justify-between gap-3 py-3">
-                    <div className="min-w-0">
-                      <p className="font-medium text-white">{event.label}</p>
-                      <p className="text-sm text-amber-200">{event.description || 'Attempt failed'}</p>
-                      <p className="truncate text-sm text-zinc-300">
+                {(errors.recent || []).slice(0, 8).map((event) => (
+                  <li key={event.id} className="flex items-center justify-between gap-3 py-2.5">
+                    <p className="min-w-0 truncate text-sm text-white">
+                      {event.label}
+                      <span className="text-zinc-500">
+                        {' '}
+                        ·{' '}
                         {event.type === 'payment_failed'
-                          ? event.schoolName
-                            ? `Intended for ${event.schoolName}`
-                            : 'School not identified'
+                          ? event.schoolName || 'School not identified'
                           : event.schoolName || event.email || 'Unknown'}
-                      </p>
-                    </div>
+                      </span>
+                    </p>
                     <span className="shrink-0 text-xs text-zinc-500">{relativeTime(event.createdAt)}</span>
                   </li>
                 ))}
               </ul>
             ))}
+            {selectedPanel === 'errors' && (errors.recent || []).length > 0 ? (
+              <PreviewNote
+                shown={Math.min(8, (errors.recent || []).length)}
+                total={counts.errorsInRange ?? (errors.recent || []).length}
+              />
+            ) : null}
 
           {selectedPanel === 'fees' &&
             ((data?.feesPreview || []).length === 0 ? (
               <EmptyRow text="No fees paid in this range." />
             ) : (
               <ul className="divide-y divide-white/5">
-                {data.feesPreview.map((row) => (
-                  <li key={row.id} className="flex items-center justify-between gap-3 py-3">
+                {(data.feesPreview || []).slice(0, 8).map((row) => (
+                  <li key={row.id} className="flex items-center justify-between gap-3 py-2.5">
                     <div className="min-w-0">
                       <p className="truncate font-medium text-white">{row.payerName}</p>
                       <p className="text-xs capitalize text-zinc-500">{row.method || 'Payment'}</p>
