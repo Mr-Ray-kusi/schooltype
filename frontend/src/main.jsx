@@ -13,8 +13,8 @@ const pingApi = () => {
   if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
   axios.get('/api/health', { timeout: 8000 }).catch(() => {});
 };
-pingApi();
 if (typeof window !== 'undefined') {
+  window.setTimeout(pingApi, 15000);
   window.setInterval(pingApi, KEEP_ALIVE_MS);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') pingApi();

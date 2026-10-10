@@ -122,6 +122,10 @@ const Login = () => {
           onCredential={async ({ accessToken }) => {
             try {
               const data = await loginWithGoogle({ accessToken });
+              if (data.authorization_url) {
+                window.location.assign(data.authorization_url);
+                return;
+              }
               toast.success('Login successful!');
               navigate(getPostAuthPath(data.school));
             } catch (error) {

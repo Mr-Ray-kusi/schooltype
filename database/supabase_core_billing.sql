@@ -201,3 +201,24 @@ CREATE INDEX IF NOT EXISTS idx_auth_rate_kind_email
   ON auth_rate_events (kind, email, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_auth_rate_kind_ip
   ON auth_rate_events (kind, ip, created_at DESC);
+
+-- Unpaid registrations wait here until Paystack succeeds
+CREATE TABLE IF NOT EXISTS pending_signups (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email TEXT NOT NULL,
+  school_name TEXT NOT NULL,
+  logo_url TEXT,
+  payment_plan TEXT NOT NULL,
+  google_signup BOOLEAN DEFAULT FALSE,
+  paystack_reference TEXT NOT NULL UNIQUE,
+  status TEXT DEFAULT 'pending',
+  school_id UUID REFERENCES schools(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  fulfilled_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_pending_signups_email_status
+  ON pending_signups (email, status);
+
+CREATE INDEX IF NOT EXISTS idx_pending_signups_reference
+  ON pending_signups (paystack_reference);

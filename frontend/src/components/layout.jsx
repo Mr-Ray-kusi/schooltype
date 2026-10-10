@@ -214,7 +214,7 @@ const Layout = ({ children }) => {
             <p className="text-xs text-slate-300 truncate">
               {isSuperAdmin
                 ? 'The central connection point for all your school academic activities'
-                : `${school?.plan_name || 'No plan'} · ${!isPlanApproved && school?.payment_plan ? 'Pending approval' : 'Admin'}`}
+                : `${school?.plan_name || 'No plan'} · ${!isPlanApproved ? 'Payment required' : 'Admin'}`}
             </p>
           </div>
         </div>

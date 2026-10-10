@@ -1,9 +1,6 @@
 -- Run this in your Supabase SQL editor to enable all new features
---
--- Also required for billing / wallets / SMS on Postgres:
---   database/supabase_core_billing.sql
-
 -- Extend schools table
+
 ALTER TABLE schools ADD COLUMN IF NOT EXISTS logo_url TEXT;
 ALTER TABLE schools ADD COLUMN IF NOT EXISTS subscription_plan TEXT;
 ALTER TABLE schools ADD COLUMN IF NOT EXISTS subscription_status TEXT DEFAULT 'pending';
@@ -214,3 +211,26 @@ ALTER TABLE IF EXISTS platform_notifications
 
 CREATE INDEX IF NOT EXISTS idx_platform_notifications_from_school
   ON platform_notifications (from_school_id, created_at DESC);
+
+-- Unpaid registrations wait here until Paystack succeeds
+CREATE TABLE IF NOT EXISTS pending_signups (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email TEXT NOT NULL,
+  school_name TEXT NOT NULL,
+  logo_url TEXT,
+  payment_plan TEXT NOT NULL,
+  google_signup BOOLEAN DEFAULT FALSE,
+  paystack_reference TEXT NOT NULL UNIQUE,
+  status TEXT DEFAULT 'pending',
+  school_id UUID REFERENCES schools(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  fulfilled_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_pending_signups_email_status
+  ON pending_signups (email, status);
+
+CREATE INDEX IF NOT EXISTS idx_pending_signups_reference
+  ON pending_signups (paystack_reference);
+
+ALTER TABLE IF EXISTS pending_signups DISABLE ROW LEVEL SECURITY;

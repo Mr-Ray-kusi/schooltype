@@ -116,7 +116,7 @@ const Attendance = () => {
       fetchAttendance({ silent: true });
       fetchSummary({ silent: true });
     },
-    4000,
+    20000,
     !loading
   );
 

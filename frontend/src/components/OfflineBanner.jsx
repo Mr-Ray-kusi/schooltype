@@ -53,7 +53,9 @@ const OfflineBanner = () => {
     const unsub = subscribeOffline(() => {
       runSync();
     });
-    runSync();
+    const start = () => runSync();
+    if (typeof requestIdleCallback === 'function') requestIdleCallback(start, { timeout: 1500 });
+    else window.setTimeout(start, 0);
 
     return () => {
       window.removeEventListener('online', onOnline);

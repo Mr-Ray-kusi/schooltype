@@ -61,7 +61,7 @@ const Dashboard = () => {
     fetchDashboardData(selectedDate, { silent: false });
   }, [selectedDate, isPlanApproved, fetchDashboardData]);
 
-  useLivePoll(() => fetchDashboardData(selectedDate, { silent: true }), 8000, !loading);
+  useLivePoll(() => fetchDashboardData(selectedDate, { silent: true }), 45000, !loading);
 
   const todayLabel = schoolLocalDateLabel();
 
@@ -102,14 +102,6 @@ const Dashboard = () => {
     if (stat.features) return stat.features.some((f) => includesPlanFeature(f));
     return includesPlanFeature(stat.feature);
   });
-
-  if (loading && !stats.totalStudents) {
-    return (
-      <>
-        <div className="flex h-64 items-center justify-center text-slate-400">Loading dashboard…</div>
-      </>
-    );
-  }
 
   return (
     <>

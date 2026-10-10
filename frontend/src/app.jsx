@@ -1,21 +1,23 @@
 import React, { Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
-import Home from './pages/home';
-import Login from './pages/login';
-import Signup from './pages/sigup';
-import VerifyEmail from './pages/verify-email';
-import Privacy from './pages/privacy';
-import Plans from './pages/plans';
-import SelectPlan from './pages/select-plan';
-import MobileScanner from './pages/mobile-scanner';
-import StudentPublicId from './pages/student-public-id';
-import FeesPay from './pages/fees-pay';
-import FeesReceipt from './pages/fees-receipt';
-import StaffPortal from './pages/staff-portal';
 import Layout from './components/layout';
 import ErrorBoundary from './components/ErrorBoundary';
-import { AuthProvider, useAuth } from './contexts/authcontext';
+import { AuthProvider, useAuth, isSchoolPaid } from './contexts/authcontext';
 import { lazyWithRetry } from './utils/lazyWithRetry';
+
+const Home = lazyWithRetry(() => import('./pages/home'));
+const Login = lazyWithRetry(() => import('./pages/login'));
+const Signup = lazyWithRetry(() => import('./pages/sigup'));
+const VerifyEmail = lazyWithRetry(() => import('./pages/verify-email'));
+const Privacy = lazyWithRetry(() => import('./pages/privacy'));
+const Plans = lazyWithRetry(() => import('./pages/plans'));
+const SelectPlan = lazyWithRetry(() => import('./pages/select-plan'));
+const SignupComplete = lazyWithRetry(() => import('./pages/signup-complete'));
+const MobileScanner = lazyWithRetry(() => import('./pages/mobile-scanner'));
+const StudentPublicId = lazyWithRetry(() => import('./pages/student-public-id'));
+const FeesPay = lazyWithRetry(() => import('./pages/fees-pay'));
+const FeesReceipt = lazyWithRetry(() => import('./pages/fees-receipt'));
+const StaffPortal = lazyWithRetry(() => import('./pages/staff-portal'));
 
 const Dashboard = lazyWithRetry(() => import('./pages/Dashboard'));
 const Students = lazyWithRetry(() => import('./pages/students'));
@@ -49,7 +51,7 @@ const SchoolAdminRoute = () => {
   if (!token) return <Navigate to="/login" />;
   if (!school) return <LoadingScreen />;
   if (school?.role === 'super_admin') return <Navigate to="/super-admin" />;
-  if (!school?.payment_plan) return <Navigate to="/select-plan" />;
+  if (!isSchoolPaid(school)) return <Navigate to="/select-plan" />;
   return <Outlet />;
 };
 
@@ -83,7 +85,7 @@ const FinanceRoute = ({ feature }) => {
   if (!token) return <Navigate to="/login" />;
   if (isSuperAdmin || school?.role === 'super_admin') return <Outlet />;
   if (!school) return <LoadingScreen />;
-  if (!school?.payment_plan) return <Navigate to="/select-plan" />;
+  if (!isSchoolPaid(school)) return <Navigate to="/select-plan" />;
   if (feature && !includesPlanFeature(feature)) return <Navigate to="/dashboard" />;
   if (feature && !hasFeature(feature)) return <Navigate to="/dashboard" />;
   return <Outlet />;
@@ -96,7 +98,7 @@ const SelectPlanRoute = ({ children }) => {
   if (!token) return <Navigate to="/login" />;
   if (!school) return <LoadingScreen />;
   if (school?.role === 'super_admin') return <Navigate to="/super-admin" />;
-  if (school?.payment_plan) return <Navigate to="/dashboard" />;
+  if (isSchoolPaid(school)) return <Navigate to="/dashboard" />;
   return children;
 };
 
@@ -112,6 +114,7 @@ function App() {
               <Route path="/privacy" element={<Privacy />} />
               <Route path="/plans" element={<Plans />} />
               <Route path="/signup" element={<Signup />} />
+              <Route path="/signup/complete" element={<SignupComplete />} />
               <Route path="/verify-email" element={<VerifyEmail />} />
               <Route path="/id/:barcode" element={<StudentPublicId />} />
               <Route path="/fees" element={<FeesPay />} />

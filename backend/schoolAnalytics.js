@@ -175,7 +175,7 @@ export async function getSchoolAnalytics(schoolId, options = {}) {
           .eq('school_id', schoolId)
           .gte('date', sinceIso.slice(0, 10))
           .order('timestamp', { ascending: false })
-          .limit(8000);
+          .limit(2500);
         if (!first.error) return first;
         return supabase
           .from('attendance')
@@ -183,7 +183,7 @@ export async function getSchoolAnalytics(schoolId, options = {}) {
           .eq('school_id', schoolId)
           .gte('date', sinceIso.slice(0, 10))
           .order('timestamp', { ascending: false })
-          .limit(8000);
+          .limit(2500);
       },
       { data: [] }
     ),
@@ -194,7 +194,7 @@ export async function getSchoolAnalytics(schoolId, options = {}) {
           .select('id, amount, status, payer_id, payer_name, payment_method, channel, payment_month, payment_reference, created_at')
           .eq('school_id', schoolId)
           .order('created_at', { ascending: false })
-          .limit(8000),
+          .limit(2500),
       { data: [] }
     ),
     safeQuery(
@@ -205,14 +205,14 @@ export async function getSchoolAnalytics(schoolId, options = {}) {
           .eq('school_id', schoolId)
           .gte('created_at', sinceIso)
           .order('created_at', { ascending: false })
-          .limit(4000),
+          .limit(1500),
       { data: [] }
     ),
     safeQuery(
       async () => {
         const first = await supabase
           .from('students')
-          .select('id, name, class, monthly_fee, barcode, roll_number')
+          .select('id, name, class, monthly_fee')
           .eq('school_id', schoolId);
         if (!first.error) return first;
         return supabase.from('students').select('id, name, class, monthly_fee').eq('school_id', schoolId);
@@ -223,7 +223,7 @@ export async function getSchoolAnalytics(schoolId, options = {}) {
       () => supabase.from('classes').select('name, fee_amount').eq('school_id', schoolId),
       { data: [] }
     ),
-    safeQuery(async () => ({ data: await listPlatformEventsSince(start) }), { data: [] }),
+    safeQuery(async () => ({ data: await listPlatformEventsSince(start, { schoolId, limit: 2500 }) }), { data: [] }),
   ]);
 
   const attendance = attendanceRes.data || [];

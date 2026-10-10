@@ -58,6 +58,12 @@ import {
 } from './authSecurity.js';
 import { initSchoolWalletStore, creditInternalFunds, makeWalletReference, resetAllWalletBalances } from './schoolWalletStore.js';
 import { registerWalletRoutes, getRecordedSubscriptionRevenueMinor } from './walletRoutes.js';
+import {
+  initSchoolSignupPayment,
+  startSchoolSignupCheckout,
+  startSchoolPlanCheckout,
+  fulfillSchoolCheckout,
+} from './schoolSignupPayment.js';
 import { registerFeeRoutes, registerStaffFeeRoutes } from './feeRoutes.js';
 import { initPlatformSmsStore, claimDemoMoneyReset, resetSmsInventoryToZero } from './platformSmsStore.js';
 import { registerSmsBillingRoutes, settleSmsPayment, refundSchoolAndPlatformUnits, findPlatformSchoolId } from './smsBilling.js';
@@ -201,6 +207,7 @@ const bumpSchoolCaches = (schoolId) => {
   cacheInvalidate(`dash:${schoolId}`);
   cacheInvalidate(`att-sum:${schoolId}`);
   cacheInvalidate(`reports:${schoolId}`);
+  cacheInvalidate(`analytics:${schoolId}`);
 };
 
 const SCHOOL_PLAN_COLUMNS = [
@@ -701,7 +708,7 @@ const enforcePlanApproval = async (req, res, next) => {
     }
 
     if ((merged.plan_status || 'pending') !== 'approved') {
-      return res.status(403).json({ error: 'Your plan is awaiting admin approval' });
+      return res.status(403).json({ error: 'Complete payment to unlock your plan features' });
     }
 
     const subscription = getSubscriptionInfo(merged);
@@ -1008,6 +1015,18 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
+initSchoolSignupPayment({
+  insertSchoolRecord,
+  updateSchoolRecord,
+  findSchoolByEmail,
+  formatSchool,
+  signAuthToken,
+  authTokenPayload,
+  sendAuthEmail,
+  recordPlatformEvent,
+  recordSignupAttempt,
+});
+
 // ============ PAYMENT PLANS ============
 
 app.get('/api/plans', (req, res) => {
@@ -1016,7 +1035,7 @@ app.get('/api/plans', (req, res) => {
 
 // ============ AUTHENTICATION ROUTES ============
 
-// Signup — create account with email only; password is chosen after magic-link verify
+// Signup — Paystack first; the school row is created only after payment succeeds
 app.post('/api/auth/signup', async (req, res) => {
   try {
     const email = req.body.email?.trim().toLowerCase();
@@ -1058,7 +1077,6 @@ app.post('/api/auth/signup', async (req, res) => {
     if (!paymentPlan || !VALID_PLAN_IDS.includes(paymentPlan)) {
       return res.status(400).json({ error: 'A valid payment plan is required to create an account' });
     }
-    const resolvedPlan = resolvePlanId(paymentPlan);
 
     const existingSchool = await findSchoolByEmail(email);
     if (existingSchool) {
@@ -1082,157 +1100,24 @@ app.post('/api/auth/signup', async (req, res) => {
       return res.status(409).json({ error: 'An account with this email already exists. Please log in instead.' });
     }
 
-    // Unusable random hash until the user sets a password after verifying email
-    const pendingPassword = crypto.randomBytes(32).toString('hex');
-    const hashedPassword = await bcrypt.hash(pendingPassword, 10);
-    const { rawToken, tokenHash, expiresAt } = createEmailVerificationToken();
-
-    const schoolRecord = {
-      name: schoolName.trim(),
-      email,
-      password_hash: hashedPassword,
-      initial_password: PASSWORD_SETUP_MARKER,
-      role: 'admin',
-      created_at: new Date(),
-      payment_plan: resolvedPlan,
-      plan_selected_at: new Date(),
-      plan_status: 'pending',
-      email_verified: false,
-      email_verification_token: tokenHash,
-      email_verification_expires_at: expiresAt,
-    };
-    if (logo) {
-      schoolRecord.logo_url = logo;
-    }
-
-    const { data: school, error: schoolError } = await insertSchoolRecord(schoolRecord);
-
-    if (schoolError?.duplicate) {
-      await recordSignupAttempt(clientIp);
-      return res.status(409).json({ error: 'An account with this email already exists. Please log in instead.' });
-    }
-
-    if (schoolError || !school) {
-      console.error('School creation error:', schoolError);
-      const rlsBlocked =
-        schoolError?.code === '42501' ||
-        String(schoolError?.message || '').toLowerCase().includes('row-level security');
-      if (rlsBlocked) {
-        return res.status(500).json({
-          error:
-            'Supabase blocked school creation (RLS). Run database/supabase_backend_access.sql in the Supabase SQL editor, or set SUPABASE_SERVICE_ROLE_KEY in backend/.env, then restart.',
-        });
-      }
-      if (
-        schoolError?.code === 'MISSING_PLAN_COLUMNS' ||
-        isMissingColumnError(schoolError, 'email_verified') ||
-        isMissingColumnError(schoolError, 'email_verification_token')
-      ) {
-        return res.status(500).json({
-          error:
-            schoolError?.message ||
-            'Email verification columns are missing. Run backend/migrations/add_email_verification.sql (or database/supabase_core_billing.sql) in Supabase.',
-        });
-      }
-      return res.status(500).json({
-        error: schoolError?.message
-          ? `Failed to create school: ${schoolError.message}`
-          : 'Failed to create school. Please try again.',
-      });
-    }
-
-    if (school.email_verified !== false && school.email_verification_token == null) {
-      await supabase.from('schools').delete().eq('id', school.id);
-      await deleteSchoolExtras(school.id);
-      return res.status(500).json({
-        error:
-          'Email verification columns are missing. Run backend/migrations/add_email_verification.sql in the Supabase SQL editor, then try signup again.',
-        code: 'MISSING_EMAIL_VERIFICATION_COLUMNS',
-      });
-    }
-
     await recordSignupAttempt(clientIp);
-
-    try {
-      await upsertSchoolExtras(school.id, {
-        payment_plan: resolvedPlan,
-        plan_status: 'pending',
-        plan_selected_at: new Date().toISOString(),
-        logo_url: logo || null,
-      });
-    } catch (persistError) {
-      console.error('Signup plan persist failed:', persistError.message);
-      await supabase.from('schools').delete().eq('id', school.id);
-      await deleteSchoolExtras(school.id);
-      return res.status(500).json({
-        error: persistError.message || `Failed to save plan for approval. ${PLAN_SCHEMA_HELP}`,
-      });
-    }
-
-    if (!school.payment_plan || school.plan_status !== 'pending') {
-      await supabase.from('schools').delete().eq('id', school.id);
-      await deleteSchoolExtras(school.id);
-      return res.status(500).json({
-        error: `Failed to save plan for super-admin approval. ${PLAN_SCHEMA_HELP}`,
-      });
-    }
-
-    const verifyUrl = buildVerifyEmailUrl(rawToken);
-    if (!verifyUrl || !verifyUrl.includes('/verify-email?token=')) {
-      console.error('Verification URL was empty or invalid');
-      return res.status(500).json({ error: 'Could not build verification link. Check FRONTEND_URL.' });
-    }
-
-    const recipientEmail = String(school.email || email)
-      .trim()
-      .toLowerCase();
-    if (!recipientEmail || recipientEmail !== email) {
-      console.error('[auth] Signup email mismatch', { bodyEmail: email, schoolEmail: school.email });
-      return res.status(500).json({ error: 'Account email mismatch. Please try signup again.' });
-    }
-
-    recordPlatformEvent({
-      eventType: 'signup',
-      schoolId: school.id,
-      schoolName: school.name,
-      email: recipientEmail,
-      role: 'admin',
-      path: '/signup',
-    }).catch(() => {});
-
-    const mail = buildVerificationEmail({
-      schoolName: school.name,
-      email: recipientEmail,
-      verifyUrl,
+    const checkout = await startSchoolSignupCheckout({
+      email,
+      schoolName: schoolName.trim(),
+      logo,
+      paymentPlan,
+      googleSignup: false,
     });
 
-    try {
-      await sendAuthEmail({
-        to: recipientEmail,
-        subject: mail.subject,
-        text: mail.text,
-        html: mail.html,
-      });
-    } catch (mailError) {
-      console.error('Verification email send failed:', mailError.message);
-      return res.status(201).json({
-        requiresEmailVerification: true,
-        emailSendFailed: true,
-        email: recipientEmail,
-        message:
-          'Account started, but we could not send the email. Use Resend on the sign-in page.',
-        code: 'EMAIL_SEND_FAILED',
-      });
-    }
-
-    res.status(201).json({
-      requiresEmailVerification: true,
-      email: recipientEmail,
-      message: 'Check your email to continue. Open the link to verify and choose a password.',
+    res.json({
+      ...checkout,
+      email,
+      message: 'Complete payment to create your school account. Features unlock after a successful charge.',
     });
   } catch (error) {
-    console.error('Signup error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    const status = error.status || 500;
+    if (status >= 500 && error.code !== 'PAYSTACK_NOT_CONFIGURED') console.error('Signup error:', error);
+    res.status(status).json({ error: error.message || 'Internal server error', code: error.code });
   }
 });
 
@@ -1435,62 +1320,24 @@ app.post('/api/auth/google', async (req, res) => {
         return res.status(429).json({ error: signupCheck.message });
       }
 
-      const resolvedPlan = resolvePlanId(paymentPlan);
       const name = String(schoolName || profile.name || '').trim();
       if (!name) {
         return res.status(400).json({ error: 'School name is required to create an account with Google.' });
       }
 
-      const hashedPassword = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 10);
-      const schoolRecord = {
-        name,
-        email,
-        password_hash: hashedPassword,
-        initial_password: null,
-        role: 'admin',
-        created_at: new Date(),
-        payment_plan: resolvedPlan,
-        plan_selected_at: new Date(),
-        plan_status: 'pending',
-        email_verified: true,
-      };
-      if (logo) schoolRecord.logo_url = logo;
-
-      const inserted = await insertSchoolRecord(schoolRecord);
-      if (inserted.error?.duplicate) {
-        return res.status(409).json({ error: 'An account with this email already exists. Please sign in instead.' });
-      }
-      if (inserted.error || !inserted.data) {
-        return res.status(500).json({
-          error: inserted.error?.message || 'Failed to create school account with Google.',
-        });
-      }
       await recordSignupAttempt(clientIp);
-      school = inserted.data;
-
-      try {
-        await upsertSchoolExtras(school.id, {
-          payment_plan: resolvedPlan,
-          plan_status: 'pending',
-          plan_selected_at: new Date().toISOString(),
-          logo_url: logo || null,
-        });
-      } catch (persistError) {
-        await supabase.from('schools').delete().eq('id', school.id);
-        await deleteSchoolExtras(school.id);
-        return res.status(500).json({
-          error: persistError.message || `Failed to save plan for approval. ${PLAN_SCHEMA_HELP}`,
-        });
-      }
-
-      recordPlatformEvent({
-        eventType: 'signup',
-        schoolId: school.id,
-        schoolName: school.name,
+      const checkout = await startSchoolSignupCheckout({
         email,
-        role: 'admin',
-        path: '/signup',
-      }).catch(() => {});
+        schoolName: name,
+        logo,
+        paymentPlan,
+        googleSignup: true,
+      });
+      return res.json({
+        ...checkout,
+        email,
+        message: 'Complete payment to create your school account. Features unlock after a successful charge.',
+      });
     } else {
       const repairs = {};
       if (school.email_verified !== true) repairs.email_verified = true;
@@ -1523,6 +1370,35 @@ app.post('/api/auth/google', async (req, res) => {
     const status = error.status || 500;
     if (status >= 500) console.error('Google auth error:', error);
     res.status(status).json({ error: error.message || 'Google sign-in failed', code: error.code });
+  }
+});
+
+app.post('/api/auth/complete-signup', async (req, res) => {
+  try {
+    const reference = String(req.body?.reference || req.query?.reference || '').trim();
+    const result = await fulfillSchoolCheckout(reference);
+    if (result.ignored) {
+      return res.status(400).json({ error: 'This payment is not a school signup checkout.' });
+    }
+    if (!result.ok) {
+      return res.status(400).json({
+        error: result.error || 'Payment has not been completed yet.',
+        pending: Boolean(result.pending),
+        status: result.status || null,
+      });
+    }
+    res.json({
+      ...result,
+      message: result.requiresEmailVerification
+        ? result.emailSendFailed
+          ? 'Payment received and account created. We could not send the email — use Resend on the sign-in page.'
+          : 'Payment received. Check your email to verify and choose a password. All plan features are unlocked.'
+        : 'Payment received. Your school account is ready and all plan features are unlocked.',
+    });
+  } catch (error) {
+    const status = error.status || 500;
+    if (status >= 500) console.error('Complete signup error:', error);
+    res.status(status).json({ error: error.message || 'Could not finish signup after payment', code: error.code });
   }
 });
 
@@ -1803,7 +1679,7 @@ app.get('/api/auth/verify', authenticateToken, async (req, res) => {
   }
 });
 
-// Select payment plan (school admin, after signup via login flow)
+// Select payment plan — Paystack checkout; features unlock only after payment
 app.post('/api/school/select-plan', authenticateToken, async (req, res) => {
   try {
     if (req.user.role === 'super_admin') {
@@ -1814,36 +1690,6 @@ app.post('/api/school/select-plan', authenticateToken, async (req, res) => {
     if (!paymentPlan || !VALID_PLAN_IDS.includes(paymentPlan)) {
       return res.status(400).json({ error: 'Invalid payment plan' });
     }
-    const resolvedPlan = resolvePlanId(paymentPlan);
-
-    const planUpdates = {
-      payment_plan: resolvedPlan,
-      plan_selected_at: new Date().toISOString(),
-      plan_status: 'pending',
-    };
-
-    const { data: updatedSchool, error } = await updateSchoolRecord(req.user.schoolId, {
-      payment_plan: resolvedPlan,
-      plan_selected_at: new Date(),
-      plan_status: 'pending',
-    });
-
-    if (error || !updatedSchool?.payment_plan || updatedSchool.plan_status !== 'pending') {
-      console.error('Select plan DB update failed:', error);
-      return res.status(500).json({
-        error: `Failed to save payment plan for approval. ${PLAN_SCHEMA_HELP}`,
-        detail: error?.message || null,
-      });
-    }
-
-    try {
-      await upsertSchoolExtras(req.user.schoolId, planUpdates);
-    } catch (persistError) {
-      console.error('Select plan extras persist failed:', persistError.message);
-      return res.status(500).json({
-        error: persistError.message || `Failed to save payment plan. ${PLAN_SCHEMA_HELP}`,
-      });
-    }
 
     const { data: currentSchool, error: fetchError } = await supabase
       .from('schools')
@@ -1852,28 +1698,29 @@ app.post('/api/school/select-plan', authenticateToken, async (req, res) => {
       .maybeSingle();
 
     if (fetchError || !currentSchool) {
-      console.error('Select plan reload failed:', fetchError || error);
-      return res.status(500).json({
-        error:
-          'Failed to load school after plan update. Confirm SUPABASE_SERVICE_ROLE_KEY and that the school row exists.',
-      });
+      return res.status(404).json({ error: 'School not found' });
     }
 
-    // Verify Postgres row itself — do not trust in-memory cache alone.
-    if (!currentSchool.payment_plan || currentSchool.plan_status !== 'pending') {
-      console.error('Select plan did not persist on schools row:', {
-        payment_plan: currentSchool.payment_plan,
-        plan_status: currentSchool.plan_status,
-      });
-      return res.status(500).json({
-        error: `Failed to save payment plan. ${PLAN_SCHEMA_HELP}`,
-      });
+    const merged = mergeSchoolWithExtras(currentSchool);
+    if ((merged.plan_status || '') === 'approved') {
+      return res.json({ school: formatSchool(currentSchool), alreadyPaid: true });
     }
 
-    res.json({ school: formatSchool(currentSchool) });
+    const checkout = await startSchoolPlanCheckout({
+      schoolId: currentSchool.id,
+      email: currentSchool.email,
+      schoolName: currentSchool.name,
+      paymentPlan,
+    });
+
+    res.json({
+      ...checkout,
+      school: formatSchool(currentSchool),
+    });
   } catch (error) {
-    console.error('Select plan error:', error);
-    res.status(500).json({ error: error.message || 'Internal server error' });
+    const status = error.status || 500;
+    if (status >= 500 && error.code !== 'PAYSTACK_NOT_CONFIGURED') console.error('Select plan error:', error);
+    res.status(status).json({ error: error.message || 'Internal server error', code: error.code });
   }
 });
 
@@ -2890,7 +2737,11 @@ app.delete('/api/super-admin/schools/:id', authenticateToken, requireSuperAdmin,
 });
 
 // Health check endpoint
-registerWalletRoutes(app, { authenticateToken, enforcePlanApproval });
+registerWalletRoutes(app, {
+  authenticateToken,
+  enforcePlanApproval,
+  onSchoolCheckoutPaid: fulfillSchoolCheckout,
+});
 registerFeeRoutes(app, { authenticateToken, enforcePlanApproval });
 registerSmsBillingRoutes(app, {
   authenticateToken,
@@ -5418,16 +5269,27 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
       }
     }
 
-    const [students, staff, nonStaff, messages, attendance] = await Promise.all([
-      supabase.from('students').select('id', { count: 'exact', head: true }).eq('school_id', req.user.schoolId),
-      supabase.from('staffs').select('id', { count: 'exact', head: true }).eq('school_id', req.user.schoolId),
-      supabase.from('nonstaffs').select('id', { count: 'exact', head: true }).eq('school_id', req.user.schoolId),
+    const schoolId = req.user.schoolId;
+    const attendanceFor = (userType) =>
+      supabase
+        .from('attendance')
+        .select('id', { count: 'exact', head: true })
+        .eq('school_id', schoolId)
+        .eq('date', selectedDate)
+        .eq('user_type', userType);
+
+    const [students, staff, nonStaff, messages, attStudents, attStaff, attNonStaff] = await Promise.all([
+      supabase.from('students').select('id', { count: 'exact', head: true }).eq('school_id', schoolId),
+      supabase.from('staffs').select('id', { count: 'exact', head: true }).eq('school_id', schoolId),
+      supabase.from('nonstaffs').select('id', { count: 'exact', head: true }).eq('school_id', schoolId),
       supabase
         .from('messages')
         .select('id', { count: 'exact', head: true })
-        .eq('school_id', req.user.schoolId)
+        .eq('school_id', schoolId)
         .is('reply', null),
-      supabase.from('attendance').select('user_type').eq('school_id', req.user.schoolId).eq('date', selectedDate),
+      attendanceFor('student'),
+      attendanceFor('staff'),
+      attendanceFor('non-staff'),
     ]);
 
     const totals = {
@@ -5435,15 +5297,35 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
       staff: staff.count || 0,
       nonStaff: nonStaff.count || 0,
     };
-    const attendanceSummary = buildAttendanceSummaryPayload(selectedDate, totals, attendance.data);
-    cacheSet(`att-sum:${req.user.schoolId}:${selectedDate}`, attendanceSummary, DASHBOARD_TTL_MS);
+    const presentStudents = attStudents.count || 0;
+    const presentStaff = attStaff.count || 0;
+    const presentNonStaff = attNonStaff.count || 0;
+    const attendanceSummary = {
+      date: selectedDate,
+      students: {
+        total: totals.students,
+        present: presentStudents,
+        percentage: percentPresent(presentStudents, totals.students),
+      },
+      staff: {
+        total: totals.staff,
+        present: presentStaff,
+        percentage: percentPresent(presentStaff, totals.staff),
+      },
+      nonStaff: {
+        total: totals.nonStaff,
+        present: presentNonStaff,
+        percentage: percentPresent(presentNonStaff, totals.nonStaff),
+      },
+    };
+    cacheSet(`att-sum:${schoolId}:${selectedDate}`, attendanceSummary, DASHBOARD_TTL_MS);
 
     const payload = {
       totalStudents: totals.students,
       totalStaff: totals.staff,
       totalNonStaff: totals.nonStaff,
       unreadMessages: messages.count || 0,
-      todayAttendance: attendance.data?.length || 0,
+      todayAttendance: presentStudents + presentStaff + presentNonStaff,
       attendance: attendanceSummary,
     };
     cacheSet(cacheKey, payload, DASHBOARD_TTL_MS);
@@ -5455,7 +5337,12 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
 
 app.get('/api/dashboard/analytics', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
-    const analytics = await getSchoolAnalytics(req.user.schoolId, { range: req.query.range });
+    const range = String(req.query.range || '1w');
+    const cacheKey = `analytics:${req.user.schoolId}:${range}`;
+    const cached = cacheGet(cacheKey);
+    if (cached) return res.json(cached);
+    const analytics = await getSchoolAnalytics(req.user.schoolId, { range });
+    cacheSet(cacheKey, analytics, 45 * 1000);
     res.json(analytics);
   } catch (error) {
     console.error('School analytics error:', error);

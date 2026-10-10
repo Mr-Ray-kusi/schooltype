@@ -77,6 +77,11 @@ const Signup = () => {
 
     try {
       const data = await signup(formData.schoolName, formData.email, null, logo, planParam);
+      if (data.authorization_url) {
+        toast.success('Continue to Paystack. Your account is created after payment succeeds.');
+        window.location.assign(data.authorization_url);
+        return;
+      }
 
       toast.success(
         data.emailSendFailed
@@ -103,7 +108,7 @@ const Signup = () => {
       <div className="mt-6">
         <h1 className="text-[2rem] font-bold leading-tight text-white">Join the crew</h1>
         <p className="mt-2 text-sm text-neutral-400">
-          Register a school account for your admin desk · {selectedPlan.name} — {formatPlanPriceGhs(selectedPlan)} / year
+          Pay for {selectedPlan.name} — {formatPlanPriceGhs(selectedPlan)} / year, then your school account is created and unlocked.
         </p>
         <Link to="/plans" className="mt-1 inline-block text-xs hover:underline" style={{ color: AUTH_ORANGE }}>
           Change plan
@@ -177,6 +182,11 @@ const Signup = () => {
               paymentPlan: planParam,
               privacyAccepted: true,
             });
+            if (data.authorization_url) {
+              toast.success('Continue to Paystack. Your account is created after payment succeeds.');
+              window.location.assign(data.authorization_url);
+              return;
+            }
             toast.success('Account ready. Welcome to Schooltype.');
             navigate(getPostAuthPath(data.school), { replace: true });
           }}
@@ -201,9 +211,12 @@ const Signup = () => {
         <div className="rounded-xl border border-[#3f3f3f] bg-[#1a1a1a] px-3 py-3 text-xs text-neutral-400">
           <p className="flex items-center gap-2 font-medium text-neutral-300">
             <ShieldCheck className="h-4 w-4 text-[#3498DB]" />
-            Password is set after email verification
+            Pay first, then verify email
           </p>
-          <p className="mt-1 pl-6">We'll send a secure link so you can verify ownership and choose a password.</p>
+          <p className="mt-1 pl-6">
+            Complete Paystack checkout to create the account. After payment we email a link so you can verify ownership
+            and choose a password. All plan features unlock immediately.
+          </p>
         </div>
 
         <button
@@ -211,7 +224,7 @@ const Signup = () => {
           disabled={loading || !privacyAccepted}
           className="auth-accent mt-2 w-full rounded-xl py-3.5 text-sm font-semibold text-white transition disabled:opacity-50"
         >
-          {loading ? 'Sending link…' : 'Create account'}
+          {loading ? 'Opening checkout…' : 'Pay & create account'}
         </button>
       </form>
 

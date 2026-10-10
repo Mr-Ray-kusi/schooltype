@@ -362,25 +362,31 @@ function isSchoolUsageEvent(event) {
   return true;
 }
 
-export async function listPlatformEventsSince(since) {
-  return loadEventsSince(since instanceof Date ? since : new Date(since));
+export async function listPlatformEventsSince(since, { schoolId, limit } = {}) {
+  return loadEventsSince(since instanceof Date ? since : new Date(since), { schoolId, limit });
 }
 
-async function loadEventsSince(since) {
+async function loadEventsSince(since, { schoolId, limit } = {}) {
   const sinceMs = since.getTime();
-  const fromMemory = memoryEvents.filter((event) => new Date(event.created_at).getTime() >= sinceMs);
+  const fromMemory = memoryEvents.filter((event) => {
+    if (new Date(event.created_at).getTime() < sinceMs) return false;
+    if (schoolId && event.school_id && event.school_id !== schoolId) return false;
+    return true;
+  });
 
   if (!supabase) return fromMemory;
   if (!tableChecked) await initPlatformTelemetry();
   if (!tableReady) return fromMemory;
 
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from('platform_events')
       .select('id, school_id, school_name, email, role, event_type, path, duration_ms, meta, created_at')
       .gte('created_at', since.toISOString())
       .order('created_at', { ascending: false })
-      .limit(FETCH_LIMIT);
+      .limit(Math.min(Number(limit) || FETCH_LIMIT, FETCH_LIMIT));
+    if (schoolId) query = query.eq('school_id', schoolId);
+    const { data, error } = await query;
 
     if (error) {
       if (isMissingTableError(error)) tableReady = false;

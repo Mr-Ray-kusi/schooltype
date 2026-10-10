@@ -63,7 +63,7 @@ const SchoolAnalyticsChart = () => {
     fetchData({ silent: false });
   }, [fetchData]);
 
-  useLivePoll(() => fetchData({ silent: true }), 8000, !loading);
+  useLivePoll(() => fetchData({ silent: true }), 60000, !loading);
 
   const totals = data?.totals || {};
   const previews = data?.previews || {};

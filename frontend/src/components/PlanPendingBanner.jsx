@@ -1,4 +1,5 @@
 import { Clock, Lock } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/authcontext';
 import { FEATURE_LABELS, getPlan, formatPlanPriceGhs } from '../constants/plans';
 
@@ -24,13 +25,21 @@ const PlanPendingBanner = () => {
         )}
         <div className="flex-1">
           <h3 className="font-semibold text-white">
-            {isRejected ? 'Plan not approved' : 'Awaiting admin approval'}
+            {isRejected ? 'Plan not approved' : 'Payment required'}
           </h3>
           <p className="text-sm text-slate-200 mt-1">
             {isRejected
               ? `Your ${school.plan_name || 'selected'} plan was not approved. Contact the platform admin.`
-              : `Your ${school.plan_name || 'selected'} plan${planPriceLabel ? ` (${planPriceLabel}/yr)` : ''} is pending review. Features below are locked until a super admin approves your account.`}
+              : `Complete payment for your ${school.plan_name || 'selected'} plan${planPriceLabel ? ` (${planPriceLabel}/yr)` : ''} to unlock every feature.`}
           </p>
+          {!isRejected && (
+            <Link
+              to="/select-plan"
+              className="mt-3 inline-flex text-sm font-semibold text-amber-200 underline-offset-2 hover:underline"
+            >
+              Pay now
+            </Link>
+          )}
           {school.pending_plan_features?.length > 0 && (
             <div className="flex flex-wrap gap-2 mt-3">
               {school.pending_plan_features.map((feature) => (

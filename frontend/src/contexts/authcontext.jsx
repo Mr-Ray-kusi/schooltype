@@ -5,14 +5,17 @@ import { hasFeature as planHasFeature } from '../constants/plans';
 
 const AuthContext = createContext();
 
-/** How often pending school admins check whether a super admin approved their plan. */
+/** How often unpaid school admins check whether Paystack unlocked their plan. */
 const PLAN_APPROVAL_POLL_MS = 15000;
 
 export const useAuth = () => useContext(AuthContext);
 
+export const isSchoolPaid = (school) =>
+  school?.plan_approved === true || school?.plan_status === 'approved';
+
 export const getPostAuthPath = (school) => {
   if (school?.role === 'super_admin') return '/super-admin';
-  if (!school?.payment_plan) return '/select-plan';
+  if (!isSchoolPaid(school)) return '/select-plan';
   return '/dashboard';
 };
 
@@ -22,7 +25,8 @@ const isAuthRoute = (url = '') =>
   url.includes('/api/auth/google') ||
   url.includes('/api/auth/verify-email') ||
   url.includes('/api/auth/resend-verification') ||
-  url.includes('/api/auth/set-password');
+  url.includes('/api/auth/set-password') ||
+  url.includes('/api/auth/complete-signup');
 
 const readCachedSchool = () => {
   try {
@@ -269,20 +273,29 @@ export const AuthProvider = ({ children }) => {
       paymentPlan,
       privacyAccepted: Boolean(privacyAccepted),
     });
-    const { token: newToken, school: schoolData, expiresIn } = response.data || {};
+    const data = response.data || {};
+    if (data.authorization_url) return data;
+    const { token: newToken, school: schoolData, expiresIn } = data;
     if (!newToken || !schoolData) {
       const err = new Error('Google sign-in did not return a session.');
       err.response = { data: { error: err.message } };
       throw err;
     }
     storeSession(newToken, schoolData, expiresIn);
-    return response.data;
+    return data;
   };
 
   const selectPlan = async (paymentPlan) => {
     const response = await axios.post('/api/school/select-plan', { paymentPlan });
-    persistSchool(response.data.school);
+    if (response.data?.school) persistSchool(response.data.school);
     return response.data;
+  };
+
+  const completePaidSignup = async (reference) => {
+    const response = await axios.post('/api/auth/complete-signup', { reference }, { timeout: 45000 });
+    const data = response.data || {};
+    if (data.token && data.school) storeSession(data.token, data.school, data.expiresIn);
+    return data;
   };
 
   const refreshSchool = useCallback(async () => {
@@ -320,7 +333,7 @@ export const AuthProvider = ({ children }) => {
         const wasApproved = prev?.plan_approved === true;
         persistSchool(next, prev);
         if (!wasApproved && next.plan_approved) {
-          toast.success('Your plan was approved! Features are now unlocked.');
+          toast.success('Payment confirmed. All plan features are unlocked.');
         }
       } catch {
         // Ignore transient API errors while waiting for approval.
@@ -391,6 +404,7 @@ export const AuthProvider = ({ children }) => {
         login,
         loginWithGoogle,
         selectPlan,
+        completePaidSignup,
         refreshSchool,
         logout,
         loading,

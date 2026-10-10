@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import axios from 'axios';
 import { ArrowLeft, Building2, CreditCard, Landmark, Loader2, Smartphone } from 'lucide-react';
@@ -41,6 +41,23 @@ const FeesPay = () => {
   const [paying, setPaying] = useState(false);
   const [momoPrompt, setMomoPrompt] = useState(null);
   const [otpCode, setOtpCode] = useState('');
+  const momoPromptRef = useRef(null);
+  const abortingRef = useRef(false);
+  const momoWaitStartedAtRef = useRef(0);
+  momoPromptRef.current = momoPrompt;
+
+  const abortPayment = useCallback((message) => {
+    const reference = momoPromptRef.current?.reference;
+    if (abortingRef.current) return;
+    abortingRef.current = true;
+    setMomoPrompt(null);
+    setOtpCode('');
+    setPaying(false);
+    setStep(2);
+    setError(message || 'Payment cancelled. Tap Continue to payment to start again.');
+    if (!reference) return;
+    axios.post('/api/public/fees/cancel', { reference }, { timeout: 8000 }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (barcode) return undefined;
@@ -92,49 +109,89 @@ const FeesPay = () => {
   }, [barcode]);
 
   useEffect(() => {
-    if (!momoPrompt?.reference || momoPrompt.needs_code) return undefined;
+    const reference = momoPrompt?.reference;
+    if (!reference) return undefined;
+
+    const remaining = Math.max(0, 30000 - (Date.now() - (momoWaitStartedAtRef.current || Date.now())));
+    const timeout = window.setTimeout(() => {
+      abortPayment('MoMo PIN was not confirmed in 30 seconds. Tap Continue to payment to start again.');
+    }, remaining);
+
+    const onLeave = () => {
+      fetch('/api/public/fees/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reference }),
+        keepalive: true,
+      }).catch(() => {});
+    };
+    window.addEventListener('pagehide', onLeave);
+    window.addEventListener('beforeunload', onLeave);
+    const onPageShow = (event) => {
+      if (event.persisted && momoPromptRef.current?.reference) {
+        abortPayment('Payment cancelled. Tap Continue to payment to start again.');
+      }
+    };
+    window.addEventListener('pageshow', onPageShow);
+
+    if (momoPrompt.needs_code) {
+      return () => {
+        window.clearTimeout(timeout);
+        window.removeEventListener('pagehide', onLeave);
+        window.removeEventListener('beforeunload', onLeave);
+        window.removeEventListener('pageshow', onPageShow);
+      };
+    }
+
     let cancelled = false;
-    let attempts = 0;
     const poll = async () => {
-      attempts += 1;
       try {
-        const { data } = await axios.get(`/api/public/fees/verify/${encodeURIComponent(momoPrompt.reference)}`);
+        const { data } = await axios.get(`/api/public/fees/charge/${encodeURIComponent(reference)}`, {
+          timeout: 12000,
+        });
         if (cancelled) return;
-        if (data.status === 'success') {
-          window.location.href = `/pay/receipt?reference=${encodeURIComponent(momoPrompt.reference)}`;
+        if (data.authorization_url) {
+          window.location.href = data.authorization_url;
           return;
         }
-        if (data.status === 'failed' || data.status === 'timeout') {
-          setError(data.display_text || 'Payment failed. Try again.');
-          setMomoPrompt(null);
-          setPaying(false);
+        if (data.status === 'success') {
+          window.location.href = `/pay/receipt?reference=${encodeURIComponent(reference)}`;
+          return;
+        }
+        if (data.status === 'failed' || data.status === 'timeout' || data.status === 'cancelled') {
+          abortPayment(data.display_text || 'Payment was cancelled. Tap Continue to payment to start again.');
           return;
         }
         if (data.needs_code) {
           setMomoPrompt((prev) => ({
             ...prev,
             needs_code: true,
+            code_type: data.code_type || prev?.code_type || 'otp',
             display_text: data.display_text || prev?.display_text,
           }));
           setPaying(false);
           return;
         }
+        if (data.display_text) {
+          setMomoPrompt((prev) =>
+            prev?.display_text === data.display_text ? prev : { ...prev, display_text: data.display_text }
+          );
+        }
       } catch {
         // Keep waiting while Paystack finalizes the charge.
       }
-      if (!cancelled && attempts < 80) {
-        window.setTimeout(poll, 3000);
-      } else if (!cancelled) {
-        setError('Still waiting for confirmation. Approve the prompt on your phone, then refresh this page.');
-        setPaying(false);
-      }
     };
-    const timer = window.setTimeout(poll, 2500);
+    poll();
+    const interval = window.setInterval(poll, 1500);
     return () => {
       cancelled = true;
-      window.clearTimeout(timer);
+      window.clearInterval(interval);
+      window.clearTimeout(timeout);
+      window.removeEventListener('pagehide', onLeave);
+      window.removeEventListener('beforeunload', onLeave);
+      window.removeEventListener('pageshow', onPageShow);
     };
-  }, [momoPrompt]);
+  }, [momoPrompt?.reference, momoPrompt?.needs_code, abortPayment]);
 
   const lookupStudent = async (event) => {
     event?.preventDefault();
@@ -192,13 +249,19 @@ const FeesPay = () => {
       const path = barcode
         ? `/api/public/fees/${encodeURIComponent(barcode)}/checkout`
         : '/api/public/fees/pay';
-      const { data } = await axios.post(path, payload);
+      const { data } = await axios.post(path, payload, { timeout: 45000 });
       if (method === 'momo' || data.mode === 'momo') {
+        if (data.authorization_url) {
+          window.location.href = data.authorization_url;
+          return;
+        }
+        abortingRef.current = false;
+        momoWaitStartedAtRef.current = Date.now();
         setMomoPrompt({
           reference: data.reference,
           display_text: data.display_text,
           needs_code: Boolean(data.needs_code),
-          code_type: data.code_type || 'otp',
+          code_type: data.code_type || (data.status === 'send_pin' ? 'pin' : 'otp'),
           live_mode: data.live_mode !== false,
         });
         setPaying(Boolean(!data.needs_code && data.status !== 'success'));
@@ -228,11 +291,15 @@ const FeesPay = () => {
     setPaying(true);
     setError('');
     try {
-      const { data } = await axios.post('/api/public/fees/authorize', {
-        reference: momoPrompt.reference,
-        otp: otpCode.trim(),
-        code_type: momoPrompt.code_type || 'otp',
-      });
+      const { data } = await axios.post(
+        '/api/public/fees/authorize',
+        {
+          reference: momoPrompt.reference,
+          otp: otpCode.trim(),
+          code_type: momoPrompt.code_type || 'otp',
+        },
+        { timeout: 30000 }
+      );
       if (data.authorization_url) {
         window.location.href = data.authorization_url;
         return;
@@ -241,11 +308,8 @@ const FeesPay = () => {
         window.location.href = `/pay/receipt?reference=${encodeURIComponent(data.reference || momoPrompt.reference)}`;
         return;
       }
-      if (data.status === 'failed' || data.status === 'timeout') {
-        setError(data.display_text || 'That code was not accepted. Try the payment again.');
-        setMomoPrompt(null);
-        setOtpCode('');
-        setPaying(false);
+      if (data.status === 'failed' || data.status === 'timeout' || data.status === 'cancelled') {
+        abortPayment(data.display_text || 'That code was not accepted. Tap Continue to payment to start again.');
         return;
       }
       setMomoPrompt((prev) => ({
@@ -490,20 +554,23 @@ const FeesPay = () => {
                 <p>
                   {momoPrompt.display_text ||
                     (momoPrompt.needs_code
-                      ? 'Enter the verification code sent for this payment.'
-                      : 'Waiting for confirmation.')}
+                      ? momoPrompt.code_type === 'pin'
+                        ? 'Enter the MoMo PIN from the prompt.'
+                        : 'Enter the verification code sent for this payment.'
+                      : 'Waiting for the confirmation prompt on your phone.')}
                 </p>
               </div>
               {momoPrompt.needs_code ? (
                 <label className="block text-sm font-medium text-emerald-50">
-                  Verification code
+                  {momoPrompt.code_type === 'pin' ? 'MoMo PIN' : 'Verification code'}
                   <input
                     className={`${fieldClass} mt-2`}
                     value={otpCode}
                     onChange={(e) => setOtpCode(e.target.value)}
-                    placeholder="Enter the code"
-                    autoComplete="one-time-code"
+                    placeholder={momoPrompt.code_type === 'pin' ? 'Enter your PIN' : 'Enter the code'}
+                    autoComplete={momoPrompt.code_type === 'pin' ? 'off' : 'one-time-code'}
                     inputMode="numeric"
+                    autoFocus
                   />
                 </label>
               ) : null}
@@ -512,13 +579,16 @@ const FeesPay = () => {
 
           {error ? <p className="text-sm text-rose-300">{error}</p> : null}
 
-          <div className="flex gap-2">
-            {step > 1 && !paying ? (
+          <div className="flex flex-wrap gap-2">
+            {step > 1 && (!paying || momoPrompt) ? (
               <button
                 type="button"
                 onClick={() => {
+                  if (momoPrompt) {
+                    abortPayment('Payment cancelled. Tap Continue to payment to start again.');
+                    return;
+                  }
                   setError('');
-                  setMomoPrompt(null);
                   setOtpCode('');
                   setPaying(false);
                   setStep(step - 1);
@@ -527,6 +597,15 @@ const FeesPay = () => {
               >
                 <ArrowLeft className="h-4 w-4" />
                 Back
+              </button>
+            ) : null}
+            {momoPrompt ? (
+              <button
+                type="button"
+                onClick={() => abortPayment('Payment cancelled. Tap Continue to payment to start again.')}
+                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-rose-500/50 px-4 py-3 text-sm font-semibold text-rose-200 hover:bg-rose-950/40"
+              >
+                Cancel payment
               </button>
             ) : null}
             <button

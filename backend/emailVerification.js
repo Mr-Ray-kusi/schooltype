@@ -50,15 +50,19 @@ export function needsPasswordSetup(school) {
   return Boolean(school) && school.initial_password === PASSWORD_SETUP_MARKER;
 }
 
-export function buildVerificationEmail({ schoolName, email, verifyUrl }) {
+export function buildVerificationEmail({ schoolName, email, verifyUrl, paid = false }) {
   const name = schoolName || 'your school';
   const safeUrl = String(verifyUrl || '').trim();
-  const subject = 'Create your Schooltype account — verify your email';
+  const subject = paid
+    ? 'Payment received — verify your Schooltype email'
+    : 'Create your Schooltype account — verify your email';
 
   const text = [
     `Hi,`,
     ``,
-    `Thanks for starting registration for ${name} on Schooltype.`,
+    paid
+      ? `Payment for ${name} on Schooltype was successful. Your plan is unlocked.`
+      : `Thanks for starting registration for ${name} on Schooltype.`,
     ``,
     `Open this link to verify your email and choose a password:`,
     safeUrl,
@@ -75,8 +79,8 @@ export function buildVerificationEmail({ schoolName, email, verifyUrl }) {
 <body style="margin:0;padding:0;background:#f1f5f9;">
   <div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;padding:24px;line-height:1.5;color:#0f172a;">
     <div style="background:#ffffff;border-radius:16px;padding:28px;border:1px solid #e2e8f0;">
-      <h2 style="margin:0 0 16px;font-size:22px;color:#0f172a;">Create your Schooltype account</h2>
-      <p style="margin:0 0 12px;">Thanks for starting registration for <strong>${escapeHtml(name)}</strong>.</p>
+      <h2 style="margin:0 0 16px;font-size:22px;color:#0f172a;">${paid ? 'Payment received' : 'Create your Schooltype account'}</h2>
+      <p style="margin:0 0 12px;">${paid ? `Payment for <strong>${escapeHtml(name)}</strong> was successful. Your plan is unlocked.` : `Thanks for starting registration for <strong>${escapeHtml(name)}</strong>.`}</p>
       <p style="margin:0 0 20px;">Confirm <strong>${escapeHtml(email)}</strong>, then choose a password to finish setup.</p>
       <p style="margin:0 0 8px;text-align:center;">
         <a href="${escapeHtml(safeUrl)}"

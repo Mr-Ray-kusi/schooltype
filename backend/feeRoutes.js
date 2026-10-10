@@ -45,6 +45,72 @@ import {
 import { recordPlatformEvent } from './platformTelemetry.js';
 
 const notedFeeFailureRefs = new Set();
+const cancelledFeeRefs = new Set();
+
+function rememberCancelledFee(reference) {
+  const ref = String(reference || '').trim();
+  if (!ref) return;
+  cancelledFeeRefs.add(ref);
+  if (cancelledFeeRefs.size > 4000) {
+    const first = cancelledFeeRefs.values().next().value;
+    if (first) cancelledFeeRefs.delete(first);
+  }
+}
+
+function isCancelledFee(reference) {
+  return cancelledFeeRefs.has(String(reference || '').trim());
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function readCharge(reference) {
+  try {
+    return await fetchCharge(reference);
+  } catch {
+    return null;
+  }
+}
+
+function chargeNeedsCode(status) {
+  const value = String(status || '').toLowerCase();
+  return value === 'send_otp' || value === 'send_pin';
+}
+
+function chargeInstructionReady(status) {
+  const value = String(status || '').toLowerCase();
+  return (
+    value === 'success' ||
+    value === 'failed' ||
+    value === 'timeout' ||
+    value === 'pay_offline' ||
+    value === 'open_url' ||
+    chargeNeedsCode(value)
+  );
+}
+
+async function waitForMomoInstruction(reference, initial, { attempts = 5, delayMs = 550 } = {}) {
+  let charge = initial;
+  for (let i = 0; i < attempts; i++) {
+    const status = String(charge?.status || '').toLowerCase();
+    if (chargeInstructionReady(status)) return charge;
+    await sleep(delayMs);
+    charge = (await readCharge(reference)) || charge;
+  }
+  return charge;
+}
+
+function momoChargePublicView(resolved, reference) {
+  const payload = resolved.payload || {};
+  const status = String(resolved.status || '').toLowerCase();
+  return {
+    status: chargeNeedsCode(status) ? 'pending' : status || 'pending',
+    reference: payload.reference || reference,
+    needs_code: Boolean(resolved.needs_code),
+    code_type: status === 'send_pin' ? 'pin' : resolved.needs_code ? 'otp' : null,
+    display_text: resolved.display_text || null,
+    authorization_url: payload.url || payload.redirecturl || null,
+  };
+}
 
 function studentFromPaystackMeta(raw) {
   const meta = parsePaystackMetadata(raw);
@@ -278,6 +344,7 @@ function feePayloadFromRecord(row, reference) {
 async function resolveFeePayment(reference) {
   const alreadyPaid = await findSuccessfulFeePayment({ reference });
   if (alreadyPaid) {
+    if (isCancelledFee(reference)) cancelledFeeRefs.delete(String(reference || '').trim());
     return {
       status: 'success',
       payload: feePayloadFromRecord(alreadyPaid, reference),
@@ -286,11 +353,10 @@ async function resolveFeePayment(reference) {
     };
   }
 
-  let charge = null;
-  try {
-    charge = await fetchCharge(reference);
-  } catch {
-    charge = null;
+  let charge = await readCharge(reference);
+  if (!charge) {
+    await sleep(400);
+    charge = await readCharge(reference);
   }
 
   const chargeStatus = String(charge?.status || '').toLowerCase();
@@ -310,11 +376,21 @@ async function resolveFeePayment(reference) {
       // Charge success is enough to settle.
     }
     await settleSchoolFeeFromPaystack(payload);
+    if (isCancelledFee(reference)) cancelledFeeRefs.delete(String(reference || '').trim());
     return {
       status: 'success',
       payload,
       needs_code: false,
       display_text: payload?.display_text || null,
+    };
+  }
+
+  if (isCancelledFee(reference)) {
+    return {
+      status: 'cancelled',
+      payload: charge || { reference },
+      needs_code: false,
+      display_text: 'This payment was cancelled. Tap Continue to payment to start again.',
     };
   }
 
@@ -635,7 +711,7 @@ export async function recordManualSchoolFee({ schoolId, studentId, amount, metho
 async function receiptDetailsForPayment(reference) {
   const resolved = await resolveFeePayment(reference);
   const payload = resolved.payload || {};
-  const meta = payload.metadata || {};
+  const meta = parsePaystackMetadata(payload.metadata);
   const schoolId = meta.school_id;
   const studentId = meta.student_id;
   const base = {
@@ -648,6 +724,7 @@ async function receiptDetailsForPayment(reference) {
     class_name: meta.payer_class || null,
     payment_month: meta.payment_month || null,
     needs_code: resolved.needs_code,
+    code_type: String(resolved.status || '') === 'send_pin' ? 'pin' : resolved.needs_code ? 'otp' : null,
     display_text: resolved.display_text,
     recorded_by: 'Online',
   };
@@ -753,11 +830,12 @@ async function startFeePayment({
     metadata.settle_mode = payout.recipientCode ? 'transfer' : metadata.settle_mode;
     metadata.subaccount_code = null;
 
-    const charge = await chargeMobileMoney({
+    let charge = await chargeMobileMoney({
       ...chargeArgs,
       phone: phoneLocal,
       provider,
     });
+    charge = await waitForMomoInstruction(charge?.reference || reference, charge);
     const status = String(charge?.status || 'pay_offline').toLowerCase();
     const needsCode = status === 'send_otp' || status === 'send_pin';
     const liveMode = String(getPaystackConfig().secretKey || '').startsWith('sk_live_');
@@ -779,6 +857,7 @@ async function startFeePayment({
       needs_code: needsCode,
       code_type: status === 'send_pin' ? 'pin' : needsCode ? 'otp' : null,
       display_text: displayText,
+      authorization_url: charge?.url || charge?.redirecturl || null,
       public_key: publicKey || null,
       amount: payAmount,
       currency: 'GHS',
@@ -857,6 +936,57 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
       if (err.code?.startsWith('PAYSTACK') || err.status) return handlePaystackError(res, err);
       console.error('Fee verify error:', err);
       res.status(500).json({ error: 'Failed to verify fee payment' });
+    }
+  });
+
+  app.get('/api/public/fees/charge/:reference', async (req, res) => {
+    try {
+      const resolved = await resolveFeePayment(req.params.reference);
+      res.json(momoChargePublicView(resolved, req.params.reference));
+    } catch (err) {
+      if (err.code?.startsWith('PAYSTACK') || err.status) return handlePaystackError(res, err);
+      console.error('Fee charge status error:', err);
+      res.status(500).json({ error: 'Failed to check payment status' });
+    }
+  });
+
+  app.post('/api/public/fees/cancel', async (req, res) => {
+    try {
+      const reference = String(req.body?.reference || '').trim();
+      if (!reference) {
+        return res.status(400).json({ error: 'Payment reference is required.' });
+      }
+      const alreadyPaid = await findSuccessfulFeePayment({ reference });
+      if (alreadyPaid) {
+        return res.json({ status: 'success', reference, already_paid: true });
+      }
+      const charge = await readCharge(reference);
+      const chargeStatus = String(charge?.status || '').toLowerCase();
+      if (chargeStatus === 'success') {
+        const resolved = await resolveFeePayment(reference);
+        return res.json({ status: 'success', reference, already_paid: true, display_text: resolved.display_text });
+      }
+      rememberCancelledFee(reference);
+      const meta = parsePaystackMetadata(charge?.metadata);
+      noteFeePaymentFailed({
+        schoolId: meta.school_id,
+        reason: 'abandoned',
+        message: 'Payment cancelled before MoMo PIN confirmation',
+        reference,
+        student: studentFromPaystackMeta(meta),
+        amount: fromMinorUnits(charge?.amount) || meta.amount_major,
+        channel: charge?.channel,
+        meta,
+      });
+      res.json({
+        status: 'cancelled',
+        reference,
+        display_text: 'Payment cancelled. Tap Continue to payment to start again.',
+      });
+    } catch (err) {
+      if (err.code?.startsWith('PAYSTACK') || err.status) return handlePaystackError(res, err);
+      console.error('Fee cancel error:', err);
+      res.status(500).json({ error: 'Could not cancel this payment' });
     }
   });
 
@@ -951,10 +1081,33 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
       if (!reference || !code) {
         return res.status(400).json({ error: 'Enter the code from the prompt to continue.' });
       }
-      const submitted =
-        codeType === 'pin'
-          ? await submitChargePin({ reference, pin: code })
-          : await submitChargeOtp({ reference, otp: code });
+      if (isCancelledFee(reference)) {
+        const alreadyPaid = await findSuccessfulFeePayment({ reference });
+        if (!alreadyPaid) {
+          return res.json({
+            mode: 'momo',
+            reference,
+            status: 'cancelled',
+            needs_code: false,
+            display_text: 'This payment was cancelled. Tap Continue to payment to start again.',
+          });
+        }
+      }
+      const submitCode = async (type) =>
+        type === 'pin'
+          ? submitChargePin({ reference, pin: code })
+          : submitChargeOtp({ reference, otp: code });
+
+      let submitted;
+      try {
+        submitted = await submitCode(codeType === 'pin' ? 'pin' : 'otp');
+      } catch (submitErr) {
+        try {
+          submitted = await submitCode(codeType === 'pin' ? 'otp' : 'pin');
+        } catch {
+          throw submitErr;
+        }
+      }
       const submittedStatus = String(submitted?.status || '').toLowerCase();
       const nextUrl = submitted?.url || submitted?.redirecturl || null;
       const submittedRef = submitted?.reference || reference;

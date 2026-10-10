@@ -9,8 +9,16 @@ const SelectPlan = () => {
   const { school, selectPlan, token } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const [selectedPlan, setSelectedPlan] = useState(searchParams.get('plan') || '');
+  const [selectedPlan, setSelectedPlan] = useState(
+    searchParams.get('plan') || school?.payment_plan || ''
+  );
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!selectedPlan && school?.payment_plan) {
+      setSelectedPlan(school.payment_plan);
+    }
+  }, [school?.payment_plan, selectedPlan]);
 
   useEffect(() => {
     if (!token) {
@@ -21,7 +29,7 @@ const SelectPlan = () => {
       navigate('/super-admin', { replace: true });
       return;
     }
-    if (school?.payment_plan) {
+    if (school?.plan_approved === true || school?.plan_status === 'approved') {
       navigate('/dashboard', { replace: true });
     }
   }, [token, school, navigate]);
@@ -35,8 +43,13 @@ const SelectPlan = () => {
 
     setLoading(true);
     try {
-      await selectPlan(selectedPlan);
-      toast.success('Plan submitted — awaiting admin approval');
+      const data = await selectPlan(selectedPlan);
+      if (data.authorization_url) {
+        toast.success('Continue to Paystack. Features unlock after payment succeeds.');
+        window.location.assign(data.authorization_url);
+        return;
+      }
+      toast.success('Plan is active. All features are unlocked.');
       navigate('/dashboard');
     } catch (error) {
       toast.error(error.response?.data?.error || 'Failed to select plan');
@@ -56,8 +69,10 @@ const SelectPlan = () => {
 
       <main className="max-w-6xl mx-auto px-6 py-12">
         <div className="text-center mb-12">
-          <h1 className="text-3xl font-bold text-white">Select Your Payment Plan</h1>
-          <p className="text-slate-300 mt-2">Welcome, {school?.name}!</p>
+          <h1 className="text-3xl font-bold text-white">Pay to unlock your school</h1>
+          <p className="text-slate-300 mt-2">
+            Welcome, {school?.name}! Complete payment for a plan to create access and unlock every feature.
+          </p>
         </div>
 
         <form onSubmit={handleSubmit}>
@@ -107,7 +122,7 @@ const SelectPlan = () => {
               disabled={loading || !selectedPlan}
               className="px-8 py-3 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white rounded-lg font-medium transition-colors"
             >
-              {loading ? 'Submitting...' : 'Submit plan & go to dashboard'}
+              {loading ? 'Opening checkout…' : 'Pay & unlock features'}
             </button>
             <Link to="/" className="text-slate-300 hover:text-slate-200 text-sm">
               Back to home

@@ -146,7 +146,7 @@ function handlePaystackError(res, err) {
   });
 }
 
-export function registerWalletRoutes(app, { authenticateToken, enforcePlanApproval }) {
+export function registerWalletRoutes(app, { authenticateToken, enforcePlanApproval, onSchoolCheckoutPaid }) {
   app.get('/api/wallet', authenticateToken, enforcePlanApproval, async (req, res) => {
     try {
       const schoolId = req.user.schoolId;
@@ -623,6 +623,10 @@ export function registerWalletRoutes(app, { authenticateToken, enforcePlanApprov
         const metadata = parsePaystackMetadata(data.metadata);
         if (metadata.kind === 'school_fee') {
           await settleSchoolFeeFromPaystack(data);
+        } else if (metadata.kind === 'school_signup' || metadata.kind === 'school_plan') {
+          if (ref && onSchoolCheckoutPaid) await onSchoolCheckoutPaid(ref);
+        } else if (ref && (String(ref).startsWith('signup_') || String(ref).startsWith('splan_'))) {
+          if (onSchoolCheckoutPaid) await onSchoolCheckoutPaid(ref);
         } else if (ref) {
           await creditDeposit(ref);
         }

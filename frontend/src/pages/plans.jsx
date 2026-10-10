@@ -46,7 +46,8 @@ const Plans = () => {
             Choose your plan
           </h1>
           <p className="mx-auto mt-4 max-w-xl text-base text-slate-300">
-            Annual pricing by school size (USD and GHS). You’ll create your admin account next.
+            Annual pricing by school size (USD and GHS). You’ll pay next — the school account is created only after
+            payment succeeds, and every plan feature unlocks immediately.
           </p>
         </div>
 
@@ -105,7 +106,7 @@ const Plans = () => {
             disabled={!selectedPlan}
             className="w-full rounded-full bg-sky-500 px-8 py-3.5 text-sm font-semibold text-white shadow-lg shadow-sky-500/25 transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
           >
-            Continue to create account
+            Continue to pay & register
           </button>
           <Link
             to="/"
