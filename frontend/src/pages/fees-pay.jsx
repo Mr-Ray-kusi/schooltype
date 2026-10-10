@@ -119,23 +119,6 @@ const FeesPay = () => {
           abortPayment('MoMo PIN was not confirmed. Tap Continue to payment to start again.');
         }, remaining);
 
-    const onLeave = () => {
-      fetch('/api/public/fees/cancel', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reference }),
-        keepalive: true,
-      }).catch(() => {});
-    };
-    window.addEventListener('pagehide', onLeave);
-    window.addEventListener('beforeunload', onLeave);
-    const onPageShow = (event) => {
-      if (event.persisted && momoPromptRef.current?.reference) {
-        abortPayment('Payment cancelled. Tap Continue to payment to start again.');
-      }
-    };
-    window.addEventListener('pageshow', onPageShow);
-
     let cancelled = false;
     const poll = async () => {
       try {
@@ -156,15 +139,19 @@ const FeesPay = () => {
             ...prev,
             needs_code: true,
             code_type: data.code_type || prev?.code_type || 'otp',
-            display_text: data.display_text || prev?.display_text,
+            display_text: data.display_text || prev?.display_text || 'Enter the 6-digit code sent to the phone.',
           }));
           setPaying(false);
           return;
         }
-        if (data.status === 'failed' || data.status === 'timeout' || data.status === 'cancelled') {
+        if (data.status === 'cancelled') {
           abortPayment(
             data.display_text || 'Payment was cancelled on the phone. Tap Continue to payment to start again.'
           );
+          return;
+        }
+        if (data.status === 'failed' || data.status === 'timeout') {
+          abortPayment(data.display_text || 'Payment failed. Tap Continue to payment to start again.');
           return;
         }
         if (data.display_text) {
@@ -182,9 +169,6 @@ const FeesPay = () => {
       cancelled = true;
       window.clearInterval(interval);
       if (timeout) window.clearTimeout(timeout);
-      window.removeEventListener('pagehide', onLeave);
-      window.removeEventListener('beforeunload', onLeave);
-      window.removeEventListener('pageshow', onPageShow);
     };
   }, [momoPrompt?.reference, momoPrompt?.needs_code, abortPayment]);
 

@@ -79,8 +79,8 @@ function chargeNeedsCode(status) {
 
 function chargeLooksLikeCodePrompt(charge) {
   if (chargeNeedsCode(charge?.status)) return true;
-  const text = `${charge?.display_text || ''} ${charge?.gateway_response || ''}`.toLowerCase();
-  return /enter (the )?(otp|pin|voucher|code)|verification code|send_otp|one[- ]time|voucher/.test(text);
+  const text = `${charge?.display_text || ''} ${charge?.gateway_response || ''} ${charge?._paystack_message || ''}`.toLowerCase();
+  return /\botp\b|voucher|verification code|enter (the )?(pin|code)|one[- ]time/.test(text);
 }
 
 function chargeInstructionReady(status) {
@@ -467,47 +467,8 @@ async function resolveFeePayment(reference) {
           display_text: verified?.display_text || charge.display_text || 'Enter the 6-digit code sent for this payment.',
         };
       }
-      if (isPaystackUserCancelled(verified) && txStatus !== 'abandoned') {
-        rememberCancelledFee(reference);
-        const meta = parsePaystackMetadata(verified?.metadata || charge.metadata);
-        noteFeePaymentFailed({
-          schoolId: meta.school_id,
-          reason: 'abandoned',
-          message: verified?.gateway_response || 'Payment cancelled on the phone',
-          reference: verified?.reference || reference,
-          student: studentFromPaystackMeta(meta),
-          amount: fromMinorUnits(verified?.amount) || meta.amount_major,
-          channel: verified?.channel,
-          meta,
-        });
-        return {
-          status: 'cancelled',
-          payload: verified,
-          needs_code: false,
-          display_text: 'Payment was cancelled on the phone. Tap Continue to payment to start again.',
-        };
-      }
-      if (isPaystackFailedStatus(txStatus)) {
-        const meta = parsePaystackMetadata(verified?.metadata);
-        noteFeePaymentFailed({
-          schoolId: meta.school_id,
-          reason: 'provider_declined',
-          message: verified?.gateway_response || 'Payment attempt failed',
-          reference: verified?.reference || reference,
-          student: studentFromPaystackMeta(meta),
-          amount: fromMinorUnits(verified?.amount) || meta.amount_major,
-          channel: verified?.channel,
-          meta,
-        });
-        return {
-          status: 'failed',
-          payload: verified,
-          needs_code: false,
-          display_text: verified?.gateway_response || null,
-        };
-      }
     } catch {
-      // Charge is still waiting for the phone prompt.
+      // Charge is still waiting for the phone prompt or 6-digit code.
     }
     return {
       status: 'pending',
@@ -532,7 +493,15 @@ async function resolveFeePayment(reference) {
         display_text: verified?.display_text || 'Enter the 6-digit code sent for this payment.',
       };
     }
-    if (isPaystackUserCancelled(verified) && txStatus !== 'abandoned') {
+    if (txStatus === 'abandoned' || isPaystackPendingStatus(txStatus)) {
+      return {
+        status: 'pending',
+        payload: verified,
+        needs_code: false,
+        display_text: verified?.display_text || charge?.display_text || 'Waiting for confirmation.',
+      };
+    }
+    if (isPaystackUserCancelled(verified)) {
       rememberCancelledFee(reference);
       const meta = parsePaystackMetadata(verified?.metadata);
       noteFeePaymentFailed({
