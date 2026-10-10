@@ -109,41 +109,34 @@ const Dashboard = () => {
         <PlanPendingBanner />
         <SubscriptionBanner />
 
-        <header className="relative mt-8 mb-10 h-20 overflow-hidden rounded-[1.75rem] md:mt-10 md:mb-14 md:h-24">
-          {school?.logo_url ? (
-            <img
-              src={school.logo_url}
-              alt=""
-              decoding="async"
-              className="absolute inset-0 h-full w-full object-contain object-center"
-            />
-          ) : (
-            <div
-              aria-hidden
-              className="absolute inset-0"
-              style={{
-                background:
-                  'radial-gradient(ellipse 65% 55% at 0% 0%, rgba(52, 152, 219, 0.28), transparent 55%), radial-gradient(ellipse 40% 35% at 100% 10%, rgba(39, 174, 96, 0.18), transparent 50%), #0f172a',
-              }}
-            />
-          )}
+        <header className="relative mt-8 mb-10 overflow-hidden rounded-[2rem] md:mt-10 md:mb-14">
+          <img
+            src={school?.logo_url || '/landing-security.jpg'}
+            alt=""
+            decoding="async"
+            className="h-56 w-full object-cover object-[68%_center] sm:h-72 lg:h-80"
+          />
           <div
             aria-hidden
-            className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-950/35 to-slate-950/15"
+            className="absolute inset-0 bg-gradient-to-r from-slate-950 via-slate-950/55 to-slate-950/10"
+          />
+          <div
+            aria-hidden
+            className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent"
           />
 
-          <div className="relative z-10 flex h-full items-end justify-between gap-3 px-5 py-3 md:px-6 md:py-3.5">
-            <div className="min-w-0">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-sky-200">
+          <div className="absolute inset-0 z-10 flex items-end justify-between gap-3 px-6 py-6 sm:px-8 sm:py-8">
+            <div className="min-w-0 max-w-xl">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-sky-300">
                 Overview
               </p>
-              <h1 className="mt-0.5 truncate font-display text-xl font-bold tracking-tight text-white md:text-2xl">
+              <h1 className="mt-2 font-display text-2xl font-bold leading-tight tracking-tight text-white sm:text-3xl md:text-4xl">
                 {school?.name || 'Dashboard'}
               </h1>
-              <p className="mt-0.5 truncate text-sm text-white/80">{todayLabel}</p>
+              <p className="mt-1 truncate text-sm text-white/80 sm:text-base">{todayLabel}</p>
             </div>
             {school?.plan_name && (
-              <div className="w-fit shrink-0 rounded-full border border-white/20 bg-slate-950/55 px-3 py-1 text-xs text-slate-100 backdrop-blur-sm">
+              <div className="mb-1 w-fit shrink-0 rounded-full border border-white/20 bg-slate-950/55 px-3 py-1 text-xs text-slate-100 backdrop-blur-sm">
                 Plan · <span className="font-semibold text-white">{school.plan_name}</span>
               </div>
             )}
