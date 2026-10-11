@@ -3,14 +3,13 @@ import { useNavigate, Link, useSearchParams, Navigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAuth, getPostAuthPath } from '../contexts/authcontext';
 import { getPlan, formatPlanPriceGhs } from '../constants/plans';
-import { User, Mail, ImagePlus, ShieldCheck, Smartphone } from 'lucide-react';
+import { User, Mail, ImagePlus, ShieldCheck } from 'lucide-react';
 import AuthSplitLayout, { AuthBrandMark, AuthField, AUTH_ORANGE } from '../components/AuthSplitLayout';
 import GoogleSignInButton from '../components/GoogleSignInButton';
-import SubscriptionMomoPrompt, { momoNetworkFromPhone } from '../components/SubscriptionMomoPrompt';
 
 const Signup = () => {
   const navigate = useNavigate();
-  const { signup, loginWithGoogle, completePaidSignup, storeSessionFromAuth } = useAuth();
+  const { signup, loginWithGoogle } = useAuth();
   const [searchParams] = useSearchParams();
   const planParam = searchParams.get('plan');
   const selectedPlan = planParam ? getPlan(planParam) : null;
@@ -19,9 +18,7 @@ const Signup = () => {
   const [formData, setFormData] = useState({
     email: '',
     schoolName: '',
-    phone: '',
   });
-  const [momoPrompt, setMomoPrompt] = useState(null);
   const [logo, setLogo] = useState(null);
   const [logoPreview, setLogoPreview] = useState(null);
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
@@ -70,76 +67,21 @@ const Signup = () => {
     setLogoPreview(null);
   };
 
-  const finishPaidSignup = async (payload) => {
-    let data = payload;
-    if (!data?.ok) {
-      data = await completePaidSignup(payload?.reference || momoPrompt?.reference);
-    } else if (data.token && data.school) {
-      storeSessionFromAuth(data);
-    }
-    setMomoPrompt(null);
-    if (data.requiresEmailVerification) {
-      toast.success(
-        data.emailSendFailed
-          ? 'Payment received. We could not send email — use Resend on the sign-in page.'
-          : 'Payment received. Check your email to verify and choose a password.'
-      );
-      navigate('/login', {
-        replace: true,
-        state: {
-          pendingVerificationEmail: data.email || formData.email,
-          emailSendFailed: Boolean(data.emailSendFailed),
-        },
-      });
-      return;
-    }
-    toast.success('Payment received. Your school account is ready.');
-    navigate(getPostAuthPath(data.school), { replace: true });
-  };
-
-  const startMomoFromCheckout = (data) => {
-    if (data.status === 'success') {
-      return finishPaidSignup(data.fulfillment || data);
-    }
-    if (data.authorization_url && data.status === 'open_url') {
-      window.location.assign(data.authorization_url);
-      return true;
-    }
-    if (data.mode === 'momo' || data.reference) {
-      toast.success('Approve the PIN on your phone to complete payment.');
-      setMomoPrompt({
-        reference: data.reference,
-        display_text: data.display_text,
-        needs_code: Boolean(data.needs_code),
-        code_type: data.code_type,
-      });
-      return true;
-    }
-    if (data.authorization_url) {
-      window.location.assign(data.authorization_url);
-      return true;
-    }
-    return false;
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!privacyAccepted) {
       toast.error('Please accept the privacy notice to create an account.');
       return;
     }
-    if (!formData.phone.trim()) {
-      toast.error('Enter the MoMo number so the PIN prompt can be sent to the phone.');
-      return;
-    }
     setLoading(true);
 
     try {
-      const data = await signup(formData.schoolName, formData.email, null, logo, planParam, {
-        phone: formData.phone,
-        provider: momoNetworkFromPhone(formData.phone),
-      });
-      if (await startMomoFromCheckout(data)) return;
+      const data = await signup(formData.schoolName, formData.email, null, logo, planParam);
+      if (data.authorization_url) {
+        toast.success('Continue on Paystack. You can pay with MoMo, card, or bank.');
+        window.location.assign(data.authorization_url);
+        return;
+      }
 
       toast.success(
         data.emailSendFailed
@@ -204,17 +146,6 @@ const Signup = () => {
           )}
         </div>
 
-        <AuthField
-          label="MoMo number"
-          icon={Smartphone}
-          type="tel"
-          name="phone"
-          value={formData.phone}
-          onChange={handleChange}
-          required
-          placeholder="0551234567"
-        />
-
         <label className="flex items-start gap-3 rounded-xl border border-[#3f3f3f] bg-[#1a1a1a] px-3 py-3 text-xs text-neutral-300">
           <input
             type="checkbox"
@@ -244,20 +175,18 @@ const Signup = () => {
               toast.error('Please accept the privacy notice to create an account.');
               return;
             }
-            if (!formData.phone.trim()) {
-              toast.error('Enter the MoMo number first, then continue with Google.');
-              return;
-            }
             const data = await loginWithGoogle({
               accessToken,
               schoolName: formData.schoolName.trim(),
               logo,
               paymentPlan: planParam,
               privacyAccepted: true,
-              phone: formData.phone,
-              provider: momoNetworkFromPhone(formData.phone),
             });
-            if (await startMomoFromCheckout(data)) return;
+            if (data.authorization_url) {
+              toast.success('Continue on Paystack. You can pay with MoMo, card, or bank.');
+              window.location.assign(data.authorization_url);
+              return;
+            }
             toast.success('Account ready. Welcome to Schooltype.');
             navigate(getPostAuthPath(data.school), { replace: true });
           }}
@@ -282,34 +211,21 @@ const Signup = () => {
         <div className="rounded-xl border border-[#3f3f3f] bg-[#1a1a1a] px-3 py-3 text-xs text-neutral-400">
           <p className="flex items-center gap-2 font-medium text-neutral-300">
             <ShieldCheck className="h-4 w-4 text-[#3498DB]" />
-            Pay with MoMo, then verify email
+            Pay first, then verify email
           </p>
           <p className="mt-1 pl-6">
-            We send a PIN prompt to this number. Approve it to create the account. After payment we email a link so you
-            can verify ownership and choose a password. All plan features unlock immediately.
+            Complete Paystack checkout with MoMo, card, or bank to create the account. After payment we email a link so
+            you can verify ownership and choose a password. All plan features unlock immediately.
           </p>
         </div>
 
-        {momoPrompt ? (
-          <SubscriptionMomoPrompt
-            prompt={momoPrompt}
-            onPromptChange={setMomoPrompt}
-            onSuccess={finishPaidSignup}
-            onCancel={(message) => {
-              setMomoPrompt(null);
-              setLoading(false);
-              toast.error(message);
-            }}
-          />
-        ) : (
-          <button
-            type="submit"
-            disabled={loading || !privacyAccepted}
-            className="auth-accent mt-2 w-full rounded-xl py-3.5 text-sm font-semibold text-white transition disabled:opacity-50"
-          >
-            {loading ? 'Sending PIN prompt…' : 'Pay & create account'}
-          </button>
-        )}
+        <button
+          type="submit"
+          disabled={loading || !privacyAccepted}
+          className="auth-accent mt-2 w-full rounded-xl py-3.5 text-sm font-semibold text-white transition disabled:opacity-50"
+        >
+          {loading ? 'Opening checkout…' : 'Pay & create account'}
+        </button>
       </form>
 
       <p className="mt-6 text-center text-sm text-neutral-400">

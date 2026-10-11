@@ -63,9 +63,6 @@ import {
   startSchoolSignupCheckout,
   startSchoolPlanCheckout,
   fulfillSchoolCheckout,
-  resolveSignupCharge,
-  authorizeSignupCharge,
-  cancelSignupCharge,
 } from './schoolSignupPayment.js';
 import { registerFeeRoutes, registerStaffFeeRoutes } from './feeRoutes.js';
 import { initPlatformSmsStore, claimDemoMoneyReset, resetSmsInventoryToZero } from './platformSmsStore.js';
@@ -1110,8 +1107,6 @@ app.post('/api/auth/signup', async (req, res) => {
       logo,
       paymentPlan,
       googleSignup: false,
-      phone: req.body.phone,
-      provider: req.body.provider,
     });
 
     res.json({
@@ -1337,8 +1332,6 @@ app.post('/api/auth/google', async (req, res) => {
         logo,
         paymentPlan,
         googleSignup: true,
-        phone: req.body.phone,
-        provider: req.body.provider,
       });
       return res.json({
         ...checkout,
@@ -1406,43 +1399,6 @@ app.post('/api/auth/complete-signup', async (req, res) => {
     const status = error.status || 500;
     if (status >= 500) console.error('Complete signup error:', error);
     res.status(status).json({ error: error.message || 'Could not finish signup after payment', code: error.code });
-  }
-});
-
-app.get('/api/auth/signup-charge/:reference', async (req, res) => {
-  try {
-    const result = await resolveSignupCharge(req.params.reference);
-    res.json(result);
-  } catch (error) {
-    const status = error.status || 500;
-    if (status >= 500) console.error('Signup charge status error:', error);
-    res.status(status).json({ error: error.message || 'Failed to check payment status', code: error.code });
-  }
-});
-
-app.post('/api/auth/signup-authorize', async (req, res) => {
-  try {
-    const result = await authorizeSignupCharge({
-      reference: req.body?.reference,
-      otp: req.body?.otp || req.body?.pin || req.body?.code,
-      codeType: req.body?.code_type || req.body?.type,
-    });
-    res.json(result);
-  } catch (error) {
-    const status = error.status || 500;
-    if (status >= 500) console.error('Signup authorize error:', error);
-    res.status(status).json({ error: error.message || 'Could not submit that code', code: error.code });
-  }
-});
-
-app.post('/api/auth/signup-cancel', async (req, res) => {
-  try {
-    const result = await cancelSignupCharge(req.body?.reference);
-    res.json(result);
-  } catch (error) {
-    const status = error.status || 500;
-    if (status >= 500) console.error('Signup cancel error:', error);
-    res.status(status).json({ error: error.message || 'Could not cancel this payment', code: error.code });
   }
 });
 
@@ -1755,8 +1711,6 @@ app.post('/api/school/select-plan', authenticateToken, async (req, res) => {
       email: currentSchool.email,
       schoolName: currentSchool.name,
       paymentPlan,
-      phone: req.body.phone,
-      provider: req.body.provider,
     });
 
     res.json({
