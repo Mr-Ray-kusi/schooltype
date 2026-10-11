@@ -4,15 +4,18 @@ import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/authcontext';
 import { PLAN_LIST, formatPlanPriceGhs, formatPlanPriceUsd } from '../constants/plans';
 import { Check, School } from 'lucide-react';
+import SubscriptionMomoPrompt, { momoNetworkFromPhone } from '../components/SubscriptionMomoPrompt';
 
 const SelectPlan = () => {
-  const { school, selectPlan, token } = useAuth();
+  const { school, selectPlan, token, completePaidSignup, storeSessionFromAuth, refreshSchool } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [selectedPlan, setSelectedPlan] = useState(
     searchParams.get('plan') || school?.payment_plan || ''
   );
   const [loading, setLoading] = useState(false);
+  const [phone, setPhone] = useState('');
+  const [momoPrompt, setMomoPrompt] = useState(null);
 
   useEffect(() => {
     if (!selectedPlan && school?.payment_plan) {
@@ -34,18 +37,61 @@ const SelectPlan = () => {
     }
   }, [token, school, navigate]);
 
+  const finishPaidPlan = async (payload) => {
+    let data = payload;
+    if (!data?.ok) {
+      data = await completePaidSignup(payload?.reference || momoPrompt?.reference);
+    } else if (data.token && data.school) {
+      storeSessionFromAuth(data);
+    } else if (data.school) {
+      await refreshSchool?.();
+    }
+    setMomoPrompt(null);
+    toast.success('Payment received. All features are unlocked.');
+    navigate('/dashboard');
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!selectedPlan) {
       toast.error('Please select a payment plan');
       return;
     }
+    if (!phone.trim()) {
+      toast.error('Enter the MoMo number so the PIN prompt can be sent to the phone.');
+      return;
+    }
 
     setLoading(true);
     try {
-      const data = await selectPlan(selectedPlan);
+      const data = await selectPlan(selectedPlan, {
+        phone,
+        provider: momoNetworkFromPhone(phone),
+      });
+      if (data.alreadyPaid) {
+        toast.success('Plan is active. All features are unlocked.');
+        navigate('/dashboard');
+        return;
+      }
+      if (data.status === 'success') {
+        await finishPaidPlan(data.fulfillment || data);
+        return;
+      }
+      if (data.authorization_url && data.status === 'open_url') {
+        window.location.assign(data.authorization_url);
+        return;
+      }
+      if (data.mode === 'momo' || data.reference) {
+        toast.success('Approve the PIN on your phone to complete payment.');
+        setMomoPrompt({
+          reference: data.reference,
+          display_text: data.display_text,
+          needs_code: Boolean(data.needs_code),
+          code_type: data.code_type,
+        });
+        return;
+      }
       if (data.authorization_url) {
-        toast.success('Continue to Paystack. Features unlock after payment succeeds.');
         window.location.assign(data.authorization_url);
         return;
       }
@@ -116,13 +162,46 @@ const SelectPlan = () => {
             ))}
           </div>
 
+          <div className="mx-auto mb-8 max-w-md">
+            <label className="block text-sm text-slate-300">
+              MoMo number
+              <input
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                required
+                placeholder="0551234567"
+                className="mt-2 w-full rounded-xl border border-slate-600 bg-slate-800 px-4 py-3 text-white outline-none focus:border-sky-500"
+              />
+            </label>
+            <p className="mt-2 text-xs text-slate-400">
+              A PIN prompt is sent to this number. Approve it on the phone to complete subscription payment.
+            </p>
+          </div>
+
+          {momoPrompt ? (
+            <div className="mx-auto mb-8 max-w-md">
+              <SubscriptionMomoPrompt
+                prompt={momoPrompt}
+                onPromptChange={setMomoPrompt}
+                onSuccess={finishPaidPlan}
+                onCancel={(message) => {
+                  setMomoPrompt(null);
+                  setLoading(false);
+                  toast.error(message);
+                }}
+                dark={false}
+              />
+            </div>
+          ) : null}
+
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <button
               type="submit"
-              disabled={loading || !selectedPlan}
+              disabled={loading || !selectedPlan || Boolean(momoPrompt)}
               className="px-8 py-3 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white rounded-lg font-medium transition-colors"
             >
-              {loading ? 'Opening checkout…' : 'Pay & unlock features'}
+              {loading ? 'Sending PIN prompt…' : 'Pay & unlock features'}
             </button>
             <Link to="/" className="text-slate-300 hover:text-slate-200 text-sm">
               Back to home

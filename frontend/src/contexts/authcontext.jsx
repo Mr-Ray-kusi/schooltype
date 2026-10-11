@@ -26,7 +26,10 @@ const isAuthRoute = (url = '') =>
   url.includes('/api/auth/verify-email') ||
   url.includes('/api/auth/resend-verification') ||
   url.includes('/api/auth/set-password') ||
-  url.includes('/api/auth/complete-signup');
+  url.includes('/api/auth/complete-signup') ||
+  url.includes('/api/auth/signup-charge') ||
+  url.includes('/api/auth/signup-authorize') ||
+  url.includes('/api/auth/signup-cancel');
 
 const readCachedSchool = () => {
   try {
@@ -224,13 +227,15 @@ export const AuthProvider = ({ children }) => {
     return () => axios.interceptors.response.eject(interceptor);
   }, [clearSession]);
 
-  const signup = async (schoolName, email, _password = null, logo = null, paymentPlan = null) => {
+  const signup = async (schoolName, email, _password = null, logo = null, paymentPlan = null, extras = {}) => {
     const response = await axios.post('/api/auth/signup', {
       schoolName,
       email,
       logo,
       paymentPlan,
       privacyAccepted: true,
+      phone: extras.phone,
+      provider: extras.provider,
     });
     const { token: newToken, school: schoolData, expiresIn, requiresEmailVerification } = response.data;
     // Email-first signup never returns a session until password is set after verify.
@@ -264,6 +269,8 @@ export const AuthProvider = ({ children }) => {
     logo,
     paymentPlan,
     privacyAccepted,
+    phone,
+    provider,
   } = {}) => {
     const response = await axios.post('/api/auth/google', {
       accessToken,
@@ -272,9 +279,11 @@ export const AuthProvider = ({ children }) => {
       logo,
       paymentPlan,
       privacyAccepted: Boolean(privacyAccepted),
+      phone,
+      provider,
     });
     const data = response.data || {};
-    if (data.authorization_url) return data;
+    if (data.authorization_url || data.mode === 'momo') return data;
     const { token: newToken, school: schoolData, expiresIn } = data;
     if (!newToken || !schoolData) {
       const err = new Error('Google sign-in did not return a session.');
@@ -285,8 +294,12 @@ export const AuthProvider = ({ children }) => {
     return data;
   };
 
-  const selectPlan = async (paymentPlan) => {
-    const response = await axios.post('/api/school/select-plan', { paymentPlan });
+  const selectPlan = async (paymentPlan, extras = {}) => {
+    const response = await axios.post('/api/school/select-plan', {
+      paymentPlan,
+      phone: extras.phone,
+      provider: extras.provider,
+    });
     if (response.data?.school) persistSchool(response.data.school);
     return response.data;
   };

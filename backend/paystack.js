@@ -276,6 +276,44 @@ export async function fetchCharge(reference) {
   return paystackRequest(`/charge/${encodeURIComponent(reference)}`);
 }
 
+export function chargeNeedsCode(status) {
+  const value = String(status || '').toLowerCase();
+  return value === 'send_otp' || value === 'send_pin';
+}
+
+export function chargeLooksLikeCodePrompt(charge) {
+  if (chargeNeedsCode(charge?.status)) return true;
+  const text = `${charge?.display_text || ''} ${charge?.gateway_response || ''} ${charge?._paystack_message || ''}`.toLowerCase();
+  return /\botp\b|voucher|verification code|enter (the )?(pin|code)|one[- ]time/.test(text);
+}
+
+export function chargeInstructionReady(status) {
+  const value = String(status || '').toLowerCase();
+  return (
+    value === 'success' ||
+    value === 'failed' ||
+    value === 'timeout' ||
+    value === 'pay_offline' ||
+    value === 'open_url' ||
+    chargeNeedsCode(value)
+  );
+}
+
+export async function waitForMomoInstruction(reference, initial, { attempts = 2, delayMs = 180 } = {}) {
+  let charge = initial;
+  for (let i = 0; i < attempts; i++) {
+    const status = String(charge?.status || '').toLowerCase();
+    if (chargeInstructionReady(status) || chargeLooksLikeCodePrompt(charge)) return charge;
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    try {
+      charge = (await fetchCharge(reference)) || charge;
+    } catch {
+      // Keep the last known charge while Paystack catches up.
+    }
+  }
+  return charge;
+}
+
 export function isPaystackPendingStatus(status) {
   const value = String(status || '').toLowerCase();
   return [
