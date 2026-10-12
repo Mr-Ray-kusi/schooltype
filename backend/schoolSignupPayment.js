@@ -40,7 +40,7 @@ const PLAN_KIND = 'school_plan';
 const memoryPending = new Map();
 const inFlight = new Map();
 const cancelledSignupRefs = new Set();
-const PLAN_CHECKOUT_CHANNELS = ['mobile_money', 'card', 'bank'];
+const PLAN_CHECKOUT_CHANNELS = ['mobile_money', 'card', 'bank', 'bank_transfer'];
 let tableAvailable = true;
 let deps = {};
 
@@ -273,26 +273,9 @@ async function initializePlanCheckout({ email, amountMajor, reference, metadata 
   };
 }
 
-async function startPlanPayment({
-  email,
-  amountMajor,
-  reference,
-  metadata,
-  method,
-  phone,
-  provider,
-}) {
-  const payMethod = String(method || '').toLowerCase();
-  if (payMethod === 'momo' || payMethod === 'mobile_money') {
-    return chargePlanWithMomo({
-      email,
-      amountMajor,
-      reference,
-      metadata,
-      phone,
-      provider,
-    });
-  }
+async function startPlanPayment({ email, amountMajor, reference, metadata }) {
+  // Always open Paystack checkout so the payer enters MoMo, card, or bank
+  // details there. Paystack then sends the MoMo PIN prompt to the phone.
   return initializePlanCheckout({ email, amountMajor, reference, metadata });
 }
 
@@ -323,9 +306,6 @@ export async function startSchoolSignupCheckout({
     email,
     amountMajor: plan.price,
     reference,
-    method,
-    phone,
-    provider,
     metadata: {
       kind: SIGNUP_KIND,
       payment_plan: resolved,
@@ -349,9 +329,6 @@ export async function startSchoolPlanCheckout({ schoolId, email, schoolName, pay
     email,
     amountMajor: plan.price,
     reference,
-    method,
-    phone,
-    provider,
     metadata: {
       kind: PLAN_KIND,
       school_id: schoolId,
