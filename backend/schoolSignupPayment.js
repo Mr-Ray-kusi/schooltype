@@ -14,8 +14,8 @@ import {
   submitChargeOtp,
   submitChargePin,
   normalizeGhanaPhone,
-  momoProviderFromGhanaPhone,
-  ghanaMomoProvider,
+  momoPhoneVariants,
+  momoProviderFallbacks,
   chargeNeedsCode,
   chargeLooksLikeCodePrompt,
   chargeInstructionReady,
@@ -40,6 +40,7 @@ const PLAN_KIND = 'school_plan';
 const memoryPending = new Map();
 const inFlight = new Map();
 const cancelledSignupRefs = new Set();
+const momoPromptSentAt = new Map();
 let tableAvailable = true;
 let deps = {};
 
@@ -130,6 +131,21 @@ async function getPendingByReference(reference) {
   return cached || null;
 }
 
+async function retargetPendingReference(oldRef, newRef) {
+  if (!oldRef || !newRef || oldRef === newRef) return;
+  const row = (await getPendingByReference(oldRef)) || memoryPending.get(oldRef);
+  if (row) {
+    memoryPending.delete(oldRef);
+    rememberPending({ ...row, paystack_reference: newRef });
+  }
+  if (!tableAvailable) return;
+  const { error } = await supabase
+    .from('pending_signups')
+    .update({ paystack_reference: newRef })
+    .eq('paystack_reference', oldRef);
+  if (error && isMissingTable(error)) tableAvailable = false;
+}
+
 async function markPendingFulfilled(reference, schoolId) {
   memoryPending.delete(reference);
   if (!tableAvailable) return;
@@ -169,6 +185,34 @@ function momoChargeView(charge, reference, extras = {}) {
   };
 }
 
+function chargeStillWaiting(charge) {
+  const status = String(charge?.status || '').toLowerCase();
+  return (
+    status === 'success' ||
+    status === 'pay_offline' ||
+    status === 'pending' ||
+    status === 'ongoing' ||
+    status === 'processing' ||
+    status === 'open_url' ||
+    chargeNeedsCode(status) ||
+    chargeLooksLikeCodePrompt(charge)
+  );
+}
+
+function describeMomoDecline(charge, phoneLocal, amountMajor) {
+  const detail = String(charge?.display_text || charge?.gateway_response || charge?._paystack_message || '').trim();
+  if (/insufficient/i.test(detail)) {
+    return `MoMo rejected GHS ${amountMajor} for ${phoneLocal}. Top up that wallet, or use a number that can receive this amount.`;
+  }
+  if (/invalid|not registered|mobile number/i.test(detail)) {
+    return `${phoneLocal} is not a MoMo wallet Paystack can charge. Check the number and network.`;
+  }
+  if (detail && !/^payment declined\.?$/i.test(detail) && !/^charge attempted$/i.test(detail)) {
+    return detail;
+  }
+  return `Paystack could not push a PIN to ${phoneLocal} for GHS ${amountMajor}. Confirm the number is the MoMo wallet, then try again.`;
+}
+
 async function chargePlanWithMomo({ email, amountMajor, reference, metadata, phone, provider }) {
   const phoneLocal = normalizeGhanaPhone(phone);
   if (!/^0\d{9}$/.test(phoneLocal)) {
@@ -177,69 +221,130 @@ async function chargePlanWithMomo({ email, amountMajor, reference, metadata, pho
     err.code = 'INVALID_MOMO_NUMBER';
     throw err;
   }
-  const momoNetwork = momoProviderFromGhanaPhone(phoneLocal) || ghanaMomoProvider(provider);
-  if (!momoNetwork) {
+  const providers = momoProviderFallbacks(provider, phoneLocal);
+  if (!providers.length) {
     const err = new Error('Enter the MoMo number so Paystack can send the PIN prompt to the phone.');
     err.status = 400;
     throw err;
   }
 
-  cancelledSignupRefs.delete(reference);
-
-  let charge = await chargeMobileMoney({
-    email,
-    amountMinor: toMinorUnits(amountMajor),
-    currency: 'GHS',
-    phone: phoneLocal,
-    provider: momoNetwork,
-    reference,
-    metadata,
-  });
-  if (!chargeInstructionReady(charge?.status)) {
-    charge = await waitForMomoInstruction(charge?.reference || reference, charge, {
-      attempts: 10,
-      delayMs: 300,
-    });
-  }
-
-  const status = String(charge?.status || '').toLowerCase();
-  const nextUrl = charge?.url || charge?.redirecturl || null;
-  const needsCode = chargeLooksLikeCodePrompt(charge);
   const liveMode = String(getPaystackConfig().secretKey || '').startsWith('sk_live_');
-  const isTelecel = /vod|telecel/i.test(String(momoNetwork || ''));
-  const phoneCancelled = !needsCode && isPaystackUserCancelled(charge);
-
-  if ((status === 'open_url' || nextUrl) && !needsCode && !phoneCancelled && status !== 'success' && status !== 'pay_offline') {
-    return momoChargeView(charge, reference, {
-      status: 'open_url',
-      needs_code: false,
-      authorization_url: nextUrl,
-      display_text: charge?.display_text || 'Continue on Paystack to approve the MoMo PIN on your phone.',
-      amount: amountMajor,
-      plan: metadata.payment_plan,
-      live_mode: liveMode,
+  const phones = momoPhoneVariants(phoneLocal);
+  const attempts = [];
+  providers.forEach((network) => {
+    phones.forEach((msisdn) => {
+      attempts.push({ network, msisdn });
     });
-  }
+  });
 
-  let displayText = charge?.display_text || '';
-  if (phoneCancelled) {
-    displayText = 'Payment was cancelled on the phone. Start payment again.';
-  } else if (!displayText) {
-    if (needsCode && isTelecel) {
-      displayText = 'Dial the Telecel USSD to get a voucher, then enter that voucher here.';
-    } else if (needsCode) {
-      displayText = 'Enter the 6-digit code sent for this payment.';
-    } else if (status === 'pay_offline' || status === 'pending' || status === 'ongoing') {
-      displayText = `A confirmation prompt was sent to ${phoneLocal}. Approve it on your phone.`;
-    } else {
-      displayText = 'Waiting for the MoMo confirmation prompt.';
+  let currentRef = reference;
+  let lastCharge = null;
+
+  for (let i = 0; i < attempts.length; i += 1) {
+    const attempt = attempts[i];
+    if (i > 0) {
+      const nextRef = makeWalletReference(String(reference).startsWith('splan_') ? 'splan' : 'signup');
+      await retargetPendingReference(currentRef, nextRef);
+      currentRef = nextRef;
+    }
+    cancelledSignupRefs.delete(currentRef);
+
+    let charge;
+    try {
+      charge = await chargeMobileMoney({
+        email,
+        amountMinor: toMinorUnits(amountMajor),
+        currency: 'GHS',
+        phone: attempt.msisdn,
+        provider: attempt.network,
+        reference: currentRef,
+        metadata,
+      });
+    } catch (error) {
+      lastCharge = {
+        status: 'failed',
+        gateway_response: error.message,
+        _paystack_message: error.message,
+        reference: currentRef,
+      };
+      console.warn('Signup MoMo charge rejected:', error.message, attempt.network, attempt.msisdn.slice(-4));
+      continue;
+    }
+
+    if (!chargeStillWaiting(charge) && String(charge?.status || '').toLowerCase() !== 'failed') {
+      charge = await waitForMomoInstruction(charge?.reference || currentRef, charge, {
+        attempts: 8,
+        delayMs: 350,
+      });
+    } else if (String(charge?.status || '').toLowerCase() === 'pending') {
+      charge = await waitForMomoInstruction(charge?.reference || currentRef, charge, {
+        attempts: 8,
+        delayMs: 350,
+      });
+    }
+
+    lastCharge = charge;
+    const status = String(charge?.status || '').toLowerCase();
+    console.warn(
+      'Signup MoMo charge:',
+      status,
+      charge?.gateway_response || charge?.display_text || charge?._paystack_message || '',
+      attempt.network
+    );
+
+    if (chargeStillWaiting(charge) || status === 'success') {
+      momoPromptSentAt.set(charge?.reference || currentRef, Date.now());
+      const nextUrl = charge?.url || charge?.redirecturl || null;
+      const needsCode = chargeLooksLikeCodePrompt(charge);
+      const isTelecel = /vod|telecel/i.test(String(attempt.network || ''));
+      const phoneCancelled = !needsCode && isPaystackUserCancelled(charge);
+
+      if (
+        (status === 'open_url' || nextUrl) &&
+        !needsCode &&
+        !phoneCancelled &&
+        status !== 'success' &&
+        status !== 'pay_offline'
+      ) {
+        return momoChargeView(charge, currentRef, {
+          status: 'open_url',
+          needs_code: false,
+          authorization_url: nextUrl,
+          display_text: charge?.display_text || 'Continue on Paystack to approve the MoMo PIN on your phone.',
+          amount: amountMajor,
+          plan: metadata.payment_plan,
+          live_mode: liveMode,
+        });
+      }
+
+      let displayText = charge?.display_text || '';
+      if (phoneCancelled) {
+        displayText = 'Payment was cancelled on the phone. Start payment again.';
+      } else if (!displayText) {
+        if (needsCode && isTelecel) {
+          displayText = 'Dial the Telecel USSD to get a voucher, then enter that voucher here.';
+        } else if (needsCode) {
+          displayText = 'Enter the 6-digit code sent for this payment.';
+        } else {
+          displayText = `A confirmation prompt was sent to ${phoneLocal}. Approve it on your phone.`;
+        }
+      }
+
+      return momoChargeView(charge, currentRef, {
+        status: phoneCancelled ? 'cancelled' : needsCode && !chargeNeedsCode(status) ? 'send_otp' : status || 'pending',
+        needs_code: needsCode,
+        display_text: displayText,
+        amount: amountMajor,
+        plan: metadata.payment_plan,
+        live_mode: liveMode,
+      });
     }
   }
 
-  return momoChargeView(charge, reference, {
-    status: phoneCancelled ? 'cancelled' : needsCode && !chargeNeedsCode(status) ? 'send_otp' : status || 'pending',
-    needs_code: needsCode,
-    display_text: displayText,
+  return momoChargeView(lastCharge || { reference: currentRef }, currentRef, {
+    status: 'failed',
+    needs_code: false,
+    display_text: describeMomoDecline(lastCharge, phoneLocal, amountMajor),
     amount: amountMajor,
     plan: metadata.payment_plan,
     live_mode: liveMode,
@@ -453,6 +558,15 @@ export async function resolveSignupCharge(reference) {
   }
 
   if (charge && isPaystackFailedStatus(chargeStatus)) {
+    const promptedAt = momoPromptSentAt.get(ref);
+    const waitingForPin = promptedAt && Date.now() - promptedAt < 180000;
+    if (waitingForPin) {
+      return momoChargeView(charge, ref, {
+        status: 'pay_offline',
+        needs_code: false,
+        display_text: 'Waiting for the MoMo PIN prompt on the phone. Keep this page open.',
+      });
+    }
     return momoChargeView(charge, ref, {
       status: 'failed',
       needs_code: false,

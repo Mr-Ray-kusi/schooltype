@@ -187,13 +187,31 @@ export function normalizeGhanaPhone(phone) {
   return digits;
 }
 
+export function toIntlGhanaPhone(phone) {
+  const local = normalizeGhanaPhone(phone);
+  if (!/^0\d{9}$/.test(local)) return local;
+  return `233${local.slice(1)}`;
+}
+
+export function momoPhoneVariants(phone) {
+  const local = normalizeGhanaPhone(phone);
+  const intl = toIntlGhanaPhone(local);
+  return [...new Set([local, intl].filter(Boolean))];
+}
+
+export function momoProviderFallbacks(provider, phone) {
+  const primary = momoProviderFromGhanaPhone(phone) || ghanaMomoProvider(provider);
+  const extras = primary === 'atl' ? ['atl', 'tgo'] : [primary];
+  return [...new Set(extras.filter(Boolean))];
+}
+
 /** Map UI/network labels to Paystack Ghana MoMo provider codes. */
 export function ghanaMomoProvider(provider) {
   const value = String(provider || '').toLowerCase();
   if (value === 'mtn' || value.includes('mtn')) return 'mtn';
   if (value === 'vod' || value.includes('vod') || value.includes('telecel')) return 'vod';
+  if (value === 'tgo') return 'tgo';
   if (
-    value === 'tgo' ||
     value === 'atl' ||
     value.includes('airtel') ||
     value.includes('tigo') ||
@@ -223,8 +241,10 @@ export async function chargeMobileMoney({
   reference,
   metadata,
 }) {
+  const digits = String(phone || '').replace(/\D/g, '');
   const phoneLocal = normalizeGhanaPhone(phone);
-  if (!/^0\d{9}$/.test(phoneLocal)) {
+  const phoneForPaystack = /^233\d{9}$/.test(digits) ? digits : phoneLocal;
+  if (!/^0\d{9}$/.test(phoneLocal) && !/^233\d{9}$/.test(phoneForPaystack)) {
     const err = new Error('Enter a Ghana MoMo number like 0551234567.');
     err.status = 400;
     err.code = 'INVALID_MOMO_NUMBER';
@@ -233,7 +253,16 @@ export async function chargeMobileMoney({
 
   // Do not send subaccount/bearer here. Extra split fields make Paystack treat
   // the charge like card checkout and SMS a PIN instead of the MoMo prompt.
-  const providerCode = momoProviderFromGhanaPhone(phoneLocal) || ghanaMomoProvider(provider);
+  const providerCode = ghanaMomoProvider(provider) || momoProviderFromGhanaPhone(phoneLocal);
+  const flatMeta = {};
+  if (metadata && typeof metadata === 'object') {
+    Object.entries(metadata).forEach(([key, value]) => {
+      if (key === 'custom_fields') return;
+      if (value == null || typeof value === 'object') return;
+      flatMeta[key] = String(value);
+    });
+  }
+
   return paystackRequest('/charge', {
     method: 'POST',
     body: {
@@ -241,9 +270,9 @@ export async function chargeMobileMoney({
       amount: amountMinor,
       currency: 'GHS',
       reference,
-      metadata,
+      metadata: Object.keys(flatMeta).length ? flatMeta : undefined,
       mobile_money: {
-        phone: phoneLocal,
+        phone: phoneForPaystack,
         provider: providerCode,
       },
     },
@@ -287,6 +316,9 @@ export function chargeNeedsCode(status) {
 export function chargeLooksLikeCodePrompt(charge) {
   if (chargeNeedsCode(charge?.status)) return true;
   const text = `${charge?.display_text || ''} ${charge?.gateway_response || ''} ${charge?._paystack_message || ''}`.toLowerCase();
+  if (/declined|insufficient|invalid (number|phone|mobile)|not registered|failed/.test(text)) {
+    return false;
+  }
   return /\botp\b|voucher|verification code|enter (the )?(pin|code)|one[- ]time/.test(text);
 }
 
@@ -306,7 +338,24 @@ export async function waitForMomoInstruction(reference, initial, { attempts = 2,
   let charge = initial;
   for (let i = 0; i < attempts; i++) {
     const status = String(charge?.status || '').toLowerCase();
-    if (chargeInstructionReady(status) || chargeLooksLikeCodePrompt(charge)) return charge;
+    const ready =
+      status === 'success' ||
+      status === 'pay_offline' ||
+      status === 'open_url' ||
+      chargeNeedsCode(status) ||
+      chargeLooksLikeCodePrompt(charge);
+    if (ready) return charge;
+    // An early "failed" from Paystack is often the telco still pushing USSD.
+    if (status === 'failed' && i < attempts - 1) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      try {
+        charge = (await fetchCharge(reference)) || charge;
+      } catch {
+        // Keep waiting.
+      }
+      continue;
+    }
+    if (chargeInstructionReady(status) && status !== 'failed') return charge;
     await new Promise((resolve) => setTimeout(resolve, delayMs));
     try {
       charge = (await fetchCharge(reference)) || charge;
