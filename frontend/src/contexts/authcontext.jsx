@@ -224,14 +224,21 @@ export const AuthProvider = ({ children }) => {
     return () => axios.interceptors.response.eject(interceptor);
   }, [clearSession]);
 
-  const signup = async (schoolName, email, _password = null, logo = null, paymentPlan = null) => {
-    const response = await axios.post('/api/auth/signup', {
-      schoolName,
-      email,
-      logo,
-      paymentPlan,
-      privacyAccepted: true,
-    });
+  const signup = async (schoolName, email, _password = null, logo = null, paymentPlan = null, extras = {}) => {
+    const response = await axios.post(
+      '/api/auth/signup',
+      {
+        schoolName,
+        email,
+        logo,
+        paymentPlan,
+        privacyAccepted: true,
+        method: extras.method,
+        phone: extras.phone,
+        provider: extras.provider,
+      },
+      { timeout: 45000 }
+    );
     const { token: newToken, school: schoolData, expiresIn, requiresEmailVerification } = response.data;
     // Email-first signup never returns a session until password is set after verify.
     if (!requiresEmailVerification && newToken && schoolData) {
@@ -264,17 +271,29 @@ export const AuthProvider = ({ children }) => {
     logo,
     paymentPlan,
     privacyAccepted,
+    method,
+    phone,
+    provider,
   } = {}) => {
-    const response = await axios.post('/api/auth/google', {
-      accessToken,
-      idToken,
-      schoolName,
-      logo,
-      paymentPlan,
-      privacyAccepted: Boolean(privacyAccepted),
-    });
+    const response = await axios.post(
+      '/api/auth/google',
+      {
+        accessToken,
+        idToken,
+        schoolName,
+        logo,
+        paymentPlan,
+        privacyAccepted: Boolean(privacyAccepted),
+        method,
+        phone,
+        provider,
+      },
+      { timeout: 45000 }
+    );
     const data = response.data || {};
-    if (data.authorization_url) return data;
+    if (data.requiresPayment || data.authorization_url || data.mode === 'momo' || data.mode === 'checkout') {
+      return data;
+    }
     const { token: newToken, school: schoolData, expiresIn } = data;
     if (!newToken || !schoolData) {
       const err = new Error('Google sign-in did not return a session.');
@@ -285,8 +304,17 @@ export const AuthProvider = ({ children }) => {
     return data;
   };
 
-  const selectPlan = async (paymentPlan) => {
-    const response = await axios.post('/api/school/select-plan', { paymentPlan });
+  const selectPlan = async (paymentPlan, extras = {}) => {
+    const response = await axios.post(
+      '/api/school/select-plan',
+      {
+        paymentPlan,
+        method: extras.method,
+        phone: extras.phone,
+        provider: extras.provider,
+      },
+      { timeout: 45000 }
+    );
     if (response.data?.school) persistSchool(response.data.school);
     return response.data;
   };
