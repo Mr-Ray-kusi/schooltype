@@ -69,7 +69,7 @@ const Signup = () => {
   };
 
   const openPaystack = (data) => {
-    if (!data?.authorization_url && !data?.access_code) return false;
+    if (!data?.authorization_url) return false;
     toast.success('Continue on Paystack. For MoMo, enter the number there and wait for the PIN prompt on the phone.');
     return openPaystackCheckout(data);
   };

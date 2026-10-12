@@ -1,13 +1,9 @@
 /**
- * Open Paystack's hosted checkout page.
- * Ghana MoMo PIN / USSD prompts do not reliably reach the phone inside the
- * inline popup (PaystackPop), so always leave this site for checkout.paystack.com.
+ * Leave Schoolotype for Paystack's hosted page.
+ * Ghana MoMo PIN / USSD is not sent from the inline popup (PaystackPop).
  */
-export function openPaystackCheckout({ access_code, authorization_url }) {
-  const hosted =
-    authorization_url ||
-    (access_code ? `https://checkout.paystack.com/${encodeURIComponent(access_code)}` : '');
-  if (!hosted) return false;
-  window.location.assign(hosted);
+export function openPaystackCheckout({ authorization_url }) {
+  if (!authorization_url) return false;
+  window.location.replace(authorization_url);
   return true;
 }

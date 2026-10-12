@@ -44,7 +44,7 @@ const SelectPlan = () => {
     setLoading(true);
     try {
       const data = await selectPlan(selectedPlan);
-      if (data.authorization_url || data.access_code) {
+      if (data.authorization_url) {
         toast.success('Continue on Paystack. For MoMo, enter the number there and wait for the PIN prompt on the phone.');
         openPaystackCheckout(data);
         return;

@@ -123,7 +123,7 @@ const Login = () => {
           onCredential={async ({ accessToken }) => {
             try {
               const data = await loginWithGoogle({ accessToken });
-              if (data.authorization_url || data.access_code) {
+              if (data.authorization_url) {
                 openPaystackCheckout(data);
                 return;
               }

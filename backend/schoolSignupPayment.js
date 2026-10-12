@@ -149,10 +149,17 @@ async function initializePlanCheckout({ email, amountMajor, reference, metadata 
       cancel_action: `${getFrontendBaseUrl()}/plans`,
     },
   });
+  if (!init?.authorization_url) {
+    const err = new Error('Paystack did not return a checkout page. Try again.');
+    err.status = 502;
+    throw err;
+  }
+
+  // Never return access_code. The frontend used it for PaystackPop, which
+  // overlays Schoolotype and does not send the Ghana MoMo PIN to the phone.
   return {
     mode: 'checkout',
     authorization_url: init.authorization_url,
-    access_code: init.access_code,
     public_key: getPaystackConfig().publicKey || null,
     reference: init.reference || reference,
     requiresPayment: true,

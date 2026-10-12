@@ -282,7 +282,7 @@ export const AuthProvider = ({ children }) => {
       { timeout: 45000 }
     );
     const data = response.data || {};
-    if (data.requiresPayment || data.authorization_url || data.access_code || data.mode === 'checkout') {
+    if (data.requiresPayment || data.authorization_url || data.mode === 'checkout') {
       return data;
     }
     const { token: newToken, school: schoolData, expiresIn } = data;
