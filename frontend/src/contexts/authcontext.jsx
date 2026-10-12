@@ -26,7 +26,8 @@ const isAuthRoute = (url = '') =>
   url.includes('/api/auth/verify-email') ||
   url.includes('/api/auth/resend-verification') ||
   url.includes('/api/auth/set-password') ||
-  url.includes('/api/auth/complete-signup');
+  url.includes('/api/auth/complete-signup') ||
+  url.includes('/api/auth/signup-charge');
 
 const readCachedSchool = () => {
   try {
@@ -224,7 +225,7 @@ export const AuthProvider = ({ children }) => {
     return () => axios.interceptors.response.eject(interceptor);
   }, [clearSession]);
 
-  const signup = async (schoolName, email, _password = null, logo = null, paymentPlan = null) => {
+  const signup = async (schoolName, email, _password = null, logo = null, paymentPlan = null, payment = {}) => {
     const response = await axios.post(
       '/api/auth/signup',
       {
@@ -233,6 +234,9 @@ export const AuthProvider = ({ children }) => {
         logo,
         paymentPlan,
         privacyAccepted: true,
+        method: payment.method,
+        phone: payment.phone,
+        provider: payment.provider,
       },
       { timeout: 45000 }
     );
@@ -268,6 +272,9 @@ export const AuthProvider = ({ children }) => {
     logo,
     paymentPlan,
     privacyAccepted,
+    method,
+    phone,
+    provider,
   } = {}) => {
     const response = await axios.post(
       '/api/auth/google',
@@ -278,11 +285,14 @@ export const AuthProvider = ({ children }) => {
         logo,
         paymentPlan,
         privacyAccepted: Boolean(privacyAccepted),
+        method,
+        phone,
+        provider,
       },
       { timeout: 45000 }
     );
     const data = response.data || {};
-    if (data.requiresPayment || data.authorization_url || data.mode === 'checkout') {
+    if (data.requiresPayment || data.authorization_url || data.mode === 'checkout' || data.mode === 'momo') {
       return data;
     }
     const { token: newToken, school: schoolData, expiresIn } = data;
@@ -295,8 +305,17 @@ export const AuthProvider = ({ children }) => {
     return data;
   };
 
-  const selectPlan = async (paymentPlan) => {
-    const response = await axios.post('/api/school/select-plan', { paymentPlan }, { timeout: 45000 });
+  const selectPlan = async (paymentPlan, payment = {}) => {
+    const response = await axios.post(
+      '/api/school/select-plan',
+      {
+        paymentPlan,
+        method: payment.method,
+        phone: payment.phone,
+        provider: payment.provider,
+      },
+      { timeout: 45000 }
+    );
     if (response.data?.school) persistSchool(response.data.school);
     return response.data;
   };

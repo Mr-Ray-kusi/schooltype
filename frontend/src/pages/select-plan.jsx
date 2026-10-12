@@ -4,7 +4,7 @@ import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/authcontext';
 import { PLAN_LIST, formatPlanPriceGhs, formatPlanPriceUsd } from '../constants/plans';
 import { Check, School } from 'lucide-react';
-import { openPaystackCheckout } from '../utils/paystackCheckout';
+import PlanCheckoutPay from '../components/PlanCheckoutPay';
 
 const SelectPlan = () => {
   const { school, selectPlan, token } = useAuth();
@@ -13,7 +13,7 @@ const SelectPlan = () => {
   const [selectedPlan, setSelectedPlan] = useState(
     searchParams.get('plan') || school?.payment_plan || ''
   );
-  const [loading, setLoading] = useState(false);
+  const [readyToPay, setReadyToPay] = useState(false);
 
   useEffect(() => {
     if (!selectedPlan && school?.payment_plan) {
@@ -35,27 +35,13 @@ const SelectPlan = () => {
     }
   }, [token, school, navigate]);
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault();
     if (!selectedPlan) {
       toast.error('Please select a payment plan');
       return;
     }
-    setLoading(true);
-    try {
-      const data = await selectPlan(selectedPlan);
-      if (data.authorization_url) {
-        toast.success('Continue on Paystack. For MoMo, enter the number there and wait for the PIN prompt on the phone.');
-        openPaystackCheckout(data);
-        return;
-      }
-      toast.success('Plan is active. All features are unlocked.');
-      navigate('/dashboard');
-    } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to select plan');
-    } finally {
-      setLoading(false);
-    }
+    setReadyToPay(true);
   };
 
   return (
@@ -119,16 +105,32 @@ const SelectPlan = () => {
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <button
               type="submit"
-              disabled={loading || !selectedPlan}
+              disabled={!selectedPlan}
               className="px-8 py-3 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white rounded-lg font-medium transition-colors"
             >
-              {loading ? 'Opening Paystack…' : 'Pay & unlock features'}
+              Continue to payment
             </button>
             <Link to="/" className="text-slate-300 hover:text-slate-200 text-sm">
               Back to home
             </Link>
           </div>
         </form>
+
+        {readyToPay ? (
+          <div className="mx-auto mt-10 max-w-xl">
+            <PlanCheckoutPay
+              dark={false}
+              submitLabel="Pay & unlock features"
+              startPayment={({ method, phone, provider }) => selectPlan(selectedPlan, { method, phone, provider })}
+              onPaid={async (data) => {
+                if (data?.alreadyPaid || data?.school?.plan_status === 'approved' || data?.status === 'success') {
+                  toast.success('Plan is active. All features are unlocked.');
+                  navigate('/dashboard');
+                }
+              }}
+            />
+          </div>
+        ) : null}
       </main>
     </div>
   );

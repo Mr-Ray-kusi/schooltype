@@ -6,16 +6,16 @@ import { getPlan, formatPlanPriceGhs } from '../constants/plans';
 import { User, Mail, ImagePlus, ShieldCheck } from 'lucide-react';
 import AuthSplitLayout, { AuthBrandMark, AuthField, AUTH_ORANGE } from '../components/AuthSplitLayout';
 import GoogleSignInButton from '../components/GoogleSignInButton';
-import { openPaystackCheckout } from '../utils/paystackCheckout';
+import PlanCheckoutPay from '../components/PlanCheckoutPay';
 
 const Signup = () => {
   const navigate = useNavigate();
-  const { signup, loginWithGoogle } = useAuth();
+  const { signup, loginWithGoogle, completePaidSignup, storeSessionFromAuth } = useAuth();
   const [searchParams] = useSearchParams();
   const planParam = searchParams.get('plan');
   const selectedPlan = planParam ? getPlan(planParam) : null;
 
-  const [loading, setLoading] = useState(false);
+  const [step, setStep] = useState('identity');
   const [formData, setFormData] = useState({
     email: '',
     schoolName: '',
@@ -68,39 +68,42 @@ const Signup = () => {
     setLogoPreview(null);
   };
 
-  const openPaystack = (data) => {
-    if (!data?.authorization_url) return false;
-    toast.success('Continue on Paystack. For MoMo, enter the number there and wait for the PIN prompt on the phone.');
-    return openPaystackCheckout(data);
-  };
-
-  const handleSubmit = async (e) => {
+  const goToPayment = (e) => {
     e.preventDefault();
     if (!privacyAccepted) {
       toast.error('Please accept the privacy notice to create an account.');
       return;
     }
-    setLoading(true);
-    try {
-      const data = await signup(formData.schoolName, formData.email, null, logo, planParam);
-      if (openPaystack(data)) return;
-      toast.success(
-        data.emailSendFailed
-          ? 'Account started. We could not send email — use Resend on the sign-in page.'
-          : 'Check your email to continue. Open the link to verify and choose a password.'
-      );
-      navigate('/login', {
-        replace: true,
-        state: {
-          pendingVerificationEmail: data.email || formData.email,
-          emailSendFailed: Boolean(data.emailSendFailed),
-        },
-      });
-    } catch (error) {
-      toast.error(error.response?.data?.error || error.response?.data?.message || 'Signup failed');
-    } finally {
-      setLoading(false);
+    if (!formData.schoolName.trim() || !formData.email.trim()) {
+      toast.error('Enter the school name and email first.');
+      return;
     }
+    setStep('payment');
+  };
+
+  const afterPaid = async (data) => {
+    if (data?.token && data?.school) {
+      storeSessionFromAuth(data);
+      toast.success('Payment received. Your school account is ready.');
+      navigate(getPostAuthPath(data.school), { replace: true });
+      return;
+    }
+    if (data?.reference && !data?.requiresEmailVerification && !data?.email) {
+      const completed = await completePaidSignup(data.reference);
+      return afterPaid(completed);
+    }
+    toast.success(
+      data?.emailSendFailed
+        ? 'Payment received. We could not send email — use Resend on the sign-in page.'
+        : 'Payment received. Check your email to verify and choose a password.'
+    );
+    navigate('/login', {
+      replace: true,
+      state: {
+        pendingVerificationEmail: data?.email || formData.email,
+        emailSendFailed: Boolean(data?.emailSendFailed),
+      },
+    });
   };
 
   return (
@@ -109,14 +112,16 @@ const Signup = () => {
       <div className="mt-6">
         <h1 className="text-[2rem] font-bold leading-tight text-white">Join the crew</h1>
         <p className="mt-2 text-sm text-neutral-400">
-          Pay for {selectedPlan.name} — {formatPlanPriceGhs(selectedPlan)} / year, then your school account is created and unlocked.
+          Pay for {selectedPlan.name} — {formatPlanPriceGhs(selectedPlan)} / year, then your school account is created
+          and unlocked.
         </p>
         <Link to="/plans" className="mt-1 inline-block text-xs hover:underline" style={{ color: AUTH_ORANGE }}>
           Change plan
         </Link>
       </div>
 
-      <form onSubmit={handleSubmit} className="mt-8 space-y-4">
+      {step === 'identity' ? (
+        <form onSubmit={goToPayment} className="mt-8 space-y-4">
           <AuthField
             label="School name"
             icon={User}
@@ -164,36 +169,6 @@ const Signup = () => {
             </span>
           </label>
 
-          <GoogleSignInButton
-            label="Sign up with Google"
-            disabled={loading || !privacyAccepted}
-            onCredential={async ({ accessToken }) => {
-              if (!formData.schoolName.trim()) {
-                toast.error('Enter your school name first, then continue with Google.');
-                return;
-              }
-              if (!privacyAccepted) {
-                toast.error('Please accept the privacy notice to create an account.');
-                return;
-              }
-              const data = await loginWithGoogle({
-                accessToken,
-                schoolName: formData.schoolName.trim(),
-                logo,
-                paymentPlan: planParam,
-                privacyAccepted: true,
-              });
-              if (openPaystack(data)) return;
-              toast.success('Account ready. Welcome to Schooltype.');
-              navigate(getPostAuthPath(data.school), { replace: true });
-            }}
-          />
-
-          <div className="relative my-2 text-center text-[11px] uppercase tracking-[0.14em] text-neutral-500">
-            <span className="absolute inset-x-0 top-1/2 h-px bg-neutral-700" />
-            <span className="relative bg-[#121212] px-3">or continue with email</span>
-          </div>
-
           <AuthField
             label="Email"
             icon={Mail}
@@ -208,23 +183,71 @@ const Signup = () => {
           <div className="rounded-xl border border-[#3f3f3f] bg-[#1a1a1a] px-3 py-3 text-xs text-neutral-400">
             <p className="flex items-center gap-2 font-medium text-neutral-300">
               <ShieldCheck className="h-4 w-4 text-[#3498DB]" />
-              Pay on Paystack, then verify email
+              Pay first, then verify email
             </p>
             <p className="mt-1 pl-6">
-              Paystack collects MoMo, card, or bank details. For MoMo, stay on Paystack until the phone prompt arrives,
-              then authorize with your PIN on the device. After payment we email a link so you can verify and choose a
-              password.
+              Next, enter the MoMo number so Paystack can send the PIN prompt to that phone. Card and bank open
+              Paystack checkout instead.
             </p>
           </div>
 
           <button
             type="submit"
-            disabled={loading || !privacyAccepted}
+            disabled={!privacyAccepted}
             className="auth-accent mt-2 w-full rounded-xl py-3.5 text-sm font-semibold text-white transition disabled:opacity-50"
           >
-            {loading ? 'Opening Paystack…' : 'Pay & create account'}
+            Continue to payment
           </button>
         </form>
+      ) : (
+        <div className="mt-8">
+          <button
+            type="button"
+            onClick={() => setStep('identity')}
+            className="mb-4 text-xs hover:underline"
+            style={{ color: AUTH_ORANGE }}
+          >
+            Back to school details
+          </button>
+          <PlanCheckoutPay
+            submitLabel="Pay & create account"
+            startPayment={({ method, phone, provider }) =>
+              signup(formData.schoolName, formData.email, null, logo, planParam, { method, phone, provider })
+            }
+            onPaid={afterPaid}
+            extraActions={({ method, phone, provider }) =>
+              method === 'momo' ? null : (
+                <GoogleSignInButton
+                  label="Pay with Google account"
+                  disabled={!privacyAccepted}
+                  onCredential={async ({ accessToken }) => {
+                    const data = await loginWithGoogle({
+                      accessToken,
+                      schoolName: formData.schoolName.trim(),
+                      logo,
+                      paymentPlan: planParam,
+                      privacyAccepted: true,
+                      method,
+                      phone,
+                      provider,
+                    });
+                    if (data.authorization_url) {
+                      window.location.assign(data.authorization_url);
+                      return;
+                    }
+                    if (data.mode === 'momo') {
+                      toast.success(data.display_text || 'Approve the PIN on the phone.');
+                      return;
+                    }
+                    toast.success('Account ready. Welcome to Schooltype.');
+                    navigate(getPostAuthPath(data.school), { replace: true });
+                  }}
+                />
+              )
+            }
+          />
+        </div>
+      )}
 
       <p className="mt-6 text-center text-sm text-neutral-400">
         Already registered?{' '}
