@@ -45,10 +45,8 @@ const SelectPlan = () => {
     try {
       const data = await selectPlan(selectedPlan);
       if (data.authorization_url || data.access_code) {
-        toast.success(
-          'Enter MoMo, card, or bank on Paystack. MoMo sends a confirmation to the phone, then enter your PIN there.'
-        );
-        await openPaystackCheckout(data);
+        toast.success('Continue on Paystack. For MoMo, enter the number there and wait for the PIN prompt on the phone.');
+        openPaystackCheckout(data);
         return;
       }
       toast.success('Plan is active. All features are unlocked.');

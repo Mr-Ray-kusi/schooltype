@@ -124,7 +124,7 @@ const Login = () => {
             try {
               const data = await loginWithGoogle({ accessToken });
               if (data.authorization_url || data.access_code) {
-                await openPaystackCheckout(data);
+                openPaystackCheckout(data);
                 return;
               }
               toast.success('Login successful!');

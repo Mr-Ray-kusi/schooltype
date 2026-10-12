@@ -68,9 +68,9 @@ const Signup = () => {
     setLogoPreview(null);
   };
 
-  const openPaystack = async (data) => {
+  const openPaystack = (data) => {
     if (!data?.authorization_url && !data?.access_code) return false;
-    toast.success('Enter MoMo, card, or bank on Paystack. MoMo sends a confirmation to the phone, then enter your PIN there.');
+    toast.success('Continue on Paystack. For MoMo, enter the number there and wait for the PIN prompt on the phone.');
     return openPaystackCheckout(data);
   };
 
@@ -83,7 +83,7 @@ const Signup = () => {
     setLoading(true);
     try {
       const data = await signup(formData.schoolName, formData.email, null, logo, planParam);
-      if (await openPaystack(data)) return;
+      if (openPaystack(data)) return;
       toast.success(
         data.emailSendFailed
           ? 'Account started. We could not send email — use Resend on the sign-in page.'
@@ -183,7 +183,7 @@ const Signup = () => {
                 paymentPlan: planParam,
                 privacyAccepted: true,
               });
-              if (await openPaystack(data)) return;
+              if (openPaystack(data)) return;
               toast.success('Account ready. Welcome to Schooltype.');
               navigate(getPostAuthPath(data.school), { replace: true });
             }}
