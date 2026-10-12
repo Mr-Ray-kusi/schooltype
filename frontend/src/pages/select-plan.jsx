@@ -44,7 +44,7 @@ const SelectPlan = () => {
     try {
       const data = await selectPlan(selectedPlan);
       if (data.authorization_url) {
-        toast.success('Continue on Paystack. MoMo sends a PIN to the phone after you enter the number there.');
+        toast.success('Continue on Paystack. Choose MoMo, card, or bank. MoMo sends a PIN to the phone.');
         window.location.assign(data.authorization_url);
         return;
       }
@@ -115,15 +115,15 @@ const SelectPlan = () => {
             ))}
           </div>
 
-          <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <button
               type="submit"
               disabled={loading || !selectedPlan}
-              className="rounded-lg bg-primary-600 px-8 py-3 font-medium text-white transition-colors hover:bg-primary-700 disabled:opacity-50"
+              className="px-8 py-3 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white rounded-lg font-medium transition-colors"
             >
               {loading ? 'Opening Paystack…' : 'Pay & unlock features'}
             </button>
-            <Link to="/" className="text-sm text-slate-300 hover:text-slate-200">
+            <Link to="/" className="text-slate-300 hover:text-slate-200 text-sm">
               Back to home
             </Link>
           </div>

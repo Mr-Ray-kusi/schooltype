@@ -9,6 +9,7 @@ import {
   initializeTransaction,
   verifyTransaction,
   toMinorUnits,
+  GHANA_CHECKOUT_CHANNELS,
   chargeMobileMoney,
   fetchCharge,
   submitChargeOtp,
@@ -40,7 +41,7 @@ const PLAN_KIND = 'school_plan';
 const memoryPending = new Map();
 const inFlight = new Map();
 const cancelledSignupRefs = new Set();
-const PLAN_CHECKOUT_CHANNELS = ['mobile_money', 'card', 'bank', 'bank_transfer'];
+const PLAN_CHECKOUT_CHANNELS = ['mobile_money', ...GHANA_CHECKOUT_CHANNELS.filter((c) => c !== 'mobile_money')];
 let tableAvailable = true;
 let deps = {};
 
@@ -274,8 +275,6 @@ async function initializePlanCheckout({ email, amountMajor, reference, metadata 
 }
 
 async function startPlanPayment({ email, amountMajor, reference, metadata }) {
-  // Always open Paystack checkout so the payer enters MoMo, card, or bank
-  // details there. Paystack then sends the MoMo PIN prompt to the phone.
   return initializePlanCheckout({ email, amountMajor, reference, metadata });
 }
 
