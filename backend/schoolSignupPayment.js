@@ -9,21 +9,6 @@ import {
   initializeTransaction,
   verifyTransaction,
   toMinorUnits,
-  GHANA_CHECKOUT_CHANNELS,
-  chargeMobileMoney,
-  fetchCharge,
-  submitChargeOtp,
-  submitChargePin,
-  normalizeGhanaPhone,
-  momoProviderFromGhanaPhone,
-  ghanaMomoProvider,
-  chargeNeedsCode,
-  chargeLooksLikeCodePrompt,
-  chargeInstructionReady,
-  waitForMomoInstruction,
-  isPaystackUserCancelled,
-  isPaystackPendingStatus,
-  isPaystackFailedStatus,
 } from './paystack.js';
 import { parsePaystackMetadata } from './feePayments.js';
 import { creditInternalFunds, makeWalletReference } from './schoolWalletStore.js';
@@ -40,8 +25,9 @@ const SIGNUP_KIND = 'school_signup';
 const PLAN_KIND = 'school_plan';
 const memoryPending = new Map();
 const inFlight = new Map();
-const cancelledSignupRefs = new Set();
-const PLAN_CHECKOUT_CHANNELS = ['mobile_money', ...GHANA_CHECKOUT_CHANNELS.filter((c) => c !== 'mobile_money')];
+// Ghana hosted checkout only. bank_transfer is Nigeria Pay-with-Transfer and
+// can keep Paystack from sending the MoMo confirmation prompt to the phone.
+const PLAN_CHECKOUT_CHANNELS = ['mobile_money', 'card', 'bank'];
 let tableAvailable = true;
 let deps = {};
 
@@ -150,107 +136,6 @@ function checkoutCallbackUrl(reference) {
   return `${getFrontendBaseUrl()}/signup/complete?reference=${encodeURIComponent(reference)}`;
 }
 
-function momoChargeView(charge, reference, extras = {}) {
-  const status = String(charge?.status || extras.status || 'pending').toLowerCase();
-  const needsCode = extras.needs_code != null ? extras.needs_code : chargeLooksLikeCodePrompt(charge);
-  const nextUrl = charge?.url || charge?.redirecturl || extras.authorization_url || null;
-  return {
-    mode: extras.mode || 'momo',
-    requiresPayment: true,
-    authorization_url: nextUrl,
-    access_code: extras.access_code || null,
-    public_key: extras.public_key || getPaystackConfig().publicKey || null,
-    reference: charge?.reference || reference,
-    status: extras.status || (needsCode && !chargeNeedsCode(status) ? 'send_otp' : status || 'pending'),
-    needs_code: Boolean(needsCode),
-    code_type: status === 'send_pin' ? 'pin' : needsCode ? 'otp' : extras.code_type || null,
-    display_text: extras.display_text || charge?.display_text || null,
-    amount: extras.amount,
-    currency: 'GHS',
-    plan: extras.plan,
-    live_mode: extras.live_mode,
-  };
-}
-
-async function chargePlanWithMomo({ email, amountMajor, reference, metadata, phone, provider }) {
-  const phoneLocal = normalizeGhanaPhone(phone);
-  if (!/^0\d{9}$/.test(phoneLocal)) {
-    const err = new Error('Enter a Ghana MoMo number like 0551234567.');
-    err.status = 400;
-    err.code = 'INVALID_MOMO_NUMBER';
-    throw err;
-  }
-  const momoNetwork = momoProviderFromGhanaPhone(phoneLocal) || ghanaMomoProvider(provider);
-  if (!momoNetwork) {
-    const err = new Error('Enter the MoMo number so Paystack can send the PIN prompt to the phone.');
-    err.status = 400;
-    throw err;
-  }
-
-  cancelledSignupRefs.delete(reference);
-
-  let charge = await chargeMobileMoney({
-    email,
-    amountMinor: toMinorUnits(amountMajor),
-    currency: 'GHS',
-    phone: phoneLocal,
-    provider: momoNetwork,
-    reference,
-    metadata,
-  });
-  if (!chargeInstructionReady(charge?.status)) {
-    charge = await waitForMomoInstruction(charge?.reference || reference, charge, {
-      attempts: 10,
-      delayMs: 300,
-    });
-  }
-
-  const status = String(charge?.status || '').toLowerCase();
-  const nextUrl = charge?.url || charge?.redirecturl || null;
-  const needsCode = chargeLooksLikeCodePrompt(charge);
-  const liveMode = String(getPaystackConfig().secretKey || '').startsWith('sk_live_');
-  const isTelecel = /vod|telecel/i.test(String(momoNetwork || ''));
-  const phoneCancelled = !needsCode && isPaystackUserCancelled(charge);
-
-  // Paystack sometimes returns open_url instead of pay_offline. Opening that
-  // URL is what actually triggers the telco PIN prompt.
-  if ((status === 'open_url' || nextUrl) && !needsCode && !phoneCancelled && status !== 'success') {
-    return momoChargeView(charge, reference, {
-      status: 'open_url',
-      needs_code: false,
-      authorization_url: nextUrl,
-      display_text: charge?.display_text || 'Continue on Paystack to approve the MoMo PIN on your phone.',
-      amount: amountMajor,
-      plan: metadata.payment_plan,
-      live_mode: liveMode,
-    });
-  }
-
-  let displayText = charge?.display_text || '';
-  if (phoneCancelled) {
-    displayText = 'Payment was cancelled on the phone. Start payment again.';
-  } else if (!displayText) {
-    if (needsCode && isTelecel) {
-      displayText = 'Dial the Telecel USSD to get a voucher, then enter that voucher here.';
-    } else if (needsCode) {
-      displayText = 'Enter the 6-digit code sent for this payment.';
-    } else if (status === 'pay_offline') {
-      displayText = `A confirmation prompt was sent to ${phoneLocal}. Approve it on your phone.`;
-    } else {
-      displayText = 'Waiting for the MoMo confirmation prompt.';
-    }
-  }
-
-  return momoChargeView(charge, reference, {
-    status: phoneCancelled ? 'cancelled' : needsCode && !chargeNeedsCode(status) ? 'send_otp' : status || 'pending',
-    needs_code: needsCode,
-    display_text: displayText,
-    amount: amountMajor,
-    plan: metadata.payment_plan,
-    live_mode: liveMode,
-  });
-}
-
 async function initializePlanCheckout({ email, amountMajor, reference, metadata }) {
   const init = await initializeTransaction({
     email,
@@ -259,7 +144,10 @@ async function initializePlanCheckout({ email, amountMajor, reference, metadata 
     reference,
     callbackUrl: checkoutCallbackUrl(reference),
     channels: PLAN_CHECKOUT_CHANNELS,
-    metadata,
+    metadata: {
+      ...metadata,
+      cancel_action: `${getFrontendBaseUrl()}/plans`,
+    },
   });
   return {
     mode: 'checkout',
@@ -284,9 +172,6 @@ export async function startSchoolSignupCheckout({
   logo,
   paymentPlan,
   googleSignup = false,
-  method,
-  phone,
-  provider,
 }) {
   requirePaystack();
   const { resolved, plan } = requirePlan(paymentPlan);
@@ -319,7 +204,7 @@ export async function startSchoolSignupCheckout({
   });
 }
 
-export async function startSchoolPlanCheckout({ schoolId, email, schoolName, paymentPlan, method, phone, provider }) {
+export async function startSchoolPlanCheckout({ schoolId, email, schoolName, paymentPlan }) {
   requirePaystack();
   const { resolved, plan } = requirePlan(paymentPlan);
   const reference = makeWalletReference('splan');
@@ -339,209 +224,6 @@ export async function startSchoolPlanCheckout({ schoolId, email, schoolName, pay
         { display_name: 'Plan', variable_name: 'plan', value: plan.name },
       ],
     },
-  });
-}
-
-function isSignupChargeReference(reference, pending) {
-  const ref = String(reference || '');
-  if (pending) return true;
-  return ref.startsWith('signup_') || ref.startsWith('splan_');
-}
-
-async function readSignupCharge(reference) {
-  try {
-    return await fetchCharge(reference);
-  } catch {
-    return null;
-  }
-}
-
-export async function resolveSignupCharge(reference) {
-  const ref = String(reference || '').trim();
-  if (!ref) {
-    const err = new Error('Payment reference is required');
-    err.status = 400;
-    throw err;
-  }
-  const pending = await getPendingByReference(ref);
-  if (!isSignupChargeReference(ref, pending)) {
-    const err = new Error('Payment not found');
-    err.status = 404;
-    throw err;
-  }
-
-  let charge = await readSignupCharge(ref);
-  if (!charge) {
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    charge = await readSignupCharge(ref);
-  }
-  const chargeStatus = String(charge?.status || '').toLowerCase();
-  const nextUrl = charge?.url || charge?.redirecturl || null;
-
-  if (chargeStatus === 'success') {
-    const fulfilled = await fulfillSchoolCheckout(ref);
-    return {
-      ...momoChargeView(charge, ref, {
-        status: fulfilled?.ok === false ? 'pending' : 'success',
-        needs_code: false,
-        display_text: fulfilled?.ok === false ? fulfilled.error : charge?.display_text,
-      }),
-      fulfillment: fulfilled?.ok ? fulfilled : null,
-      pending: fulfilled?.ok === false ? Boolean(fulfilled.pending) : false,
-    };
-  }
-
-  if (chargeLooksLikeCodePrompt(charge) || chargeStatus === 'send_otp' || chargeStatus === 'send_pin') {
-    return momoChargeView(charge, ref, {
-      status: chargeNeedsCode(chargeStatus) ? chargeStatus : 'send_otp',
-      needs_code: true,
-      display_text: charge?.display_text || 'Enter the 6-digit code sent for this payment.',
-    });
-  }
-
-  if ((chargeStatus === 'open_url' || nextUrl) && chargeStatus !== 'failed') {
-    return momoChargeView(charge, ref, {
-      status: 'open_url',
-      needs_code: false,
-      authorization_url: nextUrl,
-      display_text: charge?.display_text || 'Continue on Paystack to approve the MoMo PIN on your phone.',
-    });
-  }
-
-  if (cancelledSignupRefs.has(ref)) {
-    return momoChargeView(charge || { reference: ref }, ref, {
-      status: 'cancelled',
-      needs_code: false,
-      display_text: 'This payment was cancelled. Start payment again.',
-    });
-  }
-
-  if (charge && isPaystackUserCancelled(charge)) {
-    cancelledSignupRefs.add(ref);
-    return momoChargeView(charge, ref, {
-      status: 'cancelled',
-      needs_code: false,
-      display_text: 'Payment was cancelled on the phone. Start payment again.',
-    });
-  }
-
-  if (charge && isPaystackFailedStatus(chargeStatus)) {
-    return momoChargeView(charge, ref, {
-      status: 'failed',
-      needs_code: false,
-      display_text: charge.display_text || charge.gateway_response || 'Payment declined.',
-    });
-  }
-
-  if (charge && isPaystackPendingStatus(chargeStatus)) {
-    try {
-      const verified = await verifyTransaction(ref);
-      const txStatus = String(verified?.status || '').toLowerCase();
-      if (txStatus === 'success') {
-        const fulfilled = await fulfillSchoolCheckout(ref);
-        return {
-          ...momoChargeView(verified, ref, { status: 'success', needs_code: false }),
-          fulfillment: fulfilled?.ok ? fulfilled : null,
-        };
-      }
-    } catch {
-      // Still waiting for the phone PIN.
-    }
-    return momoChargeView(charge, ref, {
-      status: chargeStatus === 'pay_offline' ? 'pay_offline' : 'pending',
-      needs_code: false,
-      display_text: charge.display_text || 'Waiting for confirmation on the phone.',
-    });
-  }
-
-  try {
-    const verified = await verifyTransaction(ref);
-    const txStatus = String(verified?.status || '').toLowerCase();
-    if (txStatus === 'success') {
-      const fulfilled = await fulfillSchoolCheckout(ref);
-      return {
-        ...momoChargeView(verified, ref, { status: 'success', needs_code: false }),
-        fulfillment: fulfilled?.ok ? fulfilled : null,
-      };
-    }
-  } catch {
-    // Keep waiting.
-  }
-
-  return momoChargeView(charge || { reference: ref }, ref, {
-    status: 'pending',
-    needs_code: false,
-    display_text: charge?.display_text || 'Waiting for confirmation.',
-  });
-}
-
-export async function authorizeSignupCharge({ reference, otp, codeType }) {
-  const ref = String(reference || '').trim();
-  const code = String(otp || '').trim();
-  if (!ref || !code) {
-    const err = new Error('Enter the code from the prompt to continue.');
-    err.status = 400;
-    throw err;
-  }
-  const submitCode = async (type) =>
-    type === 'pin' ? submitChargePin({ reference: ref, pin: code }) : submitChargeOtp({ reference: ref, otp: code });
-
-  let submitted;
-  try {
-    submitted = await submitCode(String(codeType || 'otp').toLowerCase() === 'pin' ? 'pin' : 'otp');
-  } catch (submitErr) {
-    try {
-      submitted = await submitCode(String(codeType || 'otp').toLowerCase() === 'pin' ? 'otp' : 'pin');
-    } catch {
-      throw submitErr;
-    }
-  }
-
-  const submittedStatus = String(submitted?.status || '').toLowerCase();
-  const submittedRef = submitted?.reference || ref;
-  const nextUrl = submitted?.url || submitted?.redirecturl || null;
-
-  if (submittedStatus === 'success') {
-    const fulfilled = await fulfillSchoolCheckout(submittedRef);
-    return {
-      ...momoChargeView(submitted, submittedRef, { status: 'success', needs_code: false }),
-      fulfillment: fulfilled?.ok ? fulfilled : null,
-    };
-  }
-
-  if ((submittedStatus === 'open_url' || nextUrl) && nextUrl) {
-    return momoChargeView(submitted, submittedRef, {
-      status: 'open_url',
-      needs_code: false,
-      authorization_url: nextUrl,
-    });
-  }
-
-  if (isPaystackFailedStatus(submittedStatus)) {
-    return momoChargeView(submitted, submittedRef, {
-      status: 'failed',
-      needs_code: false,
-      display_text: submitted?.display_text || submitted?.gateway_response || 'That code was not accepted.',
-    });
-  }
-
-  return resolveSignupCharge(submittedRef);
-}
-
-export async function cancelSignupCharge(reference) {
-  const ref = String(reference || '').trim();
-  if (!ref) {
-    const err = new Error('Payment reference is required');
-    err.status = 400;
-    throw err;
-  }
-  const resolved = await resolveSignupCharge(ref).catch(() => null);
-  if (resolved?.status === 'success') return resolved;
-  cancelledSignupRefs.add(ref);
-  return momoChargeView({ reference: ref }, ref, {
-    status: 'cancelled',
-    needs_code: false,
-    display_text: 'Payment cancelled. Start payment again.',
   });
 }
 

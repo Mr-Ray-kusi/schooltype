@@ -63,9 +63,6 @@ import {
   startSchoolSignupCheckout,
   startSchoolPlanCheckout,
   fulfillSchoolCheckout,
-  resolveSignupCharge,
-  authorizeSignupCharge,
-  cancelSignupCharge,
 } from './schoolSignupPayment.js';
 import { registerFeeRoutes, registerStaffFeeRoutes } from './feeRoutes.js';
 import { initPlatformSmsStore, claimDemoMoneyReset, resetSmsInventoryToZero } from './platformSmsStore.js';
@@ -1042,7 +1039,7 @@ app.get('/api/plans', (req, res) => {
 app.post('/api/auth/signup', async (req, res) => {
   try {
     const email = req.body.email?.trim().toLowerCase();
-    const { schoolName, logo, paymentPlan, method, phone, provider } = req.body;
+    const { schoolName, logo, paymentPlan } = req.body;
     const clientIp = getClientIp(req);
 
     if (!schoolName?.trim() || !email) {
@@ -1110,9 +1107,6 @@ app.post('/api/auth/signup', async (req, res) => {
       logo,
       paymentPlan,
       googleSignup: false,
-      method,
-      phone,
-      provider,
     });
 
     res.json({
@@ -1285,8 +1279,7 @@ app.get('/api/auth/google-config', (req, res) => {
 
 app.post('/api/auth/google', async (req, res) => {
   try {
-    const { idToken, accessToken, schoolName, logo, paymentPlan, privacyAccepted, method, phone, provider } =
-      req.body || {};
+    const { idToken, accessToken, schoolName, logo, paymentPlan, privacyAccepted } = req.body || {};
     const clientIp = getClientIp(req);
     const hitCheck = await checkAuthHitAllowed('google', clientIp);
     if (!hitCheck.allowed) return sendAuthRateLimited(res, hitCheck);
@@ -1339,9 +1332,6 @@ app.post('/api/auth/google', async (req, res) => {
         logo,
         paymentPlan,
         googleSignup: true,
-        method,
-        phone,
-        provider,
       });
       return res.json({
         ...checkout,
@@ -1380,43 +1370,6 @@ app.post('/api/auth/google', async (req, res) => {
     const status = error.status || 500;
     if (status >= 500) console.error('Google auth error:', error);
     res.status(status).json({ error: error.message || 'Google sign-in failed', code: error.code });
-  }
-});
-
-app.get('/api/auth/signup-charge/:reference', async (req, res) => {
-  try {
-    const resolved = await resolveSignupCharge(req.params.reference);
-    res.json(resolved);
-  } catch (error) {
-    const status = error.status || 500;
-    if (status >= 500) console.error('Signup charge status error:', error);
-    res.status(status).json({ error: error.message || 'Failed to check payment status', code: error.code });
-  }
-});
-
-app.post('/api/auth/signup-charge/authorize', async (req, res) => {
-  try {
-    const resolved = await authorizeSignupCharge({
-      reference: req.body?.reference,
-      otp: req.body?.otp || req.body?.pin || req.body?.code,
-      codeType: req.body?.code_type || req.body?.type,
-    });
-    res.json(resolved);
-  } catch (error) {
-    const status = error.status || 500;
-    if (status >= 500) console.error('Signup charge authorize error:', error);
-    res.status(status).json({ error: error.message || 'Could not submit that code', code: error.code });
-  }
-});
-
-app.post('/api/auth/signup-charge/cancel', async (req, res) => {
-  try {
-    const resolved = await cancelSignupCharge(req.body?.reference);
-    res.json(resolved);
-  } catch (error) {
-    const status = error.status || 500;
-    if (status >= 500) console.error('Signup charge cancel error:', error);
-    res.status(status).json({ error: error.message || 'Could not cancel this payment', code: error.code });
   }
 });
 
@@ -1733,7 +1686,7 @@ app.post('/api/school/select-plan', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Super admin does not require a plan' });
     }
 
-    const { paymentPlan, method, phone, provider } = req.body;
+    const { paymentPlan } = req.body;
     if (!paymentPlan || !VALID_PLAN_IDS.includes(paymentPlan)) {
       return res.status(400).json({ error: 'Invalid payment plan' });
     }
@@ -1758,9 +1711,6 @@ app.post('/api/school/select-plan', authenticateToken, async (req, res) => {
       email: currentSchool.email,
       schoolName: currentSchool.name,
       paymentPlan,
-      method,
-      phone,
-      provider,
     });
 
     res.json({

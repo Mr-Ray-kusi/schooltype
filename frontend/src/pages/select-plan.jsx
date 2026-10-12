@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/authcontext';
 import { PLAN_LIST, formatPlanPriceGhs, formatPlanPriceUsd } from '../constants/plans';
 import { Check, School } from 'lucide-react';
+import { openPaystackCheckout } from '../utils/paystackCheckout';
 
 const SelectPlan = () => {
   const { school, selectPlan, token } = useAuth();
@@ -43,9 +44,11 @@ const SelectPlan = () => {
     setLoading(true);
     try {
       const data = await selectPlan(selectedPlan);
-      if (data.authorization_url) {
-        toast.success('Continue on Paystack. Choose MoMo, card, or bank. MoMo sends a PIN to the phone.');
-        window.location.assign(data.authorization_url);
+      if (data.authorization_url || data.access_code) {
+        toast.success(
+          'Enter MoMo, card, or bank on Paystack. MoMo sends a confirmation to the phone, then enter your PIN there.'
+        );
+        await openPaystackCheckout(data);
         return;
       }
       toast.success('Plan is active. All features are unlocked.');

@@ -156,7 +156,7 @@ export async function initializeTransaction({
   const body = {
     email,
     amount: amountMinor,
-    currency,
+    currency: String(currency || 'GHS').toUpperCase(),
     reference,
     callback_url: callbackUrl,
     channels,
@@ -166,6 +166,9 @@ export async function initializeTransaction({
     body.subaccount = subaccount;
     body.bearer = bearer || 'subaccount';
   }
+  Object.keys(body).forEach((key) => {
+    if (body[key] == null || body[key] === '') delete body[key];
+  });
   return paystackRequest('/transaction/initialize', {
     method: 'POST',
     body,

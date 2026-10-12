@@ -6,6 +6,7 @@ import { getPlan, formatPlanPriceGhs } from '../constants/plans';
 import { User, Mail, ImagePlus, ShieldCheck } from 'lucide-react';
 import AuthSplitLayout, { AuthBrandMark, AuthField, AUTH_ORANGE } from '../components/AuthSplitLayout';
 import GoogleSignInButton from '../components/GoogleSignInButton';
+import { openPaystackCheckout } from '../utils/paystackCheckout';
 
 const Signup = () => {
   const navigate = useNavigate();
@@ -67,13 +68,10 @@ const Signup = () => {
     setLogoPreview(null);
   };
 
-  const openPaystack = (data) => {
-    if (data?.authorization_url) {
-      toast.success('Continue on Paystack. Choose MoMo, card, or bank. MoMo sends a PIN to the phone.');
-      window.location.assign(data.authorization_url);
-      return true;
-    }
-    return false;
+  const openPaystack = async (data) => {
+    if (!data?.authorization_url && !data?.access_code) return false;
+    toast.success('Enter MoMo, card, or bank on Paystack. MoMo sends a confirmation to the phone, then enter your PIN there.');
+    return openPaystackCheckout(data);
   };
 
   const handleSubmit = async (e) => {
@@ -85,7 +83,7 @@ const Signup = () => {
     setLoading(true);
     try {
       const data = await signup(formData.schoolName, formData.email, null, logo, planParam);
-      if (openPaystack(data)) return;
+      if (await openPaystack(data)) return;
       toast.success(
         data.emailSendFailed
           ? 'Account started. We could not send email — use Resend on the sign-in page.'
@@ -185,7 +183,7 @@ const Signup = () => {
                 paymentPlan: planParam,
                 privacyAccepted: true,
               });
-              if (openPaystack(data)) return;
+              if (await openPaystack(data)) return;
               toast.success('Account ready. Welcome to Schooltype.');
               navigate(getPostAuthPath(data.school), { replace: true });
             }}
@@ -213,8 +211,9 @@ const Signup = () => {
               Pay on Paystack, then verify email
             </p>
             <p className="mt-1 pl-6">
-              Paystack collects MoMo, card, or bank details. For MoMo, enter the number there so the PIN prompt is sent
-              to the phone. After payment we email a link so you can verify ownership and choose a password.
+              Paystack collects MoMo, card, or bank details. For MoMo, stay on Paystack until the phone prompt arrives,
+              then authorize with your PIN on the device. After payment we email a link so you can verify and choose a
+              password.
             </p>
           </div>
 

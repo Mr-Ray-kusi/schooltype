@@ -6,6 +6,7 @@ import toast from 'react-hot-toast';
 import { Mail, Lock, Eye, EyeOff } from 'lucide-react';
 import AuthSplitLayout, { AuthBrandMark, AuthField, AUTH_ORANGE } from '../components/AuthSplitLayout';
 import GoogleSignInButton from '../components/GoogleSignInButton';
+import { openPaystackCheckout } from '../utils/paystackCheckout';
 
 const REMEMBER_KEY = 'schootype_remember_email';
 
@@ -122,8 +123,8 @@ const Login = () => {
           onCredential={async ({ accessToken }) => {
             try {
               const data = await loginWithGoogle({ accessToken });
-              if (data.authorization_url) {
-                window.location.assign(data.authorization_url);
+              if (data.authorization_url || data.access_code) {
+                await openPaystackCheckout(data);
                 return;
               }
               toast.success('Login successful!');
