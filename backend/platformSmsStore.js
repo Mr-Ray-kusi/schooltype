@@ -227,6 +227,51 @@ export async function claimDemoMoneyReset(baselineMinor = 0) {
   return Number(result?.changes) > 0;
 }
 
+const LEDGER_FLAG_ID = 'platform_ledger_real_v2';
+
+export async function claimPlatformLedgerRebuild() {
+  if (useCloudSms()) {
+    const { error } = await supabase.from('platform_sms_settings').insert([
+      {
+        id: LEDGER_FLAG_ID,
+        units_available: 0,
+        unit_price_minor: 0,
+        total_revenue_minor: 0,
+        updated_at: nowIso(),
+      },
+    ]);
+    if (error) {
+      if (isDuplicateKey(error)) return false;
+      throw error;
+    }
+    return true;
+  }
+  const db = await getDb();
+  const result = await db.run(
+    `INSERT OR IGNORE INTO platform_sms_settings
+      (id, units_available, unit_price_minor, total_revenue_minor, updated_at)
+     VALUES (?, 0, 0, 0, ?)`,
+    [LEDGER_FLAG_ID, nowIso()]
+  );
+  return Number(result?.changes) > 0;
+}
+
+export async function clearDemoMoneyBaseline() {
+  if (useCloudSms()) {
+    const { error } = await supabase
+      .from('platform_sms_settings')
+      .update({ total_revenue_minor: 0, updated_at: nowIso() })
+      .eq('id', DEMO_FLAG_ID);
+    if (error) throw error;
+    return;
+  }
+  const db = await getDb();
+  await db.run(`UPDATE platform_sms_settings SET total_revenue_minor = 0, updated_at = ? WHERE id = ?`, [
+    nowIso(),
+    DEMO_FLAG_ID,
+  ]);
+}
+
 export async function getDemoMoneyClearBaselineMinor() {
   if (useCloudSms()) {
     const { data, error } = await supabase

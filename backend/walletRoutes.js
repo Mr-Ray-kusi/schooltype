@@ -27,7 +27,11 @@ import {
   updateWalletTransaction,
   creditDeposit,
   creditInternalFunds,
-  sumSuccessfulCreditsByKind,
+  deleteWalletTransactionsByReferences,
+  setWalletBalances,
+  isRealPlatformRevenueReference,
+  isFakeOrDemoWalletTx,
+  ledgerBalancesFromTransactions,
   reserveWithdrawal,
   completeWithdrawal,
   failWithdrawal,
@@ -36,9 +40,10 @@ import {
 import { parsePaystackMetadata, settleSchoolFeeFromPaystack, syncSchoolFeeCredits } from './feePayments.js';
 import { recordPlatformEvent } from './platformTelemetry.js';
 import { findPlatformSchoolId } from './smsBilling.js';
-import { getDemoMoneyClearBaselineMinor } from './platformSmsStore.js';
+import { claimPlatformLedgerRebuild, clearDemoMoneyBaseline } from './platformSmsStore.js';
 import { supabase } from './supabaseClient.js';
-import { mergeSchoolWithExtras } from './schoolPlanStore.js';
+import { mergeSchoolWithExtras, upsertSchoolExtras, replaceSchoolSubscriptionPayments } from './schoolPlanStore.js';
+import { getPlan } from './plans.js';
 
 function formatMoney(wallet) {
   return {
@@ -99,27 +104,148 @@ export async function getRecordedSubscriptionRevenueMinor() {
   return Math.round(totalMajor * 100);
 }
 
-async function syncSubscriptionRevenueIntoPlatformWallet() {
+function isInboundCredit(tx) {
+  const type = String(tx?.type || '');
+  return type === 'credit' || type === 'deposit';
+}
+
+function pickSignupKeepers(transactions) {
+  const real = (transactions || []).filter((tx) => {
+    if (String(tx.status || '') !== 'success' || !isInboundCredit(tx)) return false;
+    if (isFakeOrDemoWalletTx(tx)) return false;
+    return isRealPlatformRevenueReference(tx.reference);
+  });
+  const signup = real
+    .filter(
+      (tx) =>
+        /^(signup_|splan_)/i.test(String(tx.reference || '')) ||
+        tx.metadata?.kind === 'subscription_payment'
+    )
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  const tenCedis = signup.filter((tx) => Number(tx.amount) === 1000);
+  if (tenCedis.length) return [tenCedis[0]];
+  if (signup.length) return [signup[0]];
+  const fallback = (transactions || [])
+    .filter(
+      (tx) =>
+        String(tx.status || '') === 'success' &&
+        isInboundCredit(tx) &&
+        Number(tx.amount) === 1000
+    )
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  return fallback.slice(0, 1);
+}
+
+async function rewriteSchoolTotalsFromKeepers(tenantSchools, keepers) {
+  const paidBySchool = new Map();
+  for (const tx of keepers) {
+    const schoolId = tx.metadata?.from_school_id;
+    if (!schoolId) continue;
+    const list = paidBySchool.get(schoolId) || [];
+    list.push({
+      amount: fromMinorUnits(tx.amount),
+      plan_id: tx.metadata?.plan_id || null,
+      recorded_at: tx.created_at,
+      source: 'paystack',
+      reference: tx.reference,
+    });
+    paidBySchool.set(schoolId, list);
+  }
+
+  if (!paidBySchool.size && keepers.length === 1 && tenantSchools.length) {
+    const paidSchools = tenantSchools.filter((school) => Number(mergeSchoolWithExtras(school).total_paid) > 0);
+    const target = paidSchools[0] || tenantSchools[0];
+    const merged = mergeSchoolWithExtras(target);
+    const plan = getPlan(merged.payment_plan);
+    paidBySchool.set(target.id, [
+      {
+        amount: fromMinorUnits(keepers[0].amount),
+        plan_id: merged.payment_plan || null,
+        plan_name: plan?.name || null,
+        recorded_at: keepers[0].created_at,
+        source: 'paystack',
+        reference: keepers[0].reference,
+      },
+    ]);
+  }
+
+  for (const school of tenantSchools) {
+    const records = paidBySchool.get(school.id) || [];
+    const total = records.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+    await replaceSchoolSubscriptionPayments(school.id, records);
+    await upsertSchoolExtras(school.id, { total_paid: total });
+  }
+}
+
+async function creditMissingRealPayments(tenantSchools, platformSchoolId) {
+  for (const school of tenantSchools) {
+    const merged = mergeSchoolWithExtras(school);
+    const plan = getPlan(merged.payment_plan);
+    for (const record of merged.payment_records || []) {
+      const reference = record.reference;
+      if (!isRealPlatformRevenueReference(reference)) continue;
+      const amountMinor = Math.round(Number(record.amount || plan?.price || 0) * 100);
+      if (amountMinor <= 0) continue;
+      await creditInternalFunds(platformSchoolId, amountMinor, {
+        reference,
+        description: `Subscription payment · ${merged.name || 'school'}`,
+        metadata: {
+          kind: 'subscription_payment',
+          from_school_id: school.id,
+          plan_id: record.plan_id || merged.payment_plan || null,
+        },
+      });
+    }
+  }
+}
+
+let ledgerSync = null;
+
+export async function rebuildPlatformRevenueLedger() {
   const platformSchoolId = await findPlatformSchoolId(supabase);
   if (!platformSchoolId) return;
-  const lifetimeMinor = await getRecordedSubscriptionRevenueMinor();
-  let baselineMinor = 0;
-  try {
-    baselineMinor = await getDemoMoneyClearBaselineMinor();
-  } catch {
-    baselineMinor = 0;
-  }
-  const expectedMinor = Math.max(0, lifetimeMinor - baselineMinor);
-  if (expectedMinor <= 0) return;
   await ensureWallet(platformSchoolId);
-  const creditedMinor = await sumSuccessfulCreditsByKind(platformSchoolId, 'subscription_payment');
-  const gapMinor = expectedMinor - creditedMinor;
-  if (gapMinor <= 0) return;
-  await creditInternalFunds(platformSchoolId, gapMinor, {
-    reference: `subrev_gap_${expectedMinor}`,
-    description: 'Subscription revenue available to withdraw',
-    metadata: { kind: 'subscription_payment', sync: true },
+
+  const { data: schools, error } = await supabase.from('schools').select('*');
+  if (error) throw error;
+  const tenantSchools = (schools || []).filter((school) => String(school.role || '') !== 'super_admin');
+  const transactions = await listWalletTransactions(platformSchoolId, { limit: 5000 });
+  const claimed = await claimPlatformLedgerRebuild();
+
+  if (claimed) {
+    try {
+      await clearDemoMoneyBaseline();
+    } catch (err) {
+      console.warn('Could not clear demo revenue baseline:', err.message || err);
+    }
+    const keepers = pickSignupKeepers(transactions);
+    const keepRefs = new Set(keepers.map((tx) => tx.reference).filter(Boolean));
+    const drop = transactions
+      .map((tx) => tx.reference)
+      .filter((reference) => reference && !keepRefs.has(reference));
+    await deleteWalletTransactionsByReferences(drop);
+    const remaining = transactions.filter((tx) => keepRefs.has(tx.reference));
+    await setWalletBalances(platformSchoolId, ledgerBalancesFromTransactions(remaining));
+    await rewriteSchoolTotalsFromKeepers(tenantSchools, remaining);
+    return;
+  }
+
+  const fake = transactions.filter(isFakeOrDemoWalletTx);
+  if (fake.length) {
+    await deleteWalletTransactionsByReferences(fake.map((tx) => tx.reference));
+  }
+  await creditMissingRealPayments(tenantSchools, platformSchoolId);
+  const remaining = await listWalletTransactions(platformSchoolId, { limit: 5000 });
+  const live = remaining.filter((tx) => !isFakeOrDemoWalletTx(tx));
+  await setWalletBalances(platformSchoolId, ledgerBalancesFromTransactions(live));
+}
+
+async function syncPlatformWalletFromRealPayments() {
+  if (ledgerSync) return ledgerSync;
+  ledgerSync = rebuildPlatformRevenueLedger().finally(() => {
+    ledgerSync = null;
   });
+  return ledgerSync;
 }
 
 function sendStoreError(res, err, fallback) {
@@ -160,7 +286,7 @@ export function registerWalletRoutes(app, { authenticateToken, enforcePlanApprov
       const platformSchoolId = await findPlatformSchoolId(supabase);
       if (platformSchoolId && schoolId === platformSchoolId) {
         try {
-          await syncSubscriptionRevenueIntoPlatformWallet();
+          await syncPlatformWalletFromRealPayments();
         } catch (syncErr) {
           console.warn('Platform revenue wallet sync failed:', syncErr.message || syncErr);
         }
@@ -553,6 +679,14 @@ export function registerWalletRoutes(app, { authenticateToken, enforcePlanApprov
 
   app.get('/api/wallet/transactions', authenticateToken, enforcePlanApproval, async (req, res) => {
     try {
+      const platformSchoolId = await findPlatformSchoolId(supabase);
+      if (platformSchoolId && req.user.schoolId === platformSchoolId) {
+        try {
+          await syncPlatformWalletFromRealPayments();
+        } catch (syncErr) {
+          console.warn('Platform revenue wallet sync failed:', syncErr.message || syncErr);
+        }
+      }
       const transactions = await listWalletTransactions(req.user.schoolId, { limit: 100 });
       res.json({ transactions: transactions.map(formatTransaction) });
     } catch (err) {

@@ -619,6 +619,92 @@ export async function listWalletTransactions(schoolId, { limit = 50 } = {}) {
   return rows.map(mapTransaction);
 }
 
+export function isRealPlatformRevenueReference(reference) {
+  const ref = String(reference || '').trim();
+  if (!ref) return false;
+  if (/^subrev_gap_/i.test(ref)) return false;
+  if (/^sub_\d{10,}_[a-z0-9]+$/i.test(ref)) return false;
+  if (/^(signup_|splan_|smsbuy_)/i.test(ref)) return true;
+  if (/^T[A-Z0-9]{8,}$/i.test(ref)) return true;
+  return false;
+}
+
+export function isFakeOrDemoWalletTx(tx) {
+  const ref = String(tx?.reference || '');
+  const meta = tx?.metadata && typeof tx.metadata === 'object' ? tx.metadata : {};
+  const description = String(tx?.description || '');
+  if (meta.sync === true) return true;
+  if (/^subrev_gap_/i.test(ref)) return true;
+  if (/^sub_\d{10,}_[a-z0-9]+$/i.test(ref)) return true;
+  if (/demo|available to withdraw/i.test(description)) return true;
+  return false;
+}
+
+export function ledgerBalancesFromTransactions(transactions) {
+  let available = 0;
+  let pending = 0;
+  for (const tx of transactions || []) {
+    const amount = Number(tx.amount) || 0;
+    const type = String(tx.type || '');
+    const status = String(tx.status || '');
+    const inbound = type === 'credit' || type === 'deposit';
+    const outbound = type === 'debit' || type === 'withdrawal';
+    if (status === 'success') {
+      if (inbound) available += amount;
+      if (outbound) available -= amount;
+    } else if (status === 'pending' || status === 'processing') {
+      if (outbound) {
+        pending += amount;
+        available -= amount;
+      }
+    }
+  }
+  return {
+    available_balance: Math.max(0, Math.round(available)),
+    pending_balance: Math.max(0, Math.round(pending)),
+  };
+}
+
+export async function deleteWalletTransactionsByReferences(references) {
+  const refs = [...new Set((references || []).map((row) => String(row || '').trim()).filter(Boolean))];
+  if (!refs.length) return;
+  if (useCloudWallet()) {
+    assertCloud();
+    for (let i = 0; i < refs.length; i += 40) {
+      const chunk = refs.slice(i, i + 40);
+      const { error } = await supabase.from('wallet_transactions').delete().in('reference', chunk);
+      if (error) throwWalletError(error);
+    }
+    return;
+  }
+  const db = await getDb();
+  for (const ref of refs) {
+    await db.run('DELETE FROM wallet_transactions WHERE reference = ?', [ref]);
+  }
+}
+
+export async function setWalletBalances(schoolId, { available_balance = 0, pending_balance = 0 } = {}) {
+  const available = Math.max(0, Math.round(Number(available_balance) || 0));
+  const pending = Math.max(0, Math.round(Number(pending_balance) || 0));
+  if (useCloudWallet()) {
+    assertCloud();
+    const { error } = await supabase
+      .from('school_wallets')
+      .update({ available_balance: available, pending_balance: pending, updated_at: nowIso() })
+      .eq('school_id', schoolId);
+    if (error) throwWalletError(error);
+    return getWallet(schoolId);
+  }
+  const db = await getDb();
+  await db.run(
+    `UPDATE school_wallets
+     SET available_balance = ?, pending_balance = ?, updated_at = ?
+     WHERE school_id = ?`,
+    [available, pending, nowIso(), schoolId]
+  );
+  return getWallet(schoolId);
+}
+
 export async function updateWalletTransaction(reference, patch) {
   const existing = await getWalletTransactionByReference(reference);
   if (!existing) return null;

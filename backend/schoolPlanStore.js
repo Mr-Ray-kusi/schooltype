@@ -124,28 +124,42 @@ async function updateSchoolColumns(schoolId, updates) {
   };
 }
 
-async function loadPaymentRecords(schoolId) {
-  const { data, error } = await supabase
-    .from('subscription_payments')
-    .select('amount, plan, plan_name, created_at, status')
-    .eq('school_id', schoolId)
-    .order('created_at', { ascending: false });
-
-  if (error) {
-    if (isMissingColumnError(error, 'subscription_payments') || error.code === '42P01') {
-      return [];
-    }
-    console.warn('Failed to load subscription payments:', error.message);
-    return [];
-  }
-
-  return (data || []).map((row) => ({
+function mapPaymentRow(row) {
+  return {
     amount: Number(row.amount) || 0,
     plan_id: row.plan || null,
     plan_name: row.plan_name || row.plan || null,
     recorded_at: row.created_at,
     status: row.status || 'approved',
-  }));
+    reference: row.reference || null,
+    source: row.source || null,
+  };
+}
+
+async function loadPaymentRecords(schoolId) {
+  let result = await supabase
+    .from('subscription_payments')
+    .select('amount, plan, plan_name, created_at, status, reference, source')
+    .eq('school_id', schoolId)
+    .order('created_at', { ascending: false });
+
+  if (result.error && (isMissingColumnError(result.error, 'reference') || isMissingColumnError(result.error, 'source'))) {
+    result = await supabase
+      .from('subscription_payments')
+      .select('amount, plan, plan_name, created_at, status')
+      .eq('school_id', schoolId)
+      .order('created_at', { ascending: false });
+  }
+
+  if (result.error) {
+    if (isMissingColumnError(result.error, 'subscription_payments') || result.error.code === '42P01') {
+      return [];
+    }
+    console.warn('Failed to load subscription payments:', result.error.message);
+    return [];
+  }
+
+  return (result.data || []).map(mapPaymentRow);
 }
 
 export async function initSchoolPlanStore() {
@@ -162,10 +176,21 @@ export async function initSchoolPlanStore() {
     throw new Error(`School plan store init failed: ${error.message}`);
   }
 
-  const { data: payments, error: payError } = await supabase
+  let payResult = await supabase
     .from('subscription_payments')
-    .select('school_id, amount, plan, plan_name, created_at, status')
+    .select('school_id, amount, plan, plan_name, created_at, status, reference, source')
     .order('created_at', { ascending: false });
+  if (
+    payResult.error &&
+    (isMissingColumnError(payResult.error, 'reference') || isMissingColumnError(payResult.error, 'source'))
+  ) {
+    payResult = await supabase
+      .from('subscription_payments')
+      .select('school_id, amount, plan, plan_name, created_at, status')
+      .order('created_at', { ascending: false });
+  }
+  const payments = payResult.data;
+  const payError = payResult.error;
 
   if (payError && !(isMissingColumnError(payError, 'subscription_payments') || payError.code === '42P01')) {
     console.warn('subscription_payments unavailable:', payError.message);
@@ -174,13 +199,7 @@ export async function initSchoolPlanStore() {
   const paymentsBySchool = new Map();
   for (const row of payments || []) {
     const list = paymentsBySchool.get(row.school_id) || [];
-    list.push({
-      amount: Number(row.amount) || 0,
-      plan_id: row.plan || null,
-      plan_name: row.plan_name || row.plan || null,
-      recorded_at: row.created_at,
-      status: row.status || 'approved',
-    });
+    list.push(mapPaymentRow(row));
     paymentsBySchool.set(row.school_id, list);
   }
 
@@ -225,6 +244,43 @@ export function parsePaymentRecords(extras) {
 
 export function getSchoolExtrasSync(schoolId) {
   return cache.get(schoolId) || null;
+}
+
+export async function replaceSchoolSubscriptionPayments(schoolId, records = []) {
+  const { error: delError } = await supabase.from('subscription_payments').delete().eq('school_id', schoolId);
+  if (delError && !(isMissingColumnError(delError, 'subscription_payments') || delError.code === '42P01')) {
+    console.warn('Failed to clear subscription payments:', delError.message);
+  }
+
+  const rows = (records || [])
+    .map((row) => ({
+      school_id: schoolId,
+      plan: row.plan_id || row.plan || null,
+      plan_name: row.plan_name || null,
+      amount: Number(row.amount) || 0,
+      currency: 'GHS',
+      status: row.status || 'approved',
+      created_at: row.recorded_at || row.created_at || new Date().toISOString(),
+      approved_at: row.recorded_at || row.created_at || new Date().toISOString(),
+      reference: row.reference || null,
+      source: row.source || 'paystack',
+    }))
+    .filter((row) => row.amount > 0);
+
+  if (rows.length) {
+    let { error: insError } = await supabase.from('subscription_payments').insert(rows);
+    if (insError && (isMissingColumnError(insError, 'reference') || isMissingColumnError(insError, 'source'))) {
+      const slim = rows.map(({ reference: _reference, source: _source, ...rest }) => rest);
+      ({ error: insError } = await supabase.from('subscription_payments').insert(slim));
+    }
+    if (insError && !(isMissingColumnError(insError, 'subscription_payments') || insError.code === '42P01')) {
+      console.warn('Failed to rewrite subscription payments:', insError.message);
+    }
+  }
+
+  const extras = cache.get(schoolId);
+  if (extras) extras.payment_records = records || [];
+  return records || [];
 }
 
 export function mergeSchoolWithExtras(school) {
@@ -393,18 +449,24 @@ export async function upsertSchoolExtras(schoolId, extras, { requirePersist } = 
         (r) => r.recorded_at === newest.recorded_at && Number(r.amount) === Number(newest.amount)
       );
       if (!alreadyCached && newest) {
-        const { error: payError } = await supabase.from('subscription_payments').insert([
-          {
-            school_id: schoolId,
-            plan: newest.plan_id || merged.payment_plan,
-            plan_name: newest.plan_name || null,
-            amount: Number(newest.amount) || 0,
-            currency: 'GHS',
-            status: 'approved',
-            created_at: newest.recorded_at || new Date().toISOString(),
-            approved_at: newest.recorded_at || new Date().toISOString(),
-          },
-        ]);
+        const payRow = {
+          school_id: schoolId,
+          plan: newest.plan_id || merged.payment_plan,
+          plan_name: newest.plan_name || null,
+          amount: Number(newest.amount) || 0,
+          currency: 'GHS',
+          status: 'approved',
+          created_at: newest.recorded_at || new Date().toISOString(),
+          approved_at: newest.recorded_at || new Date().toISOString(),
+          reference: newest.reference || null,
+          source: newest.source || 'paystack',
+        };
+        let { error: payError } = await supabase.from('subscription_payments').insert([payRow]);
+        if (payError && (isMissingColumnError(payError, 'reference') || isMissingColumnError(payError, 'source'))) {
+          delete payRow.reference;
+          delete payRow.source;
+          ({ error: payError } = await supabase.from('subscription_payments').insert([payRow]));
+        }
         if (payError && !(isMissingColumnError(payError, 'subscription_payments') || payError.code === '42P01')) {
           console.warn('Failed to insert subscription payment:', payError.message);
         }

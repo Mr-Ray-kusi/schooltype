@@ -53,8 +53,8 @@ import {
   recordResendAttempt,
   parseJwtExpiresInSeconds,
 } from './authSecurity.js';
-import { initSchoolWalletStore, getWallet, resetAllWalletBalances } from './schoolWalletStore.js';
-import { registerWalletRoutes, getRecordedSubscriptionRevenueMinor } from './walletRoutes.js';
+import { initSchoolWalletStore, getWallet } from './schoolWalletStore.js';
+import { registerWalletRoutes, getRecordedSubscriptionRevenueMinor, rebuildPlatformRevenueLedger } from './walletRoutes.js';
 import {
   initSchoolSignupPayment,
   startSchoolSignupCheckout,
@@ -2496,6 +2496,11 @@ app.get('/api/super-admin/analytics', authenticateToken, requireSuperAdmin, asyn
 
 app.get('/api/super-admin/overview', authenticateToken, requireSuperAdmin, async (req, res) => {
   try {
+    try {
+      await rebuildPlatformRevenueLedger();
+    } catch (ledgerErr) {
+      console.warn('Platform ledger rebuild skipped:', ledgerErr.message || ledgerErr);
+    }
     const { data: schoolAccounts, error: schoolsError } = await fetchSchoolAccounts();
 
     if (schoolsError) {
@@ -2536,6 +2541,7 @@ app.get('/api/super-admin/overview', authenticateToken, requireSuperAdmin, async
       }
 
       for (const record of merged.payment_records || []) {
+        if (record.source && record.source !== 'paystack') continue;
         if (record.recorded_at && new Date(record.recorded_at) >= monthStart) {
           revenueThisMonth += Number(record.amount) || 0;
         }
@@ -5590,11 +5596,15 @@ async function initializeDatabase() {
           const claimed = await claimDemoMoneyReset(baselineMinor);
           if (claimed) {
             await resetSmsInventoryToZero();
-            await resetAllWalletBalances();
-            console.log('Cleared demo SMS units and wallet balances');
+            console.log('Cleared demo SMS units');
           }
         } catch (demoErr) {
           console.warn('Demo money reset skipped:', demoErr.message || demoErr);
+        }
+        try {
+          await rebuildPlatformRevenueLedger();
+        } catch (ledgerErr) {
+          console.warn('Platform ledger rebuild skipped:', ledgerErr.message || ledgerErr);
         }
         await seedSuperAdmin();
       } catch (err) {

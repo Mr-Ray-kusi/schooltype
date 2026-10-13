@@ -79,7 +79,7 @@ const SchoolWallet = () => {
   const [amount, setAmount] = useState('');
   const [busy, setBusy] = useState(false);
   const [momoHint, setMomoHint] = useState('');
-  const [action, setAction] = useState('deposit');
+  const [action, setAction] = useState(isSuperAdmin ? 'withdraw' : 'deposit');
   const [downloading, setDownloading] = useState(false);
 
   const selectedAccount = useMemo(
@@ -401,6 +401,8 @@ const SchoolWallet = () => {
                 </div>
 
                 <div className="mt-4 grid grid-cols-2 gap-2 border-t border-white/10 pt-3 md:mt-8 md:gap-4 md:pt-5">
+                  {!isSuperAdmin ? (
+                    <>
                   <div>
                     <p className="text-xs uppercase tracking-wide text-sky-200/80">Paid online</p>
                     <p className="mt-1 text-sm font-semibold text-sky-100 md:mt-2 md:text-lg">
@@ -413,6 +415,15 @@ const SchoolWallet = () => {
                       {loading ? '—' : formatGhs(wallet?.cashed_major)}
                     </p>
                   </div>
+                    </>
+                  ) : (
+                    <div className="col-span-2">
+                    <p className="text-xs uppercase tracking-wide text-sky-200/80">Platform collections</p>
+                    <p className="mt-1 text-sm font-semibold text-sky-100 md:mt-2 md:text-lg">
+                      Signup, renewals, and SMS unit sales
+                    </p>
+                    </div>
+                  )}
                   <div>
                     <p className="flex items-center gap-1.5 text-xs uppercase tracking-wide text-slate-400">
                       <Clock3 className="h-3.5 w-3.5" />
@@ -490,7 +501,9 @@ const SchoolWallet = () => {
                       <Wallet className="h-7 w-7 text-slate-500" />
                       <p className="mt-3 text-sm font-medium text-slate-300">No activity yet</p>
                       <p className="mt-1 text-xs text-slate-500">
-                        Load money to see your first transaction.
+                        {isSuperAdmin
+                          ? 'Successful signup, renewal, and SMS payments appear here.'
+                          : 'Load money to see your first transaction.'}
                       </p>
                     </div>
                   ) : (
@@ -599,7 +612,7 @@ const SchoolWallet = () => {
                   className="grid grid-cols-2 gap-2 rounded-2xl border border-slate-700 bg-slate-950/50 p-1.5"
                 >
                   {[
-                    {
+                    !isSuperAdmin && {
                       id: 'deposit',
                       label: 'Load money',
                       hint: 'MoMo only · confirm on phone',
@@ -611,7 +624,9 @@ const SchoolWallet = () => {
                       hint: 'Send to MoMo or bank',
                       icon: ArrowUpFromLine,
                     },
-                  ].map((opt) => {
+                  ]
+                    .filter(Boolean)
+                    .map((opt) => {
                     const active = action === opt.id;
                     const Icon = opt.icon;
                     return (
