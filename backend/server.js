@@ -10,7 +10,6 @@ import { getPlan, getPlanFeatures, getPlansList, VALID_PLAN_IDS, hasPlanFeature,
 import {
   getSubscriptionInfo,
   initializeSubscription,
-  renewSubscription,
   toDateString,
   addMonths,
 } from './subscription.js';
@@ -25,8 +24,6 @@ import {
   ensureStaffPortalToken,
   regenerateStaffPortalToken,
   getSchoolIdByStaffPortalToken,
-  getSchoolExtrasSync,
-  parsePaymentRecords,
   hydrateExtrasFromSchool,
   checkPlanSchemaReady,
 } from './schoolPlanStore.js';
@@ -56,7 +53,7 @@ import {
   recordResendAttempt,
   parseJwtExpiresInSeconds,
 } from './authSecurity.js';
-import { initSchoolWalletStore, creditInternalFunds, getWallet, makeWalletReference, resetAllWalletBalances } from './schoolWalletStore.js';
+import { initSchoolWalletStore, getWallet, resetAllWalletBalances } from './schoolWalletStore.js';
 import { registerWalletRoutes, getRecordedSubscriptionRevenueMinor } from './walletRoutes.js';
 import {
   initSchoolSignupPayment,
@@ -2643,64 +2640,10 @@ app.patch('/api/super-admin/schools/:id/approval', authenticateToken, requireSup
   }
 });
 
-app.post('/api/super-admin/schools/:id/record-payment', authenticateToken, requireSuperAdmin, async (req, res) => {
-  try {
-    const { data: existingSchool, error: fetchError } = await supabase
-      .from('schools')
-      .select('*')
-      .eq('id', req.params.id)
-      .maybeSingle();
-
-    if (fetchError || !existingSchool) {
-      return res.status(404).json({ error: 'School not found' });
-    }
-
-    if (getSchoolRole(existingSchool) === 'super_admin') {
-      return res.status(404).json({ error: 'School not found' });
-    }
-
-    const merged = mergeSchoolWithExtras(existingSchool);
-    const renewed = renewSubscription(merged);
-    const plan = getPlan(merged.payment_plan);
-    const amount = plan?.price || 0;
-    const extras = getSchoolExtrasSync(req.params.id);
-    const records = parsePaymentRecords(extras);
-    records.unshift({
-      amount,
-      plan_id: merged.payment_plan,
-      plan_name: plan?.name || merged.payment_plan,
-      recorded_at: new Date().toISOString(),
-    });
-
-    await upsertSchoolExtras(req.params.id, {
-      ...renewed,
-      subscription_frozen: false,
-      total_paid: (Number(extras?.total_paid) || 0) + amount,
-      payment_records: JSON.stringify(records),
-    });
-
-    const amountMinor = Math.round(Number(amount) * 100);
-    const platformSchoolId = await findPlatformSchoolId(supabase);
-    if (platformSchoolId && amountMinor > 0) {
-      try {
-        await creditInternalFunds(platformSchoolId, amountMinor, {
-          reference: makeWalletReference('sub'),
-          description: `Subscription payment · ${merged.name || 'school'}`,
-          metadata: {
-            kind: 'subscription_payment',
-            from_school_id: req.params.id,
-            plan_id: merged.payment_plan || null,
-          },
-        });
-      } catch (walletErr) {
-        console.warn('Failed to credit platform wallet from subscription payment:', walletErr.message || walletErr);
-      }
-    }
-
-    res.json(await buildSchoolWithStats(existingSchool));
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+app.post('/api/super-admin/schools/:id/record-payment', authenticateToken, requireSuperAdmin, async (_req, res) => {
+  res.status(410).json({
+    error: 'Manual payment recording was removed. Revenue updates when Paystack signup or renewal payment succeeds.',
+  });
 });
 
 app.patch('/api/super-admin/schools/:id/subscription', authenticateToken, requireSuperAdmin, async (req, res) => {

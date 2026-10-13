@@ -65,7 +65,6 @@ const SuperAdminSchool = () => {
   const [school, setSchool] = useState(null);
   const [loading, setLoading] = useState(true);
   const [updatingApproval, setUpdatingApproval] = useState(false);
-  const [recordingPayment, setRecordingPayment] = useState(false);
   const [updatingSubscription, setUpdatingSubscription] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteConfirmName, setDeleteConfirmName] = useState('');
@@ -99,24 +98,6 @@ const SuperAdminSchool = () => {
       toast.error(error.response?.data?.error || 'Failed to update approval');
     } finally {
       setUpdatingApproval(false);
-    }
-  };
-
-  const handleRecordPayment = async () => {
-    setRecordingPayment(true);
-    try {
-      const response = await axios.post(`/api/super-admin/schools/${schoolId}/record-payment`);
-      setSchool(response.data);
-      const paid = response.data?.plan_price || 0;
-      toast.success(
-        paid
-          ? `Payment recorded (${formatMoney(paid)}) — subscription renewed`
-          : 'Subscription renewed — period dates updated'
-      );
-    } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to record payment');
-    } finally {
-      setRecordingPayment(false);
     }
   };
 
@@ -292,33 +273,19 @@ const SuperAdminSchool = () => {
                 </button>
               )}
               {school.plan_approved ? (
-                <>
-                  <button
-                    type="button"
-                    disabled={recordingPayment}
-                    onClick={handleRecordPayment}
-                    className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-                  >
-                    {recordingPayment
-                      ? 'Recording…'
-                      : school.plan_price
-                        ? `Record ${formatMoney(school.plan_price)}`
-                        : 'Renew subscription'}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={updatingSubscription}
-                    onClick={handleFreezeToggle}
-                    className={`inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium disabled:opacity-50 ${
-                      school.subscription_frozen
-                        ? 'border border-white/10 bg-white/5 text-zinc-100'
-                        : 'border border-rose-500/30 bg-rose-500/10 text-rose-200'
-                    }`}
-                  >
-                    <Snowflake className="h-4 w-4" />
-                    {school.subscription_frozen ? 'Unfreeze' : 'Freeze'}
-                  </button>
-                </>
+                <button
+                  type="button"
+                  disabled={updatingSubscription}
+                  onClick={handleFreezeToggle}
+                  className={`inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium disabled:opacity-50 ${
+                    school.subscription_frozen
+                      ? 'border border-white/10 bg-white/5 text-zinc-100'
+                      : 'border border-rose-500/30 bg-rose-500/10 text-rose-200'
+                  }`}
+                >
+                  <Snowflake className="h-4 w-4" />
+                  {school.subscription_frozen ? 'Unfreeze' : 'Freeze'}
+                </button>
               ) : null}
             </div>
           </div>
@@ -442,7 +409,9 @@ const SuperAdminSchool = () => {
                   </p>
                   <p className="mt-1 text-2xl font-bold text-emerald-300">{formatMoney(school.total_paid)}</p>
                   <p className="mt-1 text-xs text-zinc-400">
-                    {school.plan_price ? `${formatMoney(school.plan_price)} per renewal` : 'Recorded payments'}
+                    {school.plan_price
+                      ? `${formatMoney(school.plan_price)} per year · updates when Paystack payment succeeds`
+                      : 'Updates when Paystack payment succeeds'}
                   </p>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-zinc-950/50 p-4">
@@ -459,8 +428,9 @@ const SuperAdminSchool = () => {
                 </div>
               </div>
               <p className="mt-4 text-sm text-zinc-400">
-                Yearly billing from the subscription date. Recording a renewal moves the due date forward one year.
-                Features lock {school.subscription_grace_days || 5} days after the period ends if payment is missing.
+                Yearly billing from the subscription date. Successful signup and renewal payments on Paystack add to
+                total revenue and move the due date forward one year. Features lock{' '}
+                {school.subscription_grace_days || 5} days after the period ends if payment is missing.
               </p>
 
               {school.payment_records?.length > 0 ? (
@@ -493,7 +463,7 @@ const SuperAdminSchool = () => {
               </h2>
               <p className="mt-5 text-sm text-zinc-400">
                 Billing starts after you approve the school&apos;s selected plan. Approve from the header to unlock
-                features and record payments.
+                features. Revenue updates when Paystack payment succeeds.
               </p>
             </section>
           )}

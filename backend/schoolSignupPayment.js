@@ -2,7 +2,7 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { supabase } from './supabaseClient.js';
 import { getPlan, resolvePlanId } from './plans.js';
-import { initializeSubscription } from './subscription.js';
+import { initializeSubscription, renewSubscription } from './subscription.js';
 import { upsertSchoolExtras, deleteSchoolExtras, getSchoolExtrasSync, parsePaymentRecords } from './schoolPlanStore.js';
 import {
   getPaystackConfig,
@@ -676,43 +676,52 @@ async function creditPlatformSubscription({ school, plan, reference }) {
   }
 }
 
-function paymentRecordsFor(schoolId, plan) {
-  const extras = getSchoolExtrasSync(schoolId) || {};
-  const records = parsePaymentRecords(extras);
-  records.unshift({
-    amount: plan.price,
-    plan_id: plan.id,
-    plan_name: plan.name,
-    recorded_at: new Date().toISOString(),
-    source: 'paystack',
-  });
-  return records;
+function hasPaymentReference(records, reference) {
+  const ref = String(reference || '').trim();
+  if (!ref) return false;
+  return (records || []).some((row) => String(row?.reference || '').trim() === ref);
 }
 
-async function persistApprovedSchool(schoolId, { plan }) {
-  const subscription = initializeSubscription();
-  const extras = {
-    payment_plan: plan.id,
-    plan_status: 'approved',
-    plan_selected_at: new Date().toISOString(),
-    ...subscription,
-    subscription_frozen: false,
-    total_paid: (Number(getSchoolExtrasSync(schoolId)?.total_paid) || 0) + Number(plan.price || 0),
-    payment_records: JSON.stringify(paymentRecordsFor(schoolId, plan)),
-  };
-
-  if (deps.updateSchoolRecord) {
-    await deps.updateSchoolRecord(schoolId, {
+async function applySuccessfulPlanPayment(school, { plan, reference }) {
+  const extras = getSchoolExtrasSync(school.id) || {};
+  const records = parsePaymentRecords(extras);
+  if (!hasPaymentReference(records, reference)) {
+    records.unshift({
+      amount: plan.price,
+      plan_id: plan.id,
+      plan_name: plan.name,
+      recorded_at: new Date().toISOString(),
+      source: 'paystack',
+      reference: reference || null,
+    });
+    const merged = { ...school, ...extras };
+    const alreadyLive = (merged.plan_status || '') === 'approved' && merged.subscription_started_at;
+    const subscription = alreadyLive ? renewSubscription(merged) : initializeSubscription();
+    const nextPaid =
+      (Number(extras.total_paid ?? school.total_paid) || 0) + Number(plan.price || 0);
+    const extrasUpdate = {
       payment_plan: plan.id,
-      plan_selected_at: new Date(),
       plan_status: 'approved',
+      plan_selected_at: extras.plan_selected_at || new Date().toISOString(),
       ...subscription,
       subscription_frozen: false,
-    });
+      total_paid: nextPaid,
+      payment_records: JSON.stringify(records),
+    };
+    if (deps.updateSchoolRecord) {
+      const schoolUpdate = {
+        payment_plan: plan.id,
+        plan_status: 'approved',
+        ...subscription,
+        subscription_frozen: false,
+        total_paid: nextPaid,
+      };
+      if (!extras.plan_selected_at) schoolUpdate.plan_selected_at = new Date();
+      await deps.updateSchoolRecord(school.id, schoolUpdate);
+    }
+    await upsertSchoolExtras(school.id, extrasUpdate);
   }
-
-  await upsertSchoolExtras(schoolId, extras);
-  return extras;
+  await creditPlatformSubscription({ school, plan, reference });
 }
 
 async function loadSchoolById(schoolId) {
@@ -722,11 +731,7 @@ async function loadSchoolById(schoolId) {
 }
 
 async function activateExistingSchool(school, { plan, reference }) {
-  const alreadyApproved = (school.plan_status || '') === 'approved' && school.subscription_started_at;
-  if (!alreadyApproved) {
-    await persistApprovedSchool(school.id, { plan });
-  }
-  await creditPlatformSubscription({ school, plan, reference });
+  await applySuccessfulPlanPayment(school, { plan, reference });
   const fresh = (await loadSchoolById(school.id)) || school;
   return fresh;
 }
@@ -810,6 +815,7 @@ async function createPaidSchool({ pending, metadata, plan, reference, googleSign
           plan_name: plan.name,
           recorded_at: new Date().toISOString(),
           source: 'paystack',
+          reference: reference || null,
         },
       ]),
     });
