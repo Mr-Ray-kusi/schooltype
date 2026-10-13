@@ -15,7 +15,21 @@ import {
   MessageSquare,
   Lock,
   ArrowUpRight,
+  Wallet,
+  BookOpen,
+  CalendarCheck,
+  FileText,
+  DollarSign,
+  Receipt,
+  Landmark,
 } from 'lucide-react';
+
+const formatGlanceMoney = (amount) =>
+  new Intl.NumberFormat('en-GH', {
+    style: 'currency',
+    currency: 'GHS',
+    maximumFractionDigits: 0,
+  }).format(Number(amount) || 0);
 
 const Dashboard = () => {
   const { school, persistSchool, includesPlanFeature, isPlanApproved } = useAuth();
@@ -25,6 +39,19 @@ const Dashboard = () => {
     totalNonStaff: 0,
     unreadMessages: 0,
     todayAttendance: 0,
+    totalRevenue: 0,
+    feesPaid: 0,
+    unpaidRevenue: 0,
+    yearCollected: 0,
+    billedStudents: 0,
+    paidStudents: 0,
+    unpaidStudents: 0,
+    totalClasses: 0,
+    walletBalance: 0,
+    smsUnits: 0,
+    reportCards: 0,
+    feePeriodLabel: null,
+    attendance: null,
   });
   const [loading, setLoading] = useState(true);
   const selectedDate = schoolLocalDate();
@@ -78,8 +105,11 @@ const Dashboard = () => {
   useLivePoll(() => fetchDashboardData(selectedDate, { silent: true }), 45000, !loading);
 
   const todayLabel = schoolLocalDateLabel();
+  const locked = !isPlanApproved;
+  const att = stats.attendance || {};
+  const attendancePct = Math.round(Number(att.students?.percentage) || 0);
 
-  const statCards = [
+  const peopleCards = [
     {
       title: 'Students',
       value: stats.totalStudents,
@@ -105,7 +135,7 @@ const Dashboard = () => {
       feature: 'non-staff',
     },
     {
-      title: 'Unread messages',
+      title: 'Unread',
       value: stats.unreadMessages,
       icon: MessageSquare,
       accent: 'text-cyan-300 bg-cyan-500/15 border-cyan-500/25',
@@ -115,6 +145,84 @@ const Dashboard = () => {
   ].filter((stat) => {
     if (stat.features) return stat.features.some((f) => includesPlanFeature(f));
     return includesPlanFeature(stat.feature);
+  });
+
+  const financeCards = [
+    {
+      title: 'Total revenue',
+      hint: stats.feePeriodLabel ? `Billed · ${stats.feePeriodLabel}` : 'Billed this term',
+      value: formatGlanceMoney(stats.totalRevenue),
+      icon: Landmark,
+      accent: 'text-violet-300 bg-violet-500/15 border-violet-500/25',
+      link: '/fees-paid',
+      feature: 'fees-paid',
+    },
+    {
+      title: 'Fees paid',
+      hint: locked ? null : `${Number(stats.paidStudents || 0).toLocaleString()} students`,
+      value: formatGlanceMoney(stats.feesPaid),
+      icon: DollarSign,
+      accent: 'text-emerald-300 bg-emerald-500/15 border-emerald-500/25',
+      link: '/fees-paid',
+      feature: 'fees-paid',
+    },
+    {
+      title: 'Unpaid revenue',
+      hint: locked ? null : `${Number(stats.unpaidStudents || 0).toLocaleString()} outstanding`,
+      value: formatGlanceMoney(stats.unpaidRevenue),
+      icon: Receipt,
+      accent: 'text-amber-300 bg-amber-500/15 border-amber-500/25',
+      link: '/fees-unpaid',
+      feature: 'fees-unpaid',
+    },
+  ].filter((stat) => includesPlanFeature(stat.feature));
+
+  const snapshotItems = [
+    {
+      label: 'Present today',
+      value: locked ? '—' : `${Number(stats.todayAttendance || 0).toLocaleString()}${attendancePct ? ` · ${attendancePct}%` : ''}`,
+      icon: CalendarCheck,
+      link: '/attendance',
+      feature: 'attendance',
+    },
+    {
+      label: 'Classes',
+      value: locked ? '—' : Number(stats.totalClasses || 0).toLocaleString(),
+      icon: BookOpen,
+      link: '/classes',
+      feature: 'classes',
+    },
+    {
+      label: 'Wallet',
+      value: locked ? '—' : formatGlanceMoney(stats.walletBalance),
+      icon: Wallet,
+      link: '/school-wallet',
+      feature: 'school-wallet',
+    },
+    {
+      label: 'SMS units',
+      value: locked ? '—' : Number(stats.smsUnits || 0).toLocaleString(),
+      icon: MessageSquare,
+      link: '/messages',
+      features: ['messages-sms', 'messages-email'],
+    },
+    {
+      label: 'Year collected',
+      value: locked ? '—' : formatGlanceMoney(stats.yearCollected),
+      icon: DollarSign,
+      link: '/fees-paid',
+      feature: 'fees-paid',
+    },
+    {
+      label: 'Report cards',
+      value: locked ? '—' : Number(stats.reportCards || 0).toLocaleString(),
+      icon: FileText,
+      link: '/report-cards',
+      feature: 'report-cards',
+    },
+  ].filter((item) => {
+    if (item.features) return item.features.some((f) => includesPlanFeature(f));
+    return includesPlanFeature(item.feature);
   });
 
   return (
@@ -158,64 +266,122 @@ const Dashboard = () => {
         </header>
 
         <section className="mb-8 md:mb-10">
-          <div className="mb-4 flex items-end justify-between gap-3">
-            <div>
-              <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                At a glance
-              </h2>
-            </div>
+          <div className="mb-3">
+            <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+              At a glance
+            </h2>
           </div>
 
-          <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
-            {statCards.map((stat) => {
-              const locked = !isPlanApproved;
-              const Icon = stat.icon;
-              const content = (
-                <>
-                  <div className="flex items-start justify-between gap-2">
+          {peopleCards.length > 0 && (
+            <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+              {peopleCards.map((stat) => {
+                const Icon = stat.icon;
+                const className = `flex items-center gap-2.5 rounded-xl border border-slate-700/80 bg-slate-900/50 px-3 py-2.5 transition ${
+                  locked ? 'opacity-80' : 'hover:border-slate-500 hover:bg-slate-900/80'
+                }`;
+                const content = (
+                  <>
                     <div
-                      className={`inline-flex h-9 w-9 items-center justify-center rounded-xl border sm:h-10 sm:w-10 ${stat.accent}`}
+                      className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border ${stat.accent}`}
                     >
-                      <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
+                      <Icon className="h-3.5 w-3.5" />
                     </div>
-                    {!locked && <ArrowUpRight className="hidden h-4 w-4 text-slate-500 sm:block" />}
-                    {locked && <Lock className="h-3.5 w-3.5 text-amber-400/80 sm:h-4 sm:w-4" />}
-                  </div>
-                  <div className="mt-3 sm:mt-4">
-                    <p className="text-[11px] leading-tight text-slate-400 sm:text-sm">
-                      {stat.title}
-                    </p>
-                    <p className="mt-1 font-display text-2xl font-bold tabular-nums tracking-tight text-white sm:text-3xl">
-                      {locked ? '—' : Number(stat.value || 0).toLocaleString()}
-                    </p>
-                    {locked && (
-                      <p className="mt-1.5 text-[10px] text-amber-400/90 sm:text-xs">Locked until approved</p>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[11px] text-slate-400">{stat.title}</p>
+                      <p className="font-display text-lg font-semibold tabular-nums leading-tight text-white">
+                        {locked ? '—' : Number(stat.value || 0).toLocaleString()}
+                      </p>
+                    </div>
+                    {locked ? (
+                      <Lock className="h-3 w-3 shrink-0 text-amber-400/80" />
+                    ) : (
+                      <ArrowUpRight className="hidden h-3.5 w-3.5 shrink-0 text-slate-500 sm:block" />
                     )}
-                  </div>
-                </>
-              );
-
-              const className = `flex flex-col justify-between rounded-2xl border border-slate-700/80 bg-slate-900/50 p-3.5 transition sm:p-4 ${
-                locked
-                  ? 'opacity-80'
-                  : 'hover:border-slate-500 hover:bg-slate-900/80'
-              }`;
-
-              if (locked) {
-                return (
+                  </>
+                );
+                return locked ? (
                   <div key={stat.title} className={className}>
                     {content}
                   </div>
+                ) : (
+                  <Link key={stat.title} to={stat.link} className={className}>
+                    {content}
+                  </Link>
                 );
-              }
+              })}
+            </div>
+          )}
 
-              return (
-                <Link key={stat.title} to={stat.link} className={className}>
-                  {content}
-                </Link>
-              );
-            })}
-          </div>
+          {financeCards.length > 0 && (
+            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+              {financeCards.map((stat) => {
+                const Icon = stat.icon;
+                const className = `rounded-xl border border-slate-700/80 bg-slate-900/50 px-3.5 py-3 transition ${
+                  locked ? 'opacity-80' : 'hover:border-slate-500 hover:bg-slate-900/80'
+                }`;
+                const content = (
+                  <>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-400">
+                        {stat.title}
+                      </p>
+                      <div className={`inline-flex h-7 w-7 items-center justify-center rounded-lg border ${stat.accent}`}>
+                        <Icon className="h-3.5 w-3.5" />
+                      </div>
+                    </div>
+                    <p className="mt-2 font-display text-xl font-semibold tabular-nums tracking-tight text-white sm:text-2xl">
+                      {locked ? '—' : stat.value}
+                    </p>
+                    <p className="mt-1 truncate text-[11px] text-slate-500">
+                      {locked ? 'Locked until approved' : stat.hint}
+                    </p>
+                  </>
+                );
+                return locked ? (
+                  <div key={stat.title} className={className}>
+                    {content}
+                  </div>
+                ) : (
+                  <Link key={stat.title} to={stat.link} className={className}>
+                    {content}
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+
+          {snapshotItems.length > 0 && (
+            <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 rounded-xl border border-slate-700/70 bg-slate-900/35 px-3 py-2.5 sm:grid-cols-3 lg:grid-cols-6">
+              {snapshotItems.map((item) => {
+                const Icon = item.icon;
+                const className = `flex min-w-0 items-center gap-2 rounded-lg px-1 py-0.5 ${
+                  locked ? '' : 'hover:bg-slate-800/60'
+                }`;
+                const content = (
+                  <>
+                    <Icon className="h-3.5 w-3.5 shrink-0 text-slate-500" />
+                    <div className="min-w-0">
+                      <p className="truncate text-[10px] uppercase tracking-[0.08em] text-slate-500">
+                        {item.label}
+                      </p>
+                      <p className="truncate text-sm font-medium tabular-nums text-slate-100">
+                        {item.value}
+                      </p>
+                    </div>
+                  </>
+                );
+                return locked ? (
+                  <div key={item.label} className={className}>
+                    {content}
+                  </div>
+                ) : (
+                  <Link key={item.label} to={item.link} className={className}>
+                    {content}
+                  </Link>
+                );
+              })}
+            </div>
+          )}
         </section>
 
         <div className="mt-8 md:mt-12">

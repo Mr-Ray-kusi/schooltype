@@ -56,7 +56,7 @@ import {
   recordResendAttempt,
   parseJwtExpiresInSeconds,
 } from './authSecurity.js';
-import { initSchoolWalletStore, creditInternalFunds, makeWalletReference, resetAllWalletBalances } from './schoolWalletStore.js';
+import { initSchoolWalletStore, creditInternalFunds, getWallet, makeWalletReference, resetAllWalletBalances } from './schoolWalletStore.js';
 import { registerWalletRoutes, getRecordedSubscriptionRevenueMinor } from './walletRoutes.js';
 import {
   initSchoolSignupPayment,
@@ -67,8 +67,8 @@ import {
   authorizeSignupCharge,
   cancelSignupCharge,
 } from './schoolSignupPayment.js';
-import { registerFeeRoutes, registerStaffFeeRoutes } from './feeRoutes.js';
-import { initPlatformSmsStore, claimDemoMoneyReset, resetSmsInventoryToZero } from './platformSmsStore.js';
+import { getFeeOverviewPayload, registerFeeRoutes, registerStaffFeeRoutes } from './feeRoutes.js';
+import { initPlatformSmsStore, claimDemoMoneyReset, getSchoolSmsBalance, resetSmsInventoryToZero } from './platformSmsStore.js';
 import { registerSmsBillingRoutes, settleSmsPayment, refundSchoolAndPlatformUnits, findPlatformSchoolId } from './smsBilling.js';
 import { sendSmsBatch, getSmsProviderStatus } from './smsProvider.js';
 import {
@@ -101,6 +101,7 @@ import {
 } from './platformTelemetry.js';
 import { getSchoolAnalytics } from './schoolAnalytics.js';
 import { getGoogleAuthConfig, verifyGoogleIdentity } from './googleAuth.js';
+import { fromMinorUnits } from './paystack.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
@@ -5363,6 +5364,18 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
           totalNonStaff: 0,
           unreadMessages: 0,
           todayAttendance: 0,
+          totalRevenue: 0,
+          feesPaid: 0,
+          unpaidRevenue: 0,
+          yearCollected: 0,
+          billedStudents: 0,
+          paidStudents: 0,
+          unpaidStudents: 0,
+          totalClasses: 0,
+          walletBalance: 0,
+          smsUnits: 0,
+          reportCards: 0,
+          feePeriodLabel: null,
           planPending: true,
           attendance: null,
         });
@@ -5378,19 +5391,33 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
         .eq('date', selectedDate)
         .eq('user_type', userType);
 
-    const [students, staff, nonStaff, messages, attStudents, attStaff, attNonStaff] = await Promise.all([
-      supabase.from('students').select('id', { count: 'exact', head: true }).eq('school_id', schoolId),
-      supabase.from('staffs').select('id', { count: 'exact', head: true }).eq('school_id', schoolId),
-      supabase.from('nonstaffs').select('id', { count: 'exact', head: true }).eq('school_id', schoolId),
-      supabase
-        .from('messages')
-        .select('id', { count: 'exact', head: true })
-        .eq('school_id', schoolId)
-        .is('reply', null),
-      attendanceFor('student'),
-      attendanceFor('staff'),
-      attendanceFor('non-staff'),
-    ]);
+    const settle = async (promise, fallback) => {
+      try {
+        return await promise;
+      } catch {
+        return fallback;
+      }
+    };
+
+    const [students, staff, nonStaff, messages, attStudents, attStaff, attNonStaff, classes, reportCards, feeGlance, wallet, sms] =
+      await Promise.all([
+        supabase.from('students').select('id', { count: 'exact', head: true }).eq('school_id', schoolId),
+        supabase.from('staffs').select('id', { count: 'exact', head: true }).eq('school_id', schoolId),
+        supabase.from('nonstaffs').select('id', { count: 'exact', head: true }).eq('school_id', schoolId),
+        supabase
+          .from('messages')
+          .select('id', { count: 'exact', head: true })
+          .eq('school_id', schoolId)
+          .is('reply', null),
+        attendanceFor('student'),
+        attendanceFor('staff'),
+        attendanceFor('non-staff'),
+        supabase.from('classes').select('id', { count: 'exact', head: true }).eq('school_id', schoolId),
+        supabase.from('report_cards').select('id', { count: 'exact', head: true }).eq('school_id', schoolId),
+        settle(getFeeOverviewPayload(schoolId), null),
+        settle(getWallet(schoolId), null),
+        settle(getSchoolSmsBalance(schoolId), null),
+      ]);
 
     const totals = {
       students: students.count || 0,
@@ -5420,6 +5447,9 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
     };
     cacheSet(`att-sum:${schoolId}:${selectedDate}`, attendanceSummary, DASHBOARD_TTL_MS);
 
+    const feeTotals = feeGlance?.totals || {};
+    const feesPaid = Number(feeTotals.paid_amount) || 0;
+    const unpaidRevenue = Number(feeTotals.unpaid_amount) || 0;
     const payload = {
       totalStudents: totals.students,
       totalStaff: totals.staff,
@@ -5427,6 +5457,18 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
       unreadMessages: messages.count || 0,
       todayAttendance: presentStudents + presentStaff + presentNonStaff,
       attendance: attendanceSummary,
+      totalRevenue: feesPaid + unpaidRevenue,
+      feesPaid,
+      unpaidRevenue,
+      yearCollected: Number(feeTotals.year_collected) || 0,
+      billedStudents: Number(feeTotals.billed) || 0,
+      paidStudents: Number(feeTotals.paid) || 0,
+      unpaidStudents: Number(feeTotals.unpaid) || 0,
+      totalClasses: classes.count || 0,
+      walletBalance: fromMinorUnits(wallet?.available_balance) || 0,
+      smsUnits: Number(sms?.units_available) || 0,
+      reportCards: reportCards.error ? 0 : reportCards.count || 0,
+      feePeriodLabel: feeGlance?.term_name || feeGlance?.period_label || feeGlance?.month || null,
     };
     cacheSet(cacheKey, payload, DASHBOARD_TTL_MS);
     res.json(payload);
