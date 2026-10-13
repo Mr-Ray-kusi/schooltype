@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 
 const Dashboard = () => {
-  const { school, includesPlanFeature, isPlanApproved } = useAuth();
+  const { school, persistSchool, includesPlanFeature, isPlanApproved } = useAuth();
   const [stats, setStats] = useState({
     totalStudents: 0,
     totalStaff: 0,
@@ -60,6 +60,20 @@ const Dashboard = () => {
   useEffect(() => {
     fetchDashboardData(selectedDate, { silent: false });
   }, [selectedDate, isPlanApproved, fetchDashboardData]);
+
+  useEffect(() => {
+    let cancelled = false;
+    axios
+      .get('/api/school/branding')
+      .then(({ data }) => {
+        if (cancelled || !data?.logo_url) return;
+        persistSchool({ logo_url: data.logo_url });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [persistSchool]);
 
   useLivePoll(() => fetchDashboardData(selectedDate, { silent: true }), 45000, !loading);
 
@@ -112,7 +126,7 @@ const Dashboard = () => {
         <header className="relative mt-8 mb-10 overflow-hidden rounded-[2rem] md:mt-10 md:mb-14">
           <img
             src={school?.logo_url || '/landing-security.jpg'}
-            alt=""
+            alt={school?.name ? `${school.name} dashboard` : 'Dashboard'}
             decoding="async"
             className="h-56 w-full object-cover object-[68%_center] sm:h-72 lg:h-80"
           />

@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { BookOpen, Calendar, GraduationCap, Plus, Save, Trash2 } from 'lucide-react';
+import { BookOpen, Calendar, GraduationCap, ImagePlus, Plus, Save, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useAuth } from '../contexts/authcontext';
 import { invalidateCache, peekCache, staleGet } from '../utils/requestCache';
 
 const TERM_NAMES = ['First Term', 'Second Term', 'Third Term', 'Fourth Term'];
@@ -19,7 +20,11 @@ const emptyTermRow = (index) => ({
 });
 
 const Setup = () => {
+  const { school, persistSchool } = useAuth();
   const [classes, setClasses] = useState([]);
+  const [logoPreview, setLogoPreview] = useState(school?.logo_url || '');
+  const [logoDraft, setLogoDraft] = useState(null);
+  const [savingLogo, setSavingLogo] = useState(false);
   const [subjects, setSubjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [classCount, setClassCount] = useState(1);
@@ -81,6 +86,51 @@ const Setup = () => {
   useEffect(() => {
     load();
   }, []);
+
+  useEffect(() => {
+    if (!logoDraft && school?.logo_url && school.logo_url !== logoPreview) {
+      setLogoPreview(school.logo_url);
+    }
+  }, [school?.logo_url, logoDraft, logoPreview]);
+
+  const handleLogoFile = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please select an image file');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error('Image must be smaller than 2MB');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setLogoDraft(reader.result);
+      setLogoPreview(reader.result);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const saveDashboardImage = async () => {
+    if (!logoDraft) {
+      toast.error('Choose an image first');
+      return;
+    }
+    setSavingLogo(true);
+    try {
+      const { data } = await axios.put('/api/school/branding', { logo: logoDraft });
+      persistSchool({ ...(data.school || {}), logo_url: data.logo_url || logoDraft });
+      setLogoDraft(null);
+      setLogoPreview(data.logo_url || logoDraft);
+      toast.success('Dashboard image updated');
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Failed to save dashboard image');
+    } finally {
+      setSavingLogo(false);
+    }
+  };
 
   useEffect(() => {
     setClassRows((rows) => {
@@ -262,9 +312,44 @@ const Setup = () => {
       <div>
         <h1 className="text-2xl font-bold text-white">Setup</h1>
         <p className="mt-0.5 text-sm text-slate-400">
-          Terms, classes, fees, and subjects. Keep this tight so the school year is easy to run.
+          School image, terms, classes, fees, and subjects. Keep this tight so the school year is easy to run.
         </p>
       </div>
+
+      <section className="rounded-2xl border border-slate-700/80 bg-slate-900/50 p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <ImagePlus className="h-4 w-4 text-sky-300" />
+          <h2 className="text-sm font-semibold text-white">Dashboard image</h2>
+        </div>
+        <p className="mb-3 text-xs text-slate-400">
+          This is the banner on the admin dashboard. It starts as the image chosen at signup, and you can replace it
+          here.
+        </p>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <div className="h-28 w-full overflow-hidden rounded-xl border border-slate-700 bg-slate-950 sm:w-56">
+            {logoPreview ? (
+              <img src={logoPreview} alt="Dashboard banner preview" className="h-full w-full object-cover" />
+            ) : (
+              <div className="flex h-full items-center justify-center text-xs text-slate-500">No image yet</div>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="cursor-pointer rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-sm text-slate-200 hover:border-sky-500/60">
+              Choose image
+              <input type="file" accept="image/*" onChange={handleLogoFile} className="hidden" />
+            </label>
+            <button
+              type="button"
+              onClick={saveDashboardImage}
+              disabled={savingLogo || !logoDraft}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50"
+            >
+              <Save className="h-3.5 w-3.5" />
+              {savingLogo ? 'Saving…' : 'Save image'}
+            </button>
+          </div>
+        </div>
+      </section>
 
       <section className="rounded-2xl border border-slate-700/80 bg-slate-900/50 p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">

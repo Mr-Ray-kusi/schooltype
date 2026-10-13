@@ -224,6 +224,7 @@ const SCHOOL_PLAN_COLUMNS = [
   'subscription_frozen',
   'subscription_started_at',
   'email_verified',
+  'logo_url',
 ];
 
 const SCHOOL_AUTH_COLUMNS = [
@@ -270,6 +271,7 @@ const selectSchoolById = async (id, columns) => {
     'total_paid',
     'email_verified',
     'late_after_time',
+    'logo_url',
   ];
   let cols = [...columns];
   for (let attempt = 0; attempt <= optional.length; attempt++) {
@@ -1771,6 +1773,54 @@ app.post('/api/school/select-plan', authenticateToken, async (req, res) => {
     const status = error.status || 500;
     if (status >= 500 && error.code !== 'PAYSTACK_NOT_CONFIGURED') console.error('Select plan error:', error);
     res.status(status).json({ error: error.message || 'Internal server error', code: error.code });
+  }
+});
+
+app.get('/api/school/branding', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role === 'super_admin') {
+      return res.json({ logo_url: null });
+    }
+    const { data: school, error } = await selectSchoolById(req.user.schoolId, SCHOOL_PLAN_COLUMNS);
+    if (error || !school) {
+      return res.status(404).json({ error: 'School not found' });
+    }
+    const merged = mergeSchoolWithExtras(school);
+    res.json({ logo_url: merged.logo_url || null });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Failed to load school image' });
+  }
+});
+
+app.put('/api/school/branding', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role === 'super_admin') {
+      return res.status(400).json({ error: 'Super admin does not have a school dashboard image' });
+    }
+    const logo = req.body?.logo ?? req.body?.logo_url ?? null;
+    if (logo) {
+      const logoError = validateLogo(logo);
+      if (logoError) return res.status(400).json({ error: logoError });
+    }
+
+    const { data: current, error: fetchError } = await selectSchoolById(req.user.schoolId, SCHOOL_PLAN_COLUMNS);
+    if (fetchError || !current) {
+      return res.status(404).json({ error: 'School not found' });
+    }
+
+    const nextLogo = logo || null;
+    const { data: updated, error: updateError } = await updateSchoolRecord(current.id, { logo_url: nextLogo });
+    if (updateError) {
+      return res.status(500).json({ error: updateError.message || 'Failed to save school image' });
+    }
+    await upsertSchoolExtras(current.id, { logo_url: nextLogo });
+    const merged = mergeSchoolWithExtras(updated || current);
+    res.json({
+      logo_url: nextLogo,
+      school: { ...formatSchool(merged), logo_url: nextLogo },
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Failed to save school image' });
   }
 });
 

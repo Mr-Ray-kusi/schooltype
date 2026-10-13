@@ -115,8 +115,8 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const schoolRef = useRef(null);
 
-  const persistSchool = (schoolData, previous = schoolRef.current) => {
-    const merged = mergeSchoolState(schoolData, previous);
+  const persistSchool = useCallback((schoolData, previous) => {
+    const merged = mergeSchoolState(schoolData, previous === undefined ? schoolRef.current : previous);
     schoolRef.current = merged;
     setSchool(merged);
     try {
@@ -126,7 +126,7 @@ export const AuthProvider = ({ children }) => {
     } catch {
       // ignore quota / private mode failures
     }
-  };
+  }, []);
 
   const clearSession = useCallback(() => {
     setToken(null);
@@ -148,7 +148,7 @@ export const AuthProvider = ({ children }) => {
       localStorage.removeItem('tokenExpiresAt');
     }
     axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
-  }, []);
+  }, [persistSchool]);
 
   useEffect(() => {
     const validateToken = async () => {
@@ -435,6 +435,7 @@ export const AuthProvider = ({ children }) => {
         selectPlan,
         completePaidSignup,
         refreshSchool,
+        persistSchool,
         logout,
         loading,
       }}
