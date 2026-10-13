@@ -238,7 +238,7 @@ export const AuthProvider = ({ children }) => {
         phone: payment.phone,
         provider: payment.provider,
       },
-      { timeout: 45000 }
+      { timeout: 20000 }
     );
     const { token: newToken, school: schoolData, expiresIn, requiresEmailVerification } = response.data;
     // Email-first signup never returns a session until password is set after verify.
@@ -289,7 +289,7 @@ export const AuthProvider = ({ children }) => {
         phone,
         provider,
       },
-      { timeout: 45000 }
+      { timeout: 20000 }
     );
     const data = response.data || {};
     if (data.requiresPayment || data.authorization_url || data.mode === 'checkout' || data.mode === 'momo') {
@@ -314,7 +314,7 @@ export const AuthProvider = ({ children }) => {
         phone: payment.phone,
         provider: payment.provider,
       },
-      { timeout: 45000 }
+      { timeout: 20000 }
     );
     if (response.data?.school) persistSchool(response.data.school);
     return response.data;

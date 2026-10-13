@@ -70,8 +70,9 @@ const Signup = () => {
 
   const openPaystack = (data) => {
     if (!data?.authorization_url) return false;
-    toast.success('Choose MoMo, card, or bank on Paystack to finish payment.');
-    return openPaystackCheckout(data);
+    const opened = openPaystackCheckout(data);
+    if (opened) toast.success('Choose MoMo, card, or bank on Paystack. MoMo sends a PIN to the phone.');
+    return opened;
   };
 
   const handleSubmit = async (e) => {

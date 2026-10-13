@@ -334,7 +334,8 @@ export function chargeInstructionReady(status) {
   );
 }
 
-export async function waitForMomoInstruction(reference, initial, { attempts = 2, delayMs = 180 } = {}) {
+export async function waitForMomoInstruction(reference, initial, { attempts = 1, delayMs = 80 } = {}) {
+  if (initial && String(initial.status || '').trim()) return initial;
   let charge = initial;
   for (let i = 0; i < attempts; i++) {
     const status = String(charge?.status || '').toLowerCase();

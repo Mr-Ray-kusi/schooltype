@@ -45,7 +45,6 @@ const SelectPlan = () => {
     try {
       const data = await selectPlan(selectedPlan);
       if (data.authorization_url) {
-        toast.success('Choose MoMo, card, or bank on Paystack to finish payment.');
         openPaystackCheckout(data);
         return;
       }

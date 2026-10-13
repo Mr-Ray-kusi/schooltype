@@ -18,8 +18,6 @@ import {
   momoProviderFallbacks,
   chargeNeedsCode,
   chargeLooksLikeCodePrompt,
-  chargeInstructionReady,
-  waitForMomoInstruction,
   isPaystackUserCancelled,
   isPaystackPendingStatus,
   isPaystackFailedStatus,
@@ -95,15 +93,13 @@ async function savePendingSignup(row) {
   };
 
   if (tableAvailable) {
-    try {
-      await supabase
-        .from('pending_signups')
-        .update({ status: 'replaced' })
-        .eq('email', row.email)
-        .eq('status', 'pending');
-    } catch {
-      // ignore — insert below is the source of truth
-    }
+    supabase
+      .from('pending_signups')
+      .update({ status: 'replaced' })
+      .eq('email', row.email)
+      .eq('status', 'pending')
+      .then(() => {})
+      .catch(() => {});
 
     const { data, error } = await supabase.from('pending_signups').insert([payload]).select().single();
     if (!error && data) return rememberPending({ ...payload, ...data });
@@ -271,18 +267,6 @@ async function chargePlanWithMomo({ email, amountMajor, reference, metadata, pho
       continue;
     }
 
-    if (!chargeStillWaiting(charge) && String(charge?.status || '').toLowerCase() !== 'failed') {
-      charge = await waitForMomoInstruction(charge?.reference || currentRef, charge, {
-        attempts: 8,
-        delayMs: 350,
-      });
-    } else if (String(charge?.status || '').toLowerCase() === 'pending') {
-      charge = await waitForMomoInstruction(charge?.reference || currentRef, charge, {
-        attempts: 8,
-        delayMs: 350,
-      });
-    }
-
     lastCharge = charge;
     const status = String(charge?.status || '').toLowerCase();
     console.warn(
@@ -360,7 +344,11 @@ async function initializePlanCheckout({ email, amountMajor, reference, metadata 
     callbackUrl: checkoutCallbackUrl(reference),
     channels: ['mobile_money', 'card', 'bank'],
     metadata: {
-      ...metadata,
+      kind: metadata.kind,
+      payment_plan: metadata.payment_plan,
+      email: metadata.email,
+      school_id: metadata.school_id,
+      google_signup: metadata.google_signup,
       cancel_action: `${getFrontendBaseUrl()}/plans`,
     },
   });
@@ -399,35 +387,31 @@ export async function startSchoolSignupCheckout({
   requirePaystack();
   const { resolved, plan } = requirePlan(paymentPlan);
   const reference = makeWalletReference('signup');
-
-  await savePendingSignup({
-    email,
-    school_name: schoolName,
-    logo_url: logo || null,
+  const metadata = {
+    kind: SIGNUP_KIND,
     payment_plan: resolved,
-    google_signup: googleSignup,
-    paystack_reference: reference,
-  });
-
-  return startPlanPayment({
     email,
-    amountMajor: plan.price,
-    reference,
-    method,
-    phone,
-    provider,
-    metadata: {
-      kind: SIGNUP_KIND,
-      payment_plan: resolved,
+    school_name: String(schoolName || '').slice(0, 80),
+    google_signup: googleSignup ? '1' : '0',
+  };
+
+  const [, checkout] = await Promise.all([
+    savePendingSignup({
       email,
-      school_name: String(schoolName || '').slice(0, 80),
-      google_signup: googleSignup ? '1' : '0',
-      custom_fields: [
-        { display_name: 'School', variable_name: 'school_name', value: String(schoolName || '').slice(0, 40) },
-        { display_name: 'Plan', variable_name: 'plan', value: plan.name },
-      ],
-    },
-  });
+      school_name: schoolName,
+      logo_url: logo || null,
+      payment_plan: resolved,
+      google_signup: googleSignup,
+      paystack_reference: reference,
+    }),
+    startPlanPayment({
+      email,
+      amountMajor: plan.price,
+      reference,
+      metadata,
+    }),
+  ]);
+  return checkout;
 }
 
 export async function startSchoolPlanCheckout({ schoolId, email, schoolName, paymentPlan, method, phone, provider }) {
@@ -439,19 +423,11 @@ export async function startSchoolPlanCheckout({ schoolId, email, schoolName, pay
     email,
     amountMajor: plan.price,
     reference,
-    method,
-    phone,
-    provider,
     metadata: {
       kind: PLAN_KIND,
       school_id: schoolId,
       payment_plan: resolved,
       email,
-      school_name: String(schoolName || '').slice(0, 80),
-      custom_fields: [
-        { display_name: 'School', variable_name: 'school_name', value: String(schoolName || '').slice(0, 40) },
-        { display_name: 'Plan', variable_name: 'plan', value: plan.name },
-      ],
     },
   });
 }

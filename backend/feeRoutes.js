@@ -918,14 +918,11 @@ async function startFeePayment({
     metadata.settle_mode = 'transfer';
     metadata.subaccount_code = null;
 
-    let charge = await chargeMobileMoney({
+    const charge = await chargeMobileMoney({
       ...chargeArgs,
       phone: phoneLocal,
       provider: momoNetwork,
     });
-    if (!chargeInstructionReady(charge?.status)) {
-      charge = await waitForMomoInstruction(charge?.reference || reference, charge);
-    }
     const status = String(charge?.status || 'pay_offline').toLowerCase();
     const needsCode = chargeLooksLikeCodePrompt(charge);
     const liveMode = String(getPaystackConfig().secretKey || '').startsWith('sk_live_');
