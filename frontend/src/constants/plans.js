@@ -43,11 +43,7 @@ export const PAYMENT_PLANS = {
     id: 'small',
     name: 'Small School',
     sizeLabel: 'Up to 200 students',
-    price: 4650,
-    priceGhsMin: 3500,
-    priceGhsMax: 5800,
-    priceUsdMin: 300,
-    priceUsdMax: 500,
+    price: 10,
     period: 'year',
     description: 'Full SCHOOLTYPE suite for campuses with up to 200 students.',
     features: withStudentCapacity('Up to 200 students'),
@@ -59,11 +55,7 @@ export const PAYMENT_PLANS = {
     id: 'mid',
     name: 'Mid-sized School',
     sizeLabel: '200 – 1,000 students',
-    price: 11650,
-    priceGhsMin: 5800,
-    priceGhsMax: 17500,
-    priceUsdMin: 500,
-    priceUsdMax: 1500,
+    price: 20,
     period: 'year',
     description: 'Full SCHOOLTYPE suite for growing schools with up to 1,000 students.',
     features: withStudentCapacity('Up to 1,000 students'),
@@ -75,11 +67,7 @@ export const PAYMENT_PLANS = {
     id: 'large',
     name: 'Large School',
     sizeLabel: '1,000+ students',
-    price: 26250,
-    priceGhsMin: 17500,
-    priceGhsMax: 35000,
-    priceUsdMin: 1500,
-    priceUsdMax: 3000,
+    price: 30,
     period: 'year',
     description: 'Full SCHOOLTYPE suite for large institutions with 1,000+ students.',
     features: withStudentCapacity('Unlimited students'),
@@ -119,10 +107,6 @@ export const hasFeature = (planId, featureKey) => {
 
 export const formatPlanPriceGhs = (plan) => {
   if (!plan) return '';
-  if (plan.priceGhsMin != null && plan.priceGhsMax != null) {
-    const suffix = plan.id === 'large' ? '+' : '';
-    return `₵${plan.priceGhsMin.toLocaleString()} – ₵${plan.priceGhsMax.toLocaleString()}${suffix}`;
-  }
   return `₵${Number(plan.price || 0).toLocaleString()}`;
 };
 

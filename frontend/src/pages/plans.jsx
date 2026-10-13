@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { PLAN_LIST, formatPlanPriceGhs, formatPlanPriceUsd } from '../constants/plans';
+import { PLAN_LIST, formatPlanPriceGhs } from '../constants/plans';
 import { Check, ArrowLeft } from 'lucide-react';
 
 const Plans = () => {
@@ -75,7 +75,7 @@ const Plans = () => {
                 <p className="mt-2 text-sm leading-relaxed text-slate-400">{plan.description}</p>
                 <div className="mt-6 space-y-1">
                   <p className="font-display text-2xl font-bold text-white">{formatPlanPriceGhs(plan)}</p>
-                  <p className="text-sm text-slate-400">{formatPlanPriceUsd(plan)} / year</p>
+                  <p className="text-sm text-slate-400">GHS / year</p>
                 </div>
                 <ul className="mt-6 flex-1 space-y-2.5">
                   {plan.features.map((feature) => (

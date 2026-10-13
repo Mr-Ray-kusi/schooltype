@@ -351,16 +351,14 @@ async function chargePlanWithMomo({ email, amountMajor, reference, metadata, pho
   });
 }
 
-async function initializePlanCheckout({ email, amountMajor, reference, metadata, method }) {
-  const payMethod = String(method || 'card').toLowerCase();
-  const channels = payMethod === 'bank' ? ['bank'] : ['card'];
+async function initializePlanCheckout({ email, amountMajor, reference, metadata }) {
   const init = await initializeTransaction({
     email,
     amountMinor: toMinorUnits(amountMajor),
     currency: 'GHS',
     reference,
     callbackUrl: checkoutCallbackUrl(reference),
-    channels,
+    channels: ['mobile_money', 'card', 'bank'],
     metadata: {
       ...metadata,
       cancel_action: `${getFrontendBaseUrl()}/plans`,
@@ -384,24 +382,8 @@ async function initializePlanCheckout({ email, amountMajor, reference, metadata,
   };
 }
 
-async function startPlanPayment({ email, amountMajor, reference, metadata, method, phone, provider }) {
-  const payMethod = String(method || '').toLowerCase();
-  if (payMethod === 'momo' || payMethod === 'mobile_money') {
-    return chargePlanWithMomo({
-      email,
-      amountMajor,
-      reference,
-      metadata,
-      phone,
-      provider,
-    });
-  }
-  if (payMethod === 'card' || payMethod === 'bank') {
-    return initializePlanCheckout({ email, amountMajor, reference, metadata, method: payMethod });
-  }
-  const err = new Error('Choose MoMo, card, or bank to continue.');
-  err.status = 400;
-  throw err;
+async function startPlanPayment({ email, amountMajor, reference, metadata }) {
+  return initializePlanCheckout({ email, amountMajor, reference, metadata });
 }
 
 export async function startSchoolSignupCheckout({
