@@ -30,7 +30,8 @@ import axios from 'axios';
 import OfflineBanner from './OfflineBanner';
 import useLiteMode from '../hooks/useLiteMode';
 import usePlatformTelemetry from '../hooks/usePlatformTelemetry';
-import { cachedGet } from '../utils/requestCache';
+import { cachedGet, DASHBOARD_CACHE_MS } from '../utils/requestCache';
+import { schoolLocalDate } from '../utils/schoolDate';
 
 /** True when the current location matches a nav href. */
 const isNavActive = (location, href) => {
@@ -73,6 +74,18 @@ const Layout = ({ children }) => {
     }, 30000);
     return () => clearInterval(id);
   }, [refreshUnread, location.pathname]);
+
+  useEffect(() => {
+    if (!token || isSuperAdmin) return undefined;
+    const date = schoolLocalDate();
+    cachedGet(
+      `dashboard:${date}`,
+      async () => (await axios.get(`/api/dashboard/stats?date=${date}`)).data,
+      DASHBOARD_CACHE_MS
+    ).catch(() => {});
+    cachedGet('classes', async () => (await axios.get('/api/classes')).data || [], 45000).catch(() => {});
+    return undefined;
+  }, [token, isSuperAdmin]);
 
   const handleLogout = async () => {
     await logout();

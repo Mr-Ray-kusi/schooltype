@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import PerformanceChart, { percentChange } from './PerformanceChart';
 import { useLivePoll } from '../hooks/useLivePoll';
+import { cachedGet } from '../utils/requestCache';
 
 const RANGES = [
   { id: '1d', label: '1D' },
@@ -47,7 +48,11 @@ const SchoolAnalyticsChart = () => {
   const fetchData = useCallback(
     async ({ silent = false } = {}) => {
       try {
-        const { data: payload } = await axios.get('/api/dashboard/analytics', { params: { range } });
+        const payload = await cachedGet(
+          `analytics:${range}`,
+          async () => (await axios.get('/api/dashboard/analytics', { params: { range } })).data,
+          45000
+        );
         setData(payload);
       } catch {
         if (!silent) setData(null);

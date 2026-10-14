@@ -17,12 +17,11 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { invalidateCache, peekCache, staleGet } from '../utils/requestCache';
-import { fetchAllPages, fetchRecord, LIST_PAGE_SIZE } from '../utils/listApi.js';
+import { fetchAllPages, fetchRecord, parseListResponse, LIST_PAGE_SIZE } from '../utils/listApi.js';
 import { downloadPersonPack, downloadPeoplePacks, staffPack, nonStaffPack } from '../utils/personPackExport';
 import { generateStrongPassword } from '../utils/strongPassword';
 import MultiSelectDropdown from '../components/MultiSelectDropdown';
 
-const PAGE_SIZE = LIST_PAGE_SIZE;
 const NON_STAFF_ROLES = ['Cleaner', 'Security Guard', 'Bus Driver', 'Cook', 'Maintenance', 'Gardener', 'Assistant'];
 const STAFF_ROLES = ['Administrator', 'Teacher', 'Accountant'];
 
@@ -61,6 +60,7 @@ const Staff = () => {
   const canStaff = includesPlanFeature('staff');
   const canNonStaff = includesPlanFeature('non-staff');
   const [people, setPeople] = useState([]);
+  const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -89,7 +89,7 @@ const Staff = () => {
     role: '',
     salary: '',
   });
-  const [peopleFilter, setPeopleFilter] = useState('all');
+  const [peopleFilter, setPeopleFilter] = useState(canStaff ? 'staff' : 'non-staff');
   const [setupSubjects, setSetupSubjects] = useState([]);
   const [setupClasses, setSetupClasses] = useState([]);
 
@@ -109,7 +109,7 @@ const Staff = () => {
 
   useEffect(() => {
     fetchPeople();
-  }, [debouncedSearch, canStaff, canNonStaff]);
+  }, [page, debouncedSearch, canStaff, canNonStaff, peopleFilter]);
 
   const portalUrl = portalPath
     ? `${window.location.origin}${portalPath}`
@@ -155,9 +155,13 @@ const Staff = () => {
   };
 
   const fetchPeople = async () => {
-    const cacheKey = `staff-combined:${debouncedSearch}`;
-    const apply = (merged) => {
-      setPeople(merged);
+    const cacheKey = `staff-combined:${peopleFilter}:${page}:${debouncedSearch}`;
+    const apply = (payload) => {
+      const parsed = Array.isArray(payload)
+        ? { items: payload, total: payload.length }
+        : parseListResponse(payload);
+      setPeople(parsed.items);
+      setTotal(parsed.total);
     };
     const cached = peekCache(cacheKey);
     if (cached) {
@@ -168,18 +172,40 @@ const Staff = () => {
       const data = await staleGet(
         cacheKey,
         async () => {
-          const [staffItems, nonStaffItems] = await Promise.all([
-            canStaff
-              ? fetchAllPages(axios, '/api/staff', { q: debouncedSearch || undefined })
-              : Promise.resolve([]),
-            canNonStaff
-              ? fetchAllPages(axios, '/api/non-staff', { q: debouncedSearch || undefined })
-              : Promise.resolve([]),
+          const wantStaff = canStaff && peopleFilter !== 'non-staff';
+          const wantNonStaff = canNonStaff && peopleFilter !== 'staff';
+          const params = { page, limit: LIST_PAGE_SIZE, q: debouncedSearch || undefined };
+          const [staffRes, nonStaffRes] = await Promise.all([
+            wantStaff ? axios.get('/api/staff', { params }) : Promise.resolve(null),
+            wantNonStaff ? axios.get('/api/non-staff', { params }) : Promise.resolve(null),
           ]);
-          return [
-            ...staffItems.map(asStaffRow),
-            ...nonStaffItems.map(asNonStaffRow),
-          ].sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+          const staffParsed = staffRes ? parseListResponse(staffRes.data) : { items: [], total: 0 };
+          const nonParsed = nonStaffRes ? parseListResponse(nonStaffRes.data) : { items: [], total: 0 };
+          if (wantStaff && wantNonStaff) {
+            return {
+              items: [
+                ...staffParsed.items.map(asStaffRow),
+                ...nonParsed.items.map(asNonStaffRow),
+              ].slice(0, LIST_PAGE_SIZE),
+              total: staffParsed.total + nonParsed.total,
+              page,
+              limit: LIST_PAGE_SIZE,
+            };
+          }
+          if (wantNonStaff) {
+            return {
+              items: nonParsed.items.map(asNonStaffRow),
+              total: nonParsed.total,
+              page,
+              limit: LIST_PAGE_SIZE,
+            };
+          }
+          return {
+            items: staffParsed.items.map(asStaffRow),
+            total: staffParsed.total,
+            page,
+            limit: LIST_PAGE_SIZE,
+          };
         },
         45000,
         apply
@@ -242,7 +268,8 @@ const Staff = () => {
       resetStaffForm();
       invalidateCache('staff');
       invalidateCache('dashboard');
-      setPeople((prev) => [asStaffRow(data), ...prev.filter((row) => row.id !== data.id)]);
+      setPeople((prev) => [asStaffRow(data), ...prev.filter((row) => row.id !== data.id)].slice(0, LIST_PAGE_SIZE));
+      setTotal((current) => current + 1);
       setPage(1);
     } catch (error) {
       if (error.offlineQueued) {
@@ -277,7 +304,8 @@ const Staff = () => {
       invalidateCache('non-staff');
       invalidateCache('staff');
       invalidateCache('dashboard');
-      setPeople((prev) => [asNonStaffRow(data), ...prev.filter((row) => row.id !== data.id)]);
+      setPeople((prev) => [asNonStaffRow(data), ...prev.filter((row) => row.id !== data.id)].slice(0, LIST_PAGE_SIZE));
+      setTotal((current) => current + 1);
       setPage(1);
     } catch (error) {
       if (error.offlineQueued) {
@@ -373,9 +401,7 @@ const Staff = () => {
     }
   };
 
-  const filteredPeople =
-    peopleFilter === 'all' ? people : people.filter((person) => person.kind === peopleFilter);
-  const pagedPeople = filteredPeople.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const filteredPeople = people;
   const viewingStaff = viewingPerson?.kind === 'staff' ? viewingPerson : null;
   const staffRoleOptions =
     staffForm.role && !STAFF_ROLES.includes(staffForm.role)
@@ -393,11 +419,11 @@ const Staff = () => {
 
   return (
     <>
-      <div className="space-y-6">
+      <div className="space-y-3">
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
           <div>
             <h1 className="text-3xl font-bold text-white">Staff</h1>
-            <p className="mt-1 text-sm text-slate-400">{filteredPeople.length} people</p>
+            <p className="mt-1 text-sm text-slate-400">{total} people</p>
             {showPeopleFilter && (
               <div className="mt-3 inline-flex rounded-full border border-slate-600 bg-slate-900 p-1">
                 {[
@@ -459,7 +485,7 @@ const Staff = () => {
                   setDownloadingAll(false);
                 }
               }}
-              disabled={downloadingAll || filteredPeople.length === 0}
+              disabled={downloadingAll || total === 0}
               className="inline-flex min-w-0 shrink items-center justify-center gap-1 whitespace-nowrap rounded-lg bg-slate-700 px-2 py-2 text-[11px] text-white hover:bg-slate-600 disabled:opacity-50 md:gap-2 md:px-3 md:text-sm"
             >
               <Download className="h-3.5 w-3.5 shrink-0 md:h-4 md:w-4" />
@@ -496,37 +522,28 @@ const Staff = () => {
         </div>
 
         {canStaff && (
-          <div className="rounded-2xl border border-slate-600 bg-slate-800/80 p-5">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <p className="flex items-center gap-2 text-sm font-semibold text-white">
-                  <Link2 className="h-4 w-4 text-sky-400" />
-                  Staff portal link
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={copyPortalLink}
-                  disabled={!portalUrl}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-500 px-3 py-1.5 text-sm text-slate-100 hover:bg-slate-700 disabled:opacity-50"
-                >
-                  <Copy className="h-3.5 w-3.5" />
-                  Copy
-                </button>
-                <button
-                  type="button"
-                  onClick={regeneratePortalLink}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-500 px-3 py-1.5 text-sm text-slate-100 hover:bg-slate-700"
-                >
-                  <RefreshCw className="h-3.5 w-3.5" />
-                  Regenerate
-                </button>
-              </div>
-            </div>
-            <p className="mt-3 break-all rounded-xl border border-slate-600 bg-slate-950/50 px-3 py-2 text-xs text-sky-200">
-              {portalLoading ? 'Loading link…' : portalUrl || 'Could not load portal link'}
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-600 bg-slate-800/80 px-3 py-2">
+            <Link2 className="h-4 w-4 shrink-0 text-sky-400" />
+            <p className="min-w-0 flex-1 truncate text-xs text-sky-200">
+              {portalLoading ? 'Loading portal link…' : portalUrl || 'Could not load portal link'}
             </p>
+            <button
+              type="button"
+              onClick={copyPortalLink}
+              disabled={!portalUrl}
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-500 px-2 py-1 text-xs text-slate-100 hover:bg-slate-700 disabled:opacity-50"
+            >
+              <Copy className="h-3.5 w-3.5" />
+              Copy
+            </button>
+            <button
+              type="button"
+              onClick={regeneratePortalLink}
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-500 px-2 py-1 text-xs text-slate-100 hover:bg-slate-700"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              New
+            </button>
           </div>
         )}
 
@@ -595,8 +612,9 @@ const Staff = () => {
 
         <div id="list-section">
           <PersonRecordTable
-            rows={pagedPeople}
-            minWidth="720px"
+            rows={people}
+            minWidth="520px"
+            compact
             onSelect={openPerson}
             columns={[
               { key: 'name', header: 'Name' },
@@ -606,27 +624,11 @@ const Staff = () => {
                 render: (row) => (row.kind === 'staff' ? 'Staff' : 'Non-staff'),
               },
               { key: 'role', header: 'Role' },
-              {
-                key: 'salary',
-                header: 'Salary',
-                render: (row) => formatSalary(row.salary),
-              },
-              {
-                key: 'subjects',
-                header: 'Subjects',
-                render: (row) => (row.kind === 'staff' ? row.subjects || '—' : '—'),
-              },
-              {
-                key: 'classNames',
-                header: 'Classes',
-                render: (row) =>
-                  row.kind === 'staff' ? row.classNames || row.class_names || '—' : '—',
-              },
             ]}
           />
         </div>
 
-        <PaginationBar page={page} total={filteredPeople.length} limit={PAGE_SIZE} onPageChange={setPage} />
+        <PaginationBar page={page} total={total} limit={LIST_PAGE_SIZE} onPageChange={setPage} />
 
         {filteredPeople.length === 0 && (
           <div className="rounded-2xl border border-dashed border-slate-600 bg-slate-800/50 py-16 text-center">

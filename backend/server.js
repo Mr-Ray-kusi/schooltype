@@ -230,6 +230,7 @@ const bumpSchoolCaches = (schoolId) => {
   cacheInvalidate(`att-sum:${schoolId}`);
   cacheInvalidate(`reports:${schoolId}`);
   cacheInvalidate(`analytics:${schoolId}`);
+  cacheInvalidate(`fee-dash:${schoolId}`);
 };
 
 const SCHOOL_PLAN_COLUMNS = [
@@ -3871,8 +3872,22 @@ app.put('/api/classes/:id', authenticateToken, enforcePlanApproval, async (req, 
       updates.fee_amount = feeRaw === '' || feeRaw === null ? 0 : Number(feeRaw) || 0;
     }
 
+    const { data: existing } = await supabase
+      .from('classes')
+      .select('name')
+      .eq('id', req.params.id)
+      .eq('school_id', req.user.schoolId)
+      .maybeSingle();
+
     const { data, error } = await updateClassRecord(req.params.id, req.user.schoolId, updates);
     if (error) throw error;
+    if (updates.name && existing?.name && updates.name !== existing.name) {
+      await supabase
+        .from('students')
+        .update({ class: updates.name })
+        .eq('school_id', req.user.schoolId)
+        .eq('class', existing.name);
+    }
     bumpSchoolCaches(req.user.schoolId);
     res.json(data);
   } catch (error) {
@@ -3927,6 +3942,28 @@ app.post('/api/subjects', authenticateToken, enforcePlanApproval, async (req, re
       .single();
 
     if (error) throw error;
+    bumpSchoolCaches(req.user.schoolId);
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/subjects/:id', authenticateToken, enforcePlanApproval, async (req, res) => {
+  try {
+    const name = String(req.body.name || '').trim();
+    if (!name) return res.status(400).json({ error: 'Subject name is required' });
+
+    const { data, error } = await supabase
+      .from('subjects')
+      .update({ name })
+      .eq('id', req.params.id)
+      .eq('school_id', req.user.schoolId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    bumpSchoolCaches(req.user.schoolId);
     res.json(data);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -5512,7 +5549,14 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
         attendanceFor('non-staff'),
         supabase.from('classes').select('id', { count: 'exact', head: true }).eq('school_id', schoolId),
         supabase.from('report_cards').select('id', { count: 'exact', head: true }).eq('school_id', schoolId),
-        settle(getFeeOverviewPayload(schoolId), null),
+        (async () => {
+          const feeKey = `fee-dash:${schoolId}`;
+          const cachedFees = cacheGet(feeKey);
+          if (cachedFees) return cachedFees;
+          const payload = await settle(getFeeOverviewPayload(schoolId), null);
+          if (payload) cacheSet(feeKey, payload, 2 * 60 * 1000);
+          return payload;
+        })(),
         settle(getWallet(schoolId), null),
         settle(getSchoolSmsBalance(schoolId), null),
       ]);

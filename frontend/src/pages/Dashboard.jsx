@@ -87,6 +87,7 @@ const Dashboard = () => {
   }, [selectedDate, isPlanApproved, fetchDashboardData]);
 
   useEffect(() => {
+    if (school?.logo_url) return undefined;
     let cancelled = false;
     axios
       .get('/api/school/branding')
@@ -98,7 +99,7 @@ const Dashboard = () => {
     return () => {
       cancelled = true;
     };
-  }, [persistSchool]);
+  }, [persistSchool, school?.logo_url]);
 
   useLivePoll(() => fetchDashboardData(selectedDate, { silent: true }), 45000, !loading);
 

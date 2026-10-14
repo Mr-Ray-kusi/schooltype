@@ -33,8 +33,10 @@ const Setup = () => {
   const [subjectRows, setSubjectRows] = useState([emptySubjectRow()]);
   const [savingClasses, setSavingClasses] = useState(false);
   const [savingSubjects, setSavingSubjects] = useState(false);
-  const [classFeeDrafts, setClassFeeDrafts] = useState({});
-  const [savingFees, setSavingFees] = useState(false);
+  const [classDrafts, setClassDrafts] = useState({});
+  const [savingClassEdits, setSavingClassEdits] = useState(false);
+  const [subjectDrafts, setSubjectDrafts] = useState({});
+  const [savingSubjectsEdit, setSavingSubjectsEdit] = useState(false);
   const [termCount, setTermCount] = useState(2);
   const [termRows, setTermRows] = useState([emptyTermRow(0), emptyTermRow(1)]);
   const [currentTerm, setCurrentTerm] = useState(null);
@@ -46,9 +48,18 @@ const Setup = () => {
       setSubjects(subjectData);
       const drafts = {};
       for (const item of classData || []) {
-        drafts[item.id] = Number(item.fee_amount) > 0 ? String(item.fee_amount) : '';
+        drafts[item.id] = {
+          name: item.name || '',
+          capacity: item.capacity != null && item.capacity !== '' ? String(item.capacity) : '',
+          feeAmount: Number(item.fee_amount) > 0 ? String(item.fee_amount) : '',
+        };
       }
-      setClassFeeDrafts(drafts);
+      setClassDrafts(drafts);
+      const nextSubjects = {};
+      for (const item of subjectData || []) {
+        nextSubjects[item.id] = item.name || '';
+      }
+      setSubjectDrafts(nextSubjects);
     };
     const cachedClasses = peekCache('classes');
     const cachedSubjects = peekCache('subjects');
@@ -249,31 +260,65 @@ const Setup = () => {
     }
   };
 
-  const saveClassFees = async () => {
+  const saveClassEdits = async () => {
     if (!classes.length) {
-      toast.error('Add a class first, then set its fee.');
+      toast.error('Add a class first, then edit it.');
       return;
     }
-    setSavingFees(true);
+    setSavingClassEdits(true);
     try {
       await Promise.all(
         classes.map((item) => {
-          const raw = classFeeDrafts[item.id];
-          const feeAmount = raw === '' || raw == null ? 0 : Number(raw);
+          const draft = classDrafts[item.id] || {};
+          const name = String(draft.name || '').trim();
+          if (!name) throw new Error('Class name is required');
+          const feeAmount = draft.feeAmount === '' || draft.feeAmount == null ? 0 : Number(draft.feeAmount);
           return axios.put(`/api/classes/${item.id}`, {
+            name,
+            capacity: draft.capacity === '' || draft.capacity == null ? null : Number(draft.capacity),
             fee_amount: Number.isFinite(feeAmount) && feeAmount >= 0 ? feeAmount : 0,
           });
         })
       );
       invalidateCache('classes');
-      toast.success('Class fees saved');
+      toast.success('Classes updated');
       await load();
     } catch (error) {
       if (!error.offlineQueued && error.response) {
-        toast.error(error.response?.data?.error || 'Failed to save class fees');
+        toast.error(error.response?.data?.error || error.message || 'Failed to update classes');
+      } else if (error.message) {
+        toast.error(error.message);
       }
     } finally {
-      setSavingFees(false);
+      setSavingClassEdits(false);
+    }
+  };
+
+  const saveSubjectEdits = async () => {
+    if (!subjects.length) {
+      toast.error('Add a subject first, then edit it.');
+      return;
+    }
+    setSavingSubjectsEdit(true);
+    try {
+      await Promise.all(
+        subjects.map((item) => {
+          const name = String(subjectDrafts[item.id] || '').trim();
+          if (!name) throw new Error('Subject name is required');
+          return axios.put(`/api/subjects/${item.id}`, { name });
+        })
+      );
+      invalidateCache('subjects');
+      toast.success('Subjects updated');
+      await load();
+    } catch (error) {
+      if (!error.offlineQueued && error.response) {
+        toast.error(error.response?.data?.error || error.message || 'Failed to update subjects');
+      } else if (error.message) {
+        toast.error(error.message);
+      }
+    } finally {
+      setSavingSubjectsEdit(false);
     }
   };
 
@@ -519,18 +564,50 @@ const Setup = () => {
                 </tr>
               </thead>
               <tbody>
-                {classes.map((item) => (
+                {classes.map((item) => {
+                  const draft = classDrafts[item.id] || { name: item.name || '', capacity: '', feeAmount: '' };
+                  return (
                   <tr key={item.id} className="border-t border-slate-800/80">
-                    <td className="py-1.5 pr-2 font-medium text-white">{item.name}</td>
-                    <td className="py-1.5 pr-2 text-slate-400">{item.capacity || '—'}</td>
+                    <td className="py-1.5 pr-2">
+                      <input
+                        type="text"
+                        value={draft.name}
+                        onChange={(e) =>
+                          setClassDrafts((prev) => ({
+                            ...prev,
+                            [item.id]: { ...draft, name: e.target.value },
+                          }))
+                        }
+                        className={fieldClass}
+                        placeholder="Class name"
+                      />
+                    </td>
+                    <td className="py-1.5 pr-2">
+                      <input
+                        type="number"
+                        min="1"
+                        value={draft.capacity}
+                        onChange={(e) =>
+                          setClassDrafts((prev) => ({
+                            ...prev,
+                            [item.id]: { ...draft, capacity: e.target.value },
+                          }))
+                        }
+                        className={`${fieldClass} max-w-[7rem]`}
+                        placeholder="Capacity"
+                      />
+                    </td>
                     <td className="py-1.5 pr-2">
                       <input
                         type="number"
                         min="0"
                         step="0.01"
-                        value={classFeeDrafts[item.id] ?? ''}
+                        value={draft.feeAmount}
                         onChange={(e) =>
-                          setClassFeeDrafts((prev) => ({ ...prev, [item.id]: e.target.value }))
+                          setClassDrafts((prev) => ({
+                            ...prev,
+                            [item.id]: { ...draft, feeAmount: e.target.value },
+                          }))
                         }
                         className={`${fieldClass} max-w-[8rem]`}
                         placeholder="0.00"
@@ -542,17 +619,18 @@ const Setup = () => {
                       </button>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
             <button
               type="button"
-              onClick={saveClassFees}
-              disabled={savingFees}
+              onClick={saveClassEdits}
+              disabled={savingClassEdits}
               className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-sky-500 px-3 py-1.5 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-50"
             >
               <Save className="h-3.5 w-3.5" />
-              {savingFees ? 'Saving…' : 'Save fees'}
+              {savingClassEdits ? 'Saving…' : 'Save class changes'}
             </button>
           </div>
         ) : (
@@ -624,13 +702,21 @@ const Setup = () => {
         {subjects.length === 0 ? (
           <p className="mt-2 text-xs text-slate-500">No subjects yet.</p>
         ) : (
-          <ul className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1">
+          <ul className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
             {subjects.map((item) => (
               <li
                 key={item.id}
-                className="flex min-w-0 items-center justify-between gap-1 rounded-md bg-slate-800/70 px-2 py-1"
+                className="flex min-w-0 items-center gap-1 rounded-md bg-slate-800/70 px-2 py-1"
               >
-                <span className="truncate text-xs text-slate-100">{item.name}</span>
+                <input
+                  type="text"
+                  value={subjectDrafts[item.id] ?? item.name}
+                  onChange={(e) =>
+                    setSubjectDrafts((prev) => ({ ...prev, [item.id]: e.target.value }))
+                  }
+                  className={`${fieldClass} min-w-0 flex-1 px-2 py-1 text-xs`}
+                  aria-label={`Edit ${item.name}`}
+                />
                 <button
                   type="button"
                   onClick={() => deleteSubject(item.id)}
@@ -642,6 +728,15 @@ const Setup = () => {
               </li>
             ))}
           </ul>
+          <button
+            type="button"
+            onClick={saveSubjectEdits}
+            disabled={savingSubjectsEdit}
+            className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+          >
+            <Save className="h-3.5 w-3.5" />
+            {savingSubjectsEdit ? 'Saving…' : 'Save subject changes'}
+          </button>
         )}
       </section>
     </div>

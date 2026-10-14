@@ -238,6 +238,7 @@ const NonStaff = ({ hideHeader = false }) => {
           <PersonRecordTable
             rows={nonStaff}
             minWidth="480px"
+            compact
             onSelect={openPerson}
             columns={[
               { key: 'name', header: 'Name' },

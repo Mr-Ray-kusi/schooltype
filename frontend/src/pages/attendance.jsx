@@ -3,7 +3,7 @@ import axios from 'axios';
 import { AlertTriangle, Clock, Printer, RefreshCw } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
-import { cachedGet, invalidateCache, peekCache } from '../utils/requestCache';
+import { cachedGet, invalidateCache, peekCache, staleGet } from '../utils/requestCache';
 import { schoolLocalDate } from '../utils/schoolDate';
 import useLiteMode from '../hooks/useLiteMode';
 import { useLivePoll } from '../hooks/useLivePoll';
@@ -47,6 +47,7 @@ const Attendance = () => {
   const [summary, setSummary] = useState(null);
   const [lateAfterTime, setLateAfterTime] = useState('08:00');
   const [savingLateTime, setSavingLateTime] = useState(false);
+  const [setupClasses, setSetupClasses] = useState([]);
   const { liteMode } = useLiteMode();
 
   const fetchLateSettings = async () => {
@@ -111,6 +112,17 @@ const Attendance = () => {
     fetchLateSettings();
   }, [fetchAttendance, fetchSummary]);
 
+  useEffect(() => {
+    const cached = peekCache('classes');
+    if (Array.isArray(cached)) setSetupClasses(cached);
+    staleGet(
+      'classes',
+      async () => (await axios.get('/api/classes')).data || [],
+      45000,
+      (rows) => setSetupClasses(Array.isArray(rows) ? rows : [])
+    ).catch(() => {});
+  }, []);
+
   useLivePoll(
     () => {
       fetchAttendance({ silent: true });
@@ -136,13 +148,13 @@ const Attendance = () => {
     }
   };
 
-  const classOptions = useMemo(
-    () =>
-      Array.from(
-        new Set(attendanceRecords.map((record) => getPersonLabel(record)).filter((v) => v && v !== 'N/A'))
-      ).sort(),
-    [attendanceRecords]
-  );
+  const classOptions = useMemo(() => {
+    const fromSetup = (setupClasses || []).map((row) => row.name).filter(Boolean);
+    const fromMarked = attendanceRecords
+      .map((record) => getPersonLabel(record))
+      .filter((value) => value && value !== 'N/A');
+    return Array.from(new Set([...fromSetup, ...fromMarked])).sort((a, b) => a.localeCompare(b));
+  }, [attendanceRecords, setupClasses]);
 
   const filteredRecords = useMemo(() => {
     return attendanceRecords.filter((record) => {
@@ -250,7 +262,7 @@ const Attendance = () => {
           </select>
         </label>
         <label className="min-w-[8.5rem] flex-1 text-[11px] font-medium uppercase tracking-wide text-slate-400">
-          Class / role
+          Class / Roll
           <select
             value={selectedClass}
             onChange={(e) => setSelectedClass(e.target.value)}

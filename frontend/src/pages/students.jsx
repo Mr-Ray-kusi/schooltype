@@ -352,6 +352,7 @@ const Students = () => {
         <div id="list-section">
           <PersonRecordTable
             rows={students}
+            compact
             onSelect={openStudent}
             columns={[
               { key: 'name', header: 'Student' },
