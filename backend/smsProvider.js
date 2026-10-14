@@ -231,7 +231,18 @@ async function sendOne(to, body) {
  * Send SMS to many recipients with limited concurrency.
  * Does not throw on per-recipient failure — returns a summary.
  */
-export async function sendSmsBatch({ phones, body, schoolName }) {
+export function attachFeePayLink(message, payUrl) {
+  const trimmed = String(message || '').trim();
+  const url = String(payUrl || '').trim();
+  if (!url) return trimmed;
+  if (trimmed.includes(url)) return trimmed;
+  if (trimmed.includes('{pay_link}')) return trimmed.split('{pay_link}').join(url);
+  if (/the payment link/i.test(trimmed)) return trimmed.replace(/the payment link/gi, url);
+  if (/payment link/i.test(trimmed)) return trimmed.replace(/payment link/gi, url);
+  return `${trimmed}\nPay here: ${url}`;
+}
+
+export async function sendSmsBatch({ phones, body, schoolName, bodiesByPhone }) {
   const status = getSmsProviderStatus();
   if (!status.ready) {
     const err = new Error(status.message);
@@ -246,12 +257,16 @@ export async function sendSmsBatch({ phones, body, schoolName }) {
   }
 
   const prefix = schoolName ? `${String(schoolName).slice(0, 40)}: ` : '';
-  const text = `${prefix}${String(body || '')}`.slice(0, 1500);
 
   const results = [];
   for (let i = 0; i < list.length; i += CONCURRENCY) {
     const chunk = list.slice(i, i + CONCURRENCY);
-    const chunkResults = await Promise.all(chunk.map((to) => sendOne(to, text)));
+    const chunkResults = await Promise.all(
+      chunk.map((to) => {
+        const raw = bodiesByPhone?.[to] || body;
+        return sendOne(to, `${prefix}${String(raw || '')}`.slice(0, 1500));
+      })
+    );
     results.push(...chunkResults);
   }
 

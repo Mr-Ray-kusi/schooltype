@@ -1,3 +1,5 @@
+export const LIST_PAGE_SIZE = 8;
+
 export function parseListResponse(data) {
   if (Array.isArray(data)) {
     return { items: data, total: data.length, page: 1, limit: data.length || 50 };

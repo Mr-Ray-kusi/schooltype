@@ -15,7 +15,7 @@ const FeesUnpaid = () => {
   const [loading, setLoading] = useState(true);
   const [showReminderModal, setShowReminderModal] = useState(false);
   const [reminderMessage, setReminderMessage] = useState(
-    'Dear Parent, please settle outstanding school fees this month using the payment link. You can pay with MoMo, bank transfer, or USSD.'
+    `Dear Parent, please settle outstanding school fees this term using ${window.location.origin}/fees. You can pay with MoMo, bank transfer, or USSD.`
   );
   const [sending, setSending] = useState(false);
   const [showManual, setShowManual] = useState(false);

@@ -16,6 +16,7 @@ import {
   momoProviderFromGhanaPhone,
 } from './paystack.js';
 import { getFrontendBaseUrl } from './emailVerification.js';
+import { attachFeePayLink } from './smsProvider.js';
 import { makeWalletReference } from './schoolWalletStore.js';
 import { supabase } from './supabaseClient.js';
 import {
@@ -1607,7 +1608,10 @@ export function registerStaffFeeRoutes(app, { authenticateStaffPortal }) {
     requireAccountant,
     async (req, res) => {
       try {
-        const message = String(req.body?.message || '').trim();
+        const message = attachFeePayLink(
+          String(req.body?.message || '').trim(),
+          `${getFrontendBaseUrl()}/fees`
+        );
         if (!message) return res.status(400).json({ error: 'Enter a reminder message.' });
         const { error } = await supabase.from('messages').insert([
           {

@@ -87,7 +87,7 @@ import {
 import { getFeeOverviewPayload, registerFeeRoutes, registerStaffFeeRoutes } from './feeRoutes.js';
 import { initPlatformSmsStore, claimDemoMoneyReset, getSchoolSmsBalance, resetSmsInventoryToZero } from './platformSmsStore.js';
 import { registerSmsBillingRoutes, settleSmsPayment, refundSchoolAndPlatformUnits, findPlatformSchoolId } from './smsBilling.js';
-import { sendSmsBatch, getSmsProviderStatus } from './smsProvider.js';
+import { sendSmsBatch, getSmsProviderStatus, attachFeePayLink, toE164 } from './smsProvider.js';
 import {
   createEmailVerificationToken,
   hashEmailVerificationToken,
@@ -748,7 +748,10 @@ const enforcePlanApproval = async (req, res, next) => {
       return res.status(403).json({ error: 'School account not found' });
     }
 
-    const merged = mergeSchoolWithExtras(await syncPaidPlanFromLedger(school));
+    let merged = mergeSchoolWithExtras(school);
+    if (!schoolHasPaidPlan(merged)) {
+      merged = mergeSchoolWithExtras(await syncPaidPlanFromLedger(school));
+    }
 
     if (!merged.payment_plan) {
       return res.status(403).json({ error: 'Please select a payment plan first' });
@@ -3445,22 +3448,16 @@ app.post('/api/staff', authenticateToken, enforcePlanApproval, async (req, res) 
       salary: parseSalary(salary),
       created_at: new Date(),
     };
-    if (photo) insertObj.photo_url = photo;
 
     const { data: staff, error } = await insertStaffRecord(insertObj);
     if (error) throw error;
 
-    let saved = staff;
-    if (photo && staff?.id && !staff.photo_url) {
-      const repaired = await updateStaffRecord(staff.id, req.user.schoolId, { photo_url: photo });
-      if (!repaired.error && repaired.data) saved = repaired.data;
-    }
-
+    const saved = staff;
     if (photo && saved?.id) {
-      await setPersonPhoto(saved.id, req.user.schoolId, photo);
+      setPersonPhoto(saved.id, req.user.schoolId, photo).catch(() => {});
     }
 
-    const response = normalizeStaffRecord(saved);
+    const response = normalizeStaffRecord({ ...saved, photo_url: saved?.photo_url || photo || null });
     if (!response.secretCode) response.secretCode = accessCode;
 
     bumpSchoolCaches(req.user.schoolId);
@@ -3625,7 +3622,6 @@ app.post('/api/non-staff', authenticateToken, enforcePlanApproval, async (req, r
       qr_code: barcode,
       created_at: new Date(),
     });
-    if (photo) payload.photo_url = photo;
 
     const optionalColumns = ['photo_url', 'barcode', 'qr_code', 'salary'];
     let nonStaff = null;
@@ -3653,24 +3649,13 @@ app.post('/api/non-staff', authenticateToken, enforcePlanApproval, async (req, r
 
     if (error || !nonStaff) throw error || new Error('Failed to create non-staff record');
 
-    let saved = nonStaff;
-    if (photo && nonStaff?.id && !nonStaff.photo_url) {
-      const repaired = await supabase
-        .from('nonstaffs')
-        .update({ photo_url: photo })
-        .eq('id', nonStaff.id)
-        .eq('school_id', req.user.schoolId)
-        .select()
-        .single();
-      if (!repaired.error && repaired.data) saved = repaired.data;
-    }
-
+    const saved = nonStaff;
     if (photo && saved?.id) {
-      await setPersonPhoto(saved.id, req.user.schoolId, photo);
+      setPersonPhoto(saved.id, req.user.schoolId, photo).catch(() => {});
     }
 
     bumpSchoolCaches(req.user.schoolId);
-    res.json(mergePersonPhoto(saved));
+    res.json(mergePersonPhoto({ ...saved, photo_url: saved?.photo_url || photo || null }));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -5180,10 +5165,29 @@ app.post('/api/messages', authenticateToken, enforcePlanApproval, async (req, re
       }
 
       try {
+        let bodiesByPhone;
+        if (String(recipients || '').includes('Parent')) {
+          const { data: parentStudents } = await supabase
+            .from('students')
+            .select('parent_phone, barcode, name')
+            .eq('school_id', req.user.schoolId)
+            .not('parent_phone', 'is', null);
+          const payBase = getFrontendBaseUrl();
+          bodiesByPhone = {};
+          for (const row of parentStudents || []) {
+            const phone = toE164(row.parent_phone);
+            if (!phone || !row.barcode) continue;
+            bodiesByPhone[phone] = attachFeePayLink(
+              message,
+              `${payBase}/pay/${encodeURIComponent(row.barcode)}`
+            );
+          }
+        }
         smsDelivery = await sendSmsBatch({
           phones: smsSettlement.phones,
-          body: message,
+          body: attachFeePayLink(message, `${getFrontendBaseUrl()}/fees`),
           schoolName: schoolAccount.name,
+          bodiesByPhone,
         });
 
         const segments = smsSettlement.quote?.segments || 1;

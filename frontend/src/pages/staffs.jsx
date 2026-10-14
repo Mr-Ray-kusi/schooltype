@@ -17,12 +17,12 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { invalidateCache, peekCache, staleGet } from '../utils/requestCache';
-import { fetchAllPages, fetchRecord } from '../utils/listApi.js';
+import { fetchAllPages, fetchRecord, LIST_PAGE_SIZE } from '../utils/listApi.js';
 import { downloadPersonPack, downloadPeoplePacks, staffPack, nonStaffPack } from '../utils/personPackExport';
 import { generateStrongPassword } from '../utils/strongPassword';
 import MultiSelectDropdown from '../components/MultiSelectDropdown';
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = LIST_PAGE_SIZE;
 const NON_STAFF_ROLES = ['Cleaner', 'Security Guard', 'Bus Driver', 'Cook', 'Maintenance', 'Gardener', 'Assistant'];
 const STAFF_ROLES = ['Administrator', 'Teacher', 'Accountant'];
 
@@ -229,15 +229,21 @@ const Staff = () => {
       if (editingStaff) {
         await axios.put(`/api/staff/${editingStaff.id}`, payload);
         toast.success('Staff updated');
-      } else {
-        await axios.post('/api/staff', payload);
-        toast.success('Staff added — attendance QR code generated');
+        setShowStaffModal(false);
+        resetStaffForm();
+        invalidateCache('staff');
+        invalidateCache('dashboard');
+        fetchPeople();
+        return;
       }
+      const { data } = await axios.post('/api/staff', payload);
+      toast.success('Staff added — attendance QR code generated');
       setShowStaffModal(false);
       resetStaffForm();
       invalidateCache('staff');
       invalidateCache('dashboard');
-      fetchPeople();
+      setPeople((prev) => [asStaffRow(data), ...prev.filter((row) => row.id !== data.id)]);
+      setPage(1);
     } catch (error) {
       if (error.offlineQueued) {
         setShowStaffModal(false);
@@ -256,16 +262,23 @@ const Staff = () => {
       if (editingNonStaff) {
         await axios.put(`/api/non-staff/${editingNonStaff.id}`, payload);
         toast.success('Non-staff updated');
-      } else {
-        await axios.post('/api/non-staff', payload);
-        toast.success('Non-staff added — attendance QR code generated');
+        setShowNonStaffModal(false);
+        resetNonStaffForm();
+        invalidateCache('non-staff');
+        invalidateCache('staff');
+        invalidateCache('dashboard');
+        fetchPeople();
+        return;
       }
+      const { data } = await axios.post('/api/non-staff', payload);
+      toast.success('Non-staff added — attendance QR code generated');
       setShowNonStaffModal(false);
       resetNonStaffForm();
       invalidateCache('non-staff');
       invalidateCache('staff');
       invalidateCache('dashboard');
-      fetchPeople();
+      setPeople((prev) => [asNonStaffRow(data), ...prev.filter((row) => row.id !== data.id)]);
+      setPage(1);
     } catch (error) {
       if (error.offlineQueued) {
         setShowNonStaffModal(false);

@@ -102,7 +102,7 @@ const AccountantFees = ({ schoolName, authHeaders }) => {
   const [selectedId, setSelectedId] = useState(null);
   const [showReminder, setShowReminder] = useState(false);
   const [reminderMessage, setReminderMessage] = useState(
-    'Dear Parent, please settle outstanding school fees this term using the payment link. You can pay with MoMo, bank transfer, or USSD.'
+    `Dear Parent, please settle outstanding school fees this term using ${window.location.origin}/fees. You can pay with MoMo, bank transfer, or USSD.`
   );
   const [sending, setSending] = useState(false);
   const [exporting, setExporting] = useState('');

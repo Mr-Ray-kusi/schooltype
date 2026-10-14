@@ -3,7 +3,7 @@ import { useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { buildStudentIdUrl } from '../utils/studentIdQr';
 import { invalidateCache, peekCache, staleGet } from '../utils/requestCache';
-import { parseListResponse, fetchAllPages, fetchRecord } from '../utils/listApi.js';
+import { parseListResponse, fetchAllPages, fetchRecord, LIST_PAGE_SIZE } from '../utils/listApi.js';
 import { downloadPersonPack, downloadPeoplePacks, studentPack } from '../utils/personPackExport';
 import PersonRecordTable from '../components/PersonRecordTable';
 import PersonDetailModal from '../components/PersonDetailModal';
@@ -56,7 +56,7 @@ const Students = () => {
           const response = await axios.get('/api/students', {
             params: {
               page,
-              limit: 50,
+              limit: LIST_PAGE_SIZE,
               q: debouncedSearch || undefined,
               class: selectedClass !== 'all' ? selectedClass : undefined,
             },
@@ -363,7 +363,7 @@ const Students = () => {
           />
         </div>
 
-        <PaginationBar page={page} total={total} limit={50} onPageChange={setPage} />
+        <PaginationBar page={page} total={total} limit={LIST_PAGE_SIZE} onPageChange={setPage} />
 
         {students.length === 0 && (
           <div className="rounded-2xl border border-dashed border-slate-600 bg-slate-800/50 py-16 text-center">

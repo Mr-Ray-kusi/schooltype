@@ -8,7 +8,7 @@ import { buildPersonIdUrl } from '../utils/studentIdQr';
 import { Search, Plus, User, Download } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { invalidateCache, peekCache, staleGet } from '../utils/requestCache';
-import { parseListResponse, fetchAllPages, fetchRecord } from '../utils/listApi.js';
+import { parseListResponse, fetchAllPages, fetchRecord, LIST_PAGE_SIZE } from '../utils/listApi.js';
 import { downloadPersonPack, downloadPeoplePacks, nonStaffPack } from '../utils/personPackExport';
 
 const NonStaff = ({ hideHeader = false }) => {
@@ -59,7 +59,7 @@ const NonStaff = ({ hideHeader = false }) => {
         cacheKey,
         async () => {
           const response = await axios.get('/api/non-staff', {
-            params: { page, limit: 50, q: debouncedSearch || undefined },
+            params: { page, limit: LIST_PAGE_SIZE, q: debouncedSearch || undefined },
           });
           return response.data;
         },
@@ -89,15 +89,22 @@ const NonStaff = ({ hideHeader = false }) => {
       if (editingNonStaff) {
         await axios.put(`/api/non-staff/${editingNonStaff.id}`, payload);
         toast.success('Non-staff updated');
-      } else {
-        await axios.post('/api/non-staff', payload);
-        toast.success('Non-staff added — attendance QR code generated');
+        setShowModal(false);
+        resetForm();
+        invalidateCache('non-staff');
+        invalidateCache('dashboard');
+        fetchNonStaff();
+        return;
       }
+      const { data } = await axios.post('/api/non-staff', payload);
+      toast.success('Non-staff added — attendance QR code generated');
       setShowModal(false);
       resetForm();
       invalidateCache('non-staff');
       invalidateCache('dashboard');
-      fetchNonStaff();
+      setNonStaff((prev) => [data, ...prev.filter((row) => row.id !== data.id)].slice(0, LIST_PAGE_SIZE));
+      setTotal((current) => current + 1);
+      setPage(1);
     } catch (error) {
       if (error.offlineQueued) {
         setShowModal(false);
@@ -238,7 +245,7 @@ const NonStaff = ({ hideHeader = false }) => {
             ]}
           />
         </div>
-        <PaginationBar page={page} total={total} limit={50} onPageChange={setPage} />
+        <PaginationBar page={page} total={total} limit={LIST_PAGE_SIZE} onPageChange={setPage} />
 
         {nonStaff.length === 0 && (
           <div className="rounded-2xl border border-dashed border-slate-600 bg-slate-800/50 py-16 text-center">
