@@ -197,7 +197,7 @@ const Messages = () => {
         const failed = data?.sms_delivery?.failed;
         const dry = data?.sms_delivery?.dryRun;
         if (dry) {
-          toast.success(`SMS dry-run complete (${sent || 0} logged, not billed to Twilio)`);
+          toast.success(`TEST ONLY — no SMS sent. ${sent || 0} message(s) logged. Live send is off.`);
         } else if (failed > 0) {
           toast.success(`SMS sent to ${sent} recipient(s); ${failed} failed (units refunded for failures)`);
         } else {

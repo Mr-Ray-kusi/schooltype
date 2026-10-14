@@ -81,6 +81,7 @@ const SchoolWallet = () => {
   const [momoHint, setMomoHint] = useState('');
   const [action, setAction] = useState(isSuperAdmin ? 'withdraw' : 'deposit');
   const [downloading, setDownloading] = useState(false);
+  const [pendingWithdraw, setPendingWithdraw] = useState(null);
 
   const selectedAccount = useMemo(
     () => accounts.find((a) => a.id === accountId) || null,
@@ -244,6 +245,27 @@ const SchoolWallet = () => {
       return;
     }
 
+    if (pendingWithdraw && pendingWithdraw.amount === value && pendingWithdraw.account_id === accountId) {
+      setBusy(true);
+      try {
+        const { data } = await axios.post(`/api/wallet/withdraw/${encodeURIComponent(pendingWithdraw.approval_id)}/confirm`);
+        toast.success(
+          data.status === 'success'
+            ? 'Payment received, money sent. Open the receipt in transactions.'
+            : 'Withdrawal submitted after confirmation'
+        );
+        setAmount('');
+        setPendingWithdraw(null);
+        await loadWallet();
+      } catch (err) {
+        toast.error(err.response?.data?.error || 'Withdrawal failed');
+        await loadWallet();
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
     setBusy(true);
     try {
       const { data } = await axios.post('/api/wallet/withdraw', {
@@ -251,6 +273,15 @@ const SchoolWallet = () => {
         amount: value,
         reason: isSuperAdmin ? 'Platform wallet withdrawal' : 'School wallet withdrawal',
       });
+      if (data.status === 'awaiting_confirmation') {
+        setPendingWithdraw({
+          approval_id: data.approval_id,
+          amount: value,
+          account_id: accountId,
+        });
+        toast('Confirm this withdrawal. Money leaves the wallet only after you press Withdraw again.');
+        return;
+      }
       toast.success(data.status === 'success' ? 'Withdrawal completed' : 'Withdrawal submitted');
       setAmount('');
       await loadWallet();
@@ -741,7 +772,7 @@ const SchoolWallet = () => {
                   ) : (
                     <>
                       <ArrowUpFromLine className="h-4 w-4" />
-                      Withdraw
+                      {pendingWithdraw ? 'Confirm withdrawal' : 'Withdraw'}
                     </>
                   )}
                 </button>

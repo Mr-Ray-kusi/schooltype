@@ -29,7 +29,7 @@ const memoryEvents = [];
 let cloudReady = false;
 
 function useCloudAuth() {
-  return Boolean(process.env.VERCEL) || String(process.env.AUTH_STORE || '').toLowerCase() === 'supabase';
+  return Boolean(supabase) && String(process.env.AUTH_STORE || 'supabase').toLowerCase() !== 'local';
 }
 
 async function getDb() {

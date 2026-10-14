@@ -1,32 +1,10 @@
--- Run in Supabase SQL editor so the Express backend can read/write
--- while using the anon key (or switch backend to SUPABASE_SERVICE_ROLE_KEY).
--- This app uses its own JWT auth, not Supabase Auth.
+-- Backend access after the privacy wall.
+-- 1. Run database/supabase_core_billing.sql
+-- 2. Run database/supabase_tenant_privacy.sql (enables RLS)
+-- 3. Put SUPABASE_SERVICE_ROLE_KEY on the server for signup, plan changes, and the Paystack webhook.
+-- 4. Put SUPABASE_ANON_KEY + SUPABASE_JWT_SECRET on the server so school screens cannot cross tenants.
+--
+-- Do not disable RLS. The previous version of this file turned RLS off so the
+-- anon key could read every school. That is no longer the model.
 
--- Core tenant tables
-ALTER TABLE IF EXISTS schools DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS students DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS staffs DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS nonstaffs DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS attendance DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS messages DISABLE ROW LEVEL SECURITY;
-
--- Billing / wallets / SMS (from supabase_core_billing.sql)
-ALTER TABLE IF EXISTS subscription_payments DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS school_wallets DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS wallet_accounts DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS wallet_transactions DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS platform_sms_settings DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS platform_sms_sales DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS school_sms_balances DISABLE ROW LEVEL SECURITY;
-
--- Optional academic tables
-ALTER TABLE IF EXISTS academic_terms DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS fee_payments DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS report_cards DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS classes DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS class_fees DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS subjects DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS platform_notifications DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS platform_events DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS auth_rate_events DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS pending_signups DISABLE ROW LEVEL SECURITY;
+GRANT USAGE ON SCHEMA public TO postgres, anon, authenticated, service_role;

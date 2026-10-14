@@ -15,15 +15,20 @@ const SubscriptionBanner = () => {
           <div className="flex items-start gap-3">
             <Clock className="w-5 h-5 text-amber-400 mt-0.5 shrink-0" />
             <div>
-              <h3 className="font-semibold text-white">Payment overdue — grace period</h3>
+              <h3 className="font-semibold text-white">Plan is about to lapse</h3>
               <p className="text-sm text-slate-200 mt-1">
-                Your current subscription period ended on{' '}
+                Your plan was due on{' '}
                 {school.next_payment_due
                   ? new Date(school.next_payment_due).toLocaleDateString()
                   : '—'}
-                . Features remain active for {school.subscription_grace_days || 5} days after the period end.
-                Contact the platform admin to renew your subscription.
+                . You still have {school.subscription_grace_days || 5} days. Use Pay now to renew so nothing locks.
               </p>
+              <a
+                href="/select-plan"
+                className="mt-3 inline-flex text-sm font-semibold text-amber-200 underline-offset-2 hover:underline"
+              >
+                Renew plan
+              </a>
             </div>
           </div>
         </div>
@@ -44,13 +49,21 @@ const SubscriptionBanner = () => {
         )}
         <div>
           <h3 className="font-semibold text-white">
-            {isFrozen ? 'Account frozen' : 'Subscription period ended'}
+            {isFrozen ? 'Account frozen' : 'Plan ended — renew to keep working'}
           </h3>
           <p className="text-sm text-slate-200 mt-1">
             {isFrozen
-              ? 'Your account has been frozen by the administrator. All features are locked until your subscription is restored.'
-              : `Your subscription period ended ${school.subscription_days_past_due || 0} days ago (grace period of ${school.subscription_grace_days || 5} days has ended). Features are locked until the subscription is renewed.`}
+              ? 'The platform has frozen this school. Features stay locked until the subscription is restored.'
+              : `Your plan ended ${school.subscription_days_past_due || 0} days ago. Use Pay now to renew. The rest of this screen stays visible so you can still read records.`}
           </p>
+          {!isFrozen ? (
+            <a
+              href="/select-plan"
+              className="mt-3 inline-flex text-sm font-semibold text-orange-200 underline-offset-2 hover:underline"
+            >
+              Renew plan
+            </a>
+          ) : null}
           {school.next_payment_due && (
             <p className="text-xs text-slate-300 mt-2">
               Period ended: {new Date(school.next_payment_due).toLocaleDateString()}

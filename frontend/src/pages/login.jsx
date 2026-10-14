@@ -59,7 +59,7 @@ const Login = () => {
     setLoading(true);
 
     try {
-      const data = await login(email, password);
+      const data = await login(email, password, { remember: rememberMe });
       try {
         if (rememberMe) localStorage.setItem(REMEMBER_KEY, email.trim().toLowerCase());
         else localStorage.removeItem(REMEMBER_KEY);
@@ -122,7 +122,7 @@ const Login = () => {
           disabled={loading}
           onCredential={async ({ accessToken }) => {
             try {
-              const data = await loginWithGoogle({ accessToken });
+              const data = await loginWithGoogle({ accessToken, remember: rememberMe });
               if (data.authorization_url) {
                 openPaystackCheckout(data);
                 return;
@@ -185,7 +185,7 @@ const Login = () => {
               onChange={(e) => setRememberMe(e.target.checked)}
               className="auth-checkbox h-4 w-4 rounded border-neutral-600"
             />
-            Remember me
+            Remember this device
           </label>
           <button
             type="button"

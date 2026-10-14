@@ -2,6 +2,7 @@ import path from 'path';
 import fs from 'fs';
 import { openLocalDb } from './localDb.js';
 import { getDataDir } from './dataPaths.js';
+import { platformSupabase } from './supabaseClient.js';
 
 const DATA_DIR = getDataDir();
 const DB_PATH = path.join(DATA_DIR, 'school-extras.db');
@@ -41,6 +42,17 @@ async function getDb() {
 }
 
 export async function initPersonPhotoStore() {
+  if (platformSupabase) {
+    const { data, error } = await platformSupabase
+      .from('person_photos')
+      .select('person_id, school_id, photo_url')
+      .limit(5000);
+    if (!error) {
+      cache.clear();
+      (data || []).forEach((row) => cache.set(row.person_id, row));
+      if (useMemory) return;
+    }
+  }
   if (useMemory) {
     cache.clear();
     return;
@@ -64,7 +76,21 @@ export async function setPersonPhoto(personId, schoolId, photoUrl) {
 
   cache.set(personId, { person_id: personId, school_id: schoolId, photo_url: photoUrl });
 
-  // On Vercel, memory/tmp is ephemeral — caller must also persist photo_url in Supabase.
+  if (platformSupabase) {
+    const { error } = await platformSupabase.from('person_photos').upsert(
+      {
+        person_id: personId,
+        school_id: schoolId,
+        photo_url: photoUrl,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'person_id' }
+    );
+    if (error && error.code !== '42P01') {
+      console.warn('Failed to persist person photo:', error.message);
+    }
+  }
+
   const db = await getDb();
   if (!db) return;
 
@@ -84,6 +110,9 @@ export async function deletePersonPhoto(personId) {
   if (!personId) return;
 
   cache.delete(personId);
+  if (platformSupabase) {
+    await platformSupabase.from('person_photos').delete().eq('person_id', personId);
+  }
   const db = await getDb();
   if (!db) return;
 

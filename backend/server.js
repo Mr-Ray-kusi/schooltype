@@ -5,6 +5,23 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import { supabase } from './supabaseClient.js';
+import { createTenantClient, runWithTenant } from './tenantContext.js';
+import { readAccessToken, setSessionCookie, clearSessionCookie } from './cookieAuth.js';
+import {
+  createAuthSession,
+  getAuthSession,
+  revokeAuthSession,
+  revokeSchoolSessions,
+  sessionTtlSeconds,
+} from './sessionStore.js';
+import { logPlatformAction } from './auditLog.js';
+import {
+  makeIdGateCode,
+  isValidIdGateCode,
+  publicIdRateLimited,
+  recordPublicIdFailure,
+  gateProfile,
+} from './publicIdGate.js';
 import nodemailer from 'nodemailer';
 import { getPlan, getPlanFeatures, getPlansList, VALID_PLAN_IDS, hasPlanFeature, resolvePlanId } from './plans.js';
 import {
@@ -134,6 +151,7 @@ const allowedOrigins = String(
 
 app.use(
   cors({
+    credentials: true,
     origin(origin, callback) {
       if (!origin || allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
         return callback(null, true);
@@ -310,6 +328,9 @@ const queryPagedRows = async (table, { schoolId, from, to, q, orFilter, columns,
 
   let rows = result.data || [];
   if (!includePhotos) rows = rows.map(withoutPhotoUrl);
+  rows = rows.map((row) =>
+    row?.barcode ? { ...row, id_gate: makeIdGateCode(row.barcode) } : row
+  );
   return { ...result, data: rows };
 };
 
@@ -468,8 +489,23 @@ const findSchoolByEmail = async (email) => {
 const PLAN_SCHEMA_HELP =
   'Run database/supabase_core_billing.sql then database/supabase_backend_access.sql in the Supabase SQL editor, and set SUPABASE_SERVICE_ROLE_KEY on the server.';
 
+const schoolNameSlug = (name) => {
+  const slug = String(name || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+  return slug || 'school';
+};
+
 const insertSchoolRecord = async (record) => {
   const payload = { ...record };
+  if (payload.name && !payload.name_slug) {
+    payload.name_slug = schoolNameSlug(payload.name);
+  }
   const optionalColumns = [
     'role',
     'initial_password',
@@ -489,6 +525,7 @@ const insertSchoolRecord = async (record) => {
     'email_verified',
     'email_verification_token',
     'email_verification_expires_at',
+    'name_slug',
   ];
   const requiredPlanFields = ['payment_plan', 'plan_status'].filter(
     (column) => record[column] !== undefined && record[column] !== null
@@ -565,6 +602,7 @@ const updateSchoolRecord = async (id, updates) => {
     'email_verified',
     'email_verification_token',
     'email_verification_expires_at',
+    'name_slug',
   ];
 
   for (let attempt = 0; attempt <= optionalColumns.length; attempt++) {
@@ -856,16 +894,30 @@ if (JWT_SECRET_IS_WEAK) {
   }
 }
 
-const signAuthToken = (school) => {
+const signAuthToken = (school, { remember = false, expiresIn } = {}) => {
   const role = getSchoolRole(school);
-  return jwt.sign({ schoolId: school.id, email: school.email, role }, JWT_SECRET, {
-    expiresIn: JWT_EXPIRES_IN,
+  const ttl = expiresIn || (remember ? '30d' : JWT_EXPIRES_IN);
+  return jwt.sign({ schoolId: school.id, email: school.email, role, remember: Boolean(remember) }, JWT_SECRET, {
+    expiresIn: ttl,
   });
 };
 
-const authTokenPayload = () => ({
-  expiresIn: parseJwtExpiresInSeconds(JWT_EXPIRES_IN),
+const authTokenPayload = (remember = false) => ({
+  expiresIn: remember ? sessionTtlSeconds(true) : parseJwtExpiresInSeconds(JWT_EXPIRES_IN),
 });
+
+async function issueSchoolSession(res, school, { remember = false } = {}) {
+  const ttlSec = sessionTtlSeconds(remember);
+  const token = signAuthToken(school, { remember, expiresIn: ttlSec });
+  await createAuthSession({
+    schoolId: school.id,
+    token,
+    remember,
+    expiresAt: Date.now() + ttlSec * 1000,
+  });
+  setSessionCookie(res, token, ttlSec);
+  return { token, expiresIn: ttlSec, school: formatSchool(school) };
+}
 
 // Email transporter configuration - uses Gmail SMTP or custom SMTP
 let emailTransporter = null;
@@ -1002,19 +1054,35 @@ async function sendAuthEmail({ to, subject, text, html }) {
 
 // Middleware to verify JWT
 const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
+  const token = readAccessToken(req);
 
   if (!token) {
     return res.status(401).json({ error: 'Access token required' });
   }
 
-  jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] }, (err, user) => {
+  jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] }, async (err, user) => {
     if (err) {
       return res.status(403).json({ error: 'Invalid or expired token' });
     }
+    try {
+      const session = await getAuthSession(token);
+      if (session.status === 'revoked' || session.status === 'expired') {
+        return res.status(403).json({ error: 'Session ended. Sign in again.' });
+      }
+      if (session.status === 'ok' && session.session?.school_id && session.session.school_id !== user.schoolId) {
+        return res.status(403).json({ error: 'Session ended. Sign in again.' });
+      }
+      if (session.status === 'missing' && process.env.REQUIRE_AUTH_SESSIONS === 'true') {
+        return res.status(403).json({ error: 'Session ended. Sign in again.' });
+      }
+    } catch {
+      // Session table may not exist yet; JWT still authenticates.
+    }
     req.user = user;
-    next();
+    req.accessToken = token;
+    const tenantDb =
+      user.role === 'super_admin' ? null : createTenantClient(user.schoolId, user.role);
+    runWithTenant({ db: tenantDb, schoolId: user.schoolId }, () => next());
   });
 };
 
@@ -1131,7 +1199,7 @@ app.post('/api/auth/signup', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
   try {
     const email = req.body.email?.trim().toLowerCase();
-    const { password } = req.body;
+    const { password, remember } = req.body;
     const clientIp = getClientIp(req);
 
     if (!email || !password) {
@@ -1250,7 +1318,7 @@ app.post('/api/auth/login', async (req, res) => {
 
     await clearLoginFailures(email);
 
-    const token = signAuthToken(school);
+    const session = await issueSchoolSession(res, school, { remember: Boolean(remember) });
     if (getSchoolRole(school) !== 'super_admin') {
       recordPlatformEvent({
         eventType: 'login',
@@ -1262,11 +1330,7 @@ app.post('/api/auth/login', async (req, res) => {
       }).catch(() => {});
     }
 
-    res.json({
-      token,
-      ...authTokenPayload(),
-      school: formatSchool(school),
-    });
+    res.json(session);
   } catch (error) {
     console.error('Login error:', error);
     recordPlatformEvent({
@@ -1359,7 +1423,7 @@ app.post('/api/auth/google', async (req, res) => {
     }
 
     await clearLoginFailures(email);
-    const token = signAuthToken(school);
+    const session = await issueSchoolSession(res, school, { remember: Boolean(req.body?.remember) });
     if (getSchoolRole(school) !== 'super_admin') {
       recordPlatformEvent({
         eventType: 'login',
@@ -1371,11 +1435,7 @@ app.post('/api/auth/google', async (req, res) => {
       }).catch(() => {});
     }
 
-    res.json({
-      token,
-      ...authTokenPayload(),
-      school: formatSchool(school),
-    });
+    res.json(session);
   } catch (error) {
     const status = error.status || 500;
     if (status >= 500) console.error('Google auth error:', error);
@@ -1433,6 +1493,11 @@ app.post('/api/auth/complete-signup', async (req, res) => {
         pending: Boolean(result.pending),
         status: result.status || null,
       });
+    }
+    if (result.school && !result.requiresEmailVerification) {
+      const session = await issueSchoolSession(res, result.school, { remember: false });
+      result.token = session.token;
+      result.expiresIn = session.expiresIn;
     }
     res.json({
       ...result,
@@ -1604,11 +1669,11 @@ app.post('/api/auth/set-password', async (req, res) => {
     }
 
     const ready = updated || { ...school, password_hash: hashedPassword, initial_password: null };
-    const token = signAuthToken(ready);
+    const session = await issueSchoolSession(res, ready, { remember: false });
 
     res.json({
-      token,
-      ...authTokenPayload(),
+      token: session.token,
+      expiresIn: session.expiresIn,
       school: formatSchool(ready),
       message: 'Password saved. You are signed in.',
     });
@@ -1695,6 +1760,18 @@ app.post('/api/auth/resend-verification', async (req, res) => {
     console.error('Resend verification error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
+});
+
+app.post('/api/auth/logout', authenticateToken, async (req, res) => {
+  await revokeAuthSession(req.accessToken || readAccessToken(req));
+  clearSessionCookie(res);
+  res.json({ ok: true });
+});
+
+app.post('/api/auth/logout-all', authenticateToken, async (req, res) => {
+  await revokeSchoolSessions(req.user.schoolId);
+  clearSessionCookie(res);
+  res.json({ ok: true });
 });
 
 // Verify token - check if token is still valid
@@ -1900,6 +1977,12 @@ app.get('/api/super-admin/schools', authenticateToken, requireSuperAdmin, async 
     const countMaps = { students, staff, nonStaff };
     const schoolsWithStats = await Promise.all(list.map((school) => buildSchoolWithStats(school, countMaps)));
 
+    logPlatformAction({
+      actor: req.user,
+      action: 'super_admin.list_schools',
+      detail: { count: schoolsWithStats.length },
+    }).catch(() => {});
+
     res.json(schoolsWithStats);
   } catch (error) {
     console.error('Super admin schools error:', error);
@@ -2045,6 +2128,12 @@ app.post('/api/super-admin/broadcast-email', authenticateToken, requireSuperAdmi
 
     const sent = results.filter((r) => r.status === 'sent').length;
     const failed = results.filter((r) => r.status === 'failed').length;
+
+    logPlatformAction({
+      actor: req.user,
+      action: 'super_admin.broadcast',
+      detail: { subject: cleanSubject, sent, failed, total: results.length },
+    }).catch(() => {});
 
     res.json({
       sent,
@@ -2640,6 +2729,12 @@ app.patch('/api/super-admin/schools/:id/approval', authenticateToken, requireSup
     }
 
     bumpSchoolCaches(req.params.id);
+    logPlatformAction({
+      actor: req.user,
+      action: 'super_admin.plan_status',
+      targetSchoolId: req.params.id,
+      detail: { status },
+    }).catch(() => {});
     res.json(await buildSchoolWithStats(updatedSchool));
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2828,6 +2923,11 @@ app.get('/api/health', async (req, res) => {
 
 app.get('/api/public/id/:barcode', async (req, res) => {
   try {
+    const ip = getClientIp(req);
+    if (publicIdRateLimited(ip)) {
+      return res.status(429).json({ error: 'Too many ID lookups. Try again later.' });
+    }
+
     let barcode = req.params.barcode || '';
     try {
       barcode = decodeURIComponent(barcode);
@@ -2839,9 +2939,13 @@ app.get('/api/public/id/:barcode', async (req, res) => {
       return res.status(400).json({ error: 'Invalid ID code' });
     }
 
+    const unlocked =
+      isValidIdGateCode(barcode, req.query.g) ||
+      Boolean(req.query.s && (await getSchoolIdByScannerToken(String(req.query.s))));
+
     const { data: student, error: studentError } = await supabase
       .from('students')
-      .select('*')
+      .select('id, school_id, name, class, barcode, photo_url')
       .eq('barcode', barcode)
       .maybeSingle();
     if (studentError) throw studentError;
@@ -2853,23 +2957,25 @@ app.get('/api/public/id/:barcode', async (req, res) => {
         .eq('id', student.school_id)
         .maybeSingle();
       const withPhoto = mergeStudentPhoto(student);
-      return res.json({
-        type: 'student',
-        name: withPhoto.name,
-        class: withPhoto.class,
-        role: null,
-        photo_url: withPhoto.photo_url || null,
-        roll_number: withPhoto.roll_number || null,
-        skills: withPhoto.skills || null,
-        barcode: withPhoto.barcode || barcode,
-        school_name: school?.name || 'School',
-        school_logo_url: school?.logo_url || null,
-      });
+      if (!unlocked) recordPublicIdFailure(ip);
+      return res.json(
+        gateProfile(
+          {
+            type: 'student',
+            name: withPhoto.name,
+            class: withPhoto.class,
+            photo_url: withPhoto.photo_url || null,
+            school_name: school?.name || 'School',
+            school_logo_url: school?.logo_url || null,
+          },
+          { unlocked }
+        )
+      );
     }
 
     const { data: staff } = await supabase
       .from('staffs')
-      .select('*')
+      .select('id, school_id, name, role, barcode, photo_url')
       .eq('barcode', barcode)
       .maybeSingle();
 
@@ -2880,20 +2986,25 @@ app.get('/api/public/id/:barcode', async (req, res) => {
         .eq('id', staff.school_id)
         .maybeSingle();
       const withPhoto = mergePersonPhoto(staff);
-      return res.json({
-        type: 'staff',
-        name: withPhoto.name,
-        class: null,
-        role: withPhoto.role || 'Staff',
-        photo_url: withPhoto.photo_url || null,
-        school_name: school?.name || 'School',
-        school_logo_url: school?.logo_url || null,
-      });
+      if (!unlocked) recordPublicIdFailure(ip);
+      return res.json(
+        gateProfile(
+          {
+            type: 'staff',
+            name: withPhoto.name,
+            role: withPhoto.role || 'Staff',
+            photo_url: withPhoto.photo_url || null,
+            school_name: school?.name || 'School',
+            school_logo_url: school?.logo_url || null,
+          },
+          { unlocked }
+        )
+      );
     }
 
     const { data: nonStaff } = await supabase
       .from('nonstaffs')
-      .select('*')
+      .select('id, school_id, name, role, barcode, photo_url')
       .eq('barcode', barcode)
       .maybeSingle();
 
@@ -2904,17 +3015,23 @@ app.get('/api/public/id/:barcode', async (req, res) => {
         .eq('id', nonStaff.school_id)
         .maybeSingle();
       const withPhoto = mergePersonPhoto(nonStaff);
-      return res.json({
-        type: 'non-staff',
-        name: withPhoto.name,
-        class: null,
-        role: withPhoto.role || 'Non-staff',
-        photo_url: withPhoto.photo_url || null,
-        school_name: school?.name || 'School',
-        school_logo_url: school?.logo_url || null,
-      });
+      if (!unlocked) recordPublicIdFailure(ip);
+      return res.json(
+        gateProfile(
+          {
+            type: 'non-staff',
+            name: withPhoto.name,
+            role: withPhoto.role || 'Non-staff',
+            photo_url: withPhoto.photo_url || null,
+            school_name: school?.name || 'School',
+            school_logo_url: school?.logo_url || null,
+          },
+          { unlocked }
+        )
+      );
     }
 
+    recordPublicIdFailure(ip);
     return res.status(404).json({ error: 'Person not found' });
   } catch (error) {
     console.error('Public ID error:', error);
@@ -3189,17 +3306,7 @@ const listsOverlap = (left, right) => {
   return left.some((item) => rightSet.has(normalizeClassKey(item)));
 };
 
-const slugifySchoolName = (name) => {
-  const slug = String(name || '')
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/&/g, ' and ')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 80);
-  return slug || 'school';
-};
+const slugifySchoolName = schoolNameSlug;
 
 const insertStaffRecord = async (record) => {
   const payload = fillIdentityCodes({ ...record });
@@ -4107,19 +4214,31 @@ app.get('/api/public/staff-portal/:schoolSlug', async (req, res) => {
     const wanted = slugifySchoolName(req.params.schoolSlug);
     if (!wanted) return res.status(400).json({ error: 'Invalid school link' });
 
-    const { data: schools, error } = await supabase
+    let match = null;
+    const { data: bySlug, error: slugError } = await supabase
       .from('schools')
-      .select('id, name, role, payment_plan, plan_status, next_payment_due, last_payment_at, subscription_frozen, subscription_started_at');
-    if (error) throw error;
-
-    const match = (schools || []).find((school) => {
-      if (String(school.role || '') === 'super_admin') return false;
-      const merged = mergeSchoolWithExtras(school);
-      if (!merged.payment_plan || (merged.plan_status || 'pending') !== 'approved') return false;
-      if (!hasPlanFeature(merged.payment_plan, 'staff')) return false;
-      if (!getSubscriptionInfo(merged).subscription_active) return false;
-      return slugifySchoolName(merged.name) === wanted;
-    });
+      .select('id, name, name_slug, role, payment_plan, plan_status, next_payment_due, last_payment_at, subscription_frozen, subscription_started_at')
+      .eq('name_slug', wanted)
+      .maybeSingle();
+    if (slugError && !isMissingColumnError(slugError, 'name_slug')) throw slugError;
+    if (bySlug) match = bySlug;
+    if (!match) {
+      const { data: schools, error } = await supabase
+        .from('schools')
+        .select('id, name, role, payment_plan, plan_status, next_payment_due, last_payment_at, subscription_frozen, subscription_started_at');
+      if (error) throw error;
+      match = (schools || []).find((school) => slugifySchoolName(school.name) === wanted) || null;
+    }
+    if (match) {
+      if (String(match.role || '') === 'super_admin') match = null;
+      else {
+        const merged = mergeSchoolWithExtras(match);
+        if (!merged.payment_plan || (merged.plan_status || 'pending') !== 'approved') match = null;
+        else if (!hasPlanFeature(merged.payment_plan, 'staff')) match = null;
+        else if (!getSubscriptionInfo(merged).subscription_active) match = null;
+        else match = merged;
+      }
+    }
 
     if (!match) {
       return res.status(404).json({ error: 'Staff portal not found for this school' });
@@ -4138,23 +4257,30 @@ app.get('/api/public/staff-portal/:schoolSlug', async (req, res) => {
 async function findStaffPortalSchoolBySlug(schoolSlug) {
   const wanted = slugifySchoolName(schoolSlug);
   if (!wanted) return null;
-  const { data: schools, error } = await supabase
+  let match = null;
+  const { data: bySlug, error: slugError } = await supabase
+    .from('schools')
+    .select('id, name, name_slug, role, payment_plan, plan_status, next_payment_due, last_payment_at, subscription_frozen, subscription_started_at')
+    .eq('name_slug', wanted)
+    .maybeSingle();
+  if (slugError && !isMissingColumnError(slugError, 'name_slug')) throw slugError;
+  match = bySlug || null;
+  if (!match) {
+    const { data: schools, error } = await supabase
       .from('schools')
       .select('id, name, role, payment_plan, plan_status, next_payment_due, last_payment_at, subscription_frozen, subscription_started_at');
-  if (error) throw error;
-  const match = (schools || []).find((school) => {
-    if (String(school.role || '') === 'super_admin') return false;
-    const merged = mergeSchoolWithExtras(school);
-    if (!merged.payment_plan || (merged.plan_status || 'pending') !== 'approved') return false;
-    if (!hasPlanFeature(merged.payment_plan, 'staff')) return false;
-    if (!getSubscriptionInfo(merged).subscription_active) return false;
-    return slugifySchoolName(merged.name) === wanted;
-  });
-  if (!match) return null;
-  const token = await ensureStaffPortalToken(match.id);
+    if (error) throw error;
+    match = (schools || []).find((school) => slugifySchoolName(school.name) === wanted) || null;
+  }
+  if (!match || String(match.role || '') === 'super_admin') return null;
+  const merged = mergeSchoolWithExtras(match);
+  if (!merged.payment_plan || (merged.plan_status || 'pending') !== 'approved') return null;
+  if (!hasPlanFeature(merged.payment_plan, 'staff')) return null;
+  if (!getSubscriptionInfo(merged).subscription_active) return null;
+  const token = await ensureStaffPortalToken(merged.id);
   return {
-    schoolId: match.id,
-    schoolName: mergeSchoolWithExtras(match).name,
+    schoolId: merged.id,
+    schoolName: merged.name,
     token,
   };
 }

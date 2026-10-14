@@ -74,8 +74,14 @@ const Layout = ({ children }) => {
     return () => clearInterval(id);
   }, [refreshUnread, location.pathname]);
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
+    navigate('/');
+  };
+
+  const handleLogoutAll = async () => {
+    await logout({ everywhere: true });
+    toast.success('Signed out on every device for this school');
     navigate('/');
   };
 
@@ -301,7 +307,14 @@ const Layout = ({ children }) => {
             className="flex items-center gap-3 px-4 py-2 w-full text-red-400 rounded-lg hover:bg-red-800 transition-colors"
           >
             <LogOut className="w-5 h-5" />
-            <span>Logout</span>
+            <span>Sign out</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleLogoutAll}
+            className="mt-1 flex w-full items-center px-4 py-1.5 text-left text-xs text-slate-400 hover:text-red-300"
+          >
+            End every session for this school
           </button>
         </div>
       </div>

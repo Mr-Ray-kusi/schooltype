@@ -139,73 +139,52 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const storeSession = useCallback((newToken, schoolData, expiresInSec) => {
-    setToken(newToken);
     persistSchool(schoolData);
-    localStorage.setItem('token', newToken);
-    if (expiresInSec) {
-      localStorage.setItem('tokenExpiresAt', String(Date.now() + expiresInSec * 1000));
-    } else {
-      localStorage.removeItem('tokenExpiresAt');
-    }
-    axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
+    // Prefer the httpOnly cookie. Keep a memory flag so routes know we are signed in.
+    setToken(newToken || 'session');
+    localStorage.removeItem('token');
+    localStorage.removeItem('tokenExpiresAt');
+    delete axios.defaults.headers.common['Authorization'];
+    void expiresInSec;
   }, [persistSchool]);
 
   useEffect(() => {
     const validateToken = async () => {
-      const storedToken = localStorage.getItem('token');
-      const expiresAt = localStorage.getItem('tokenExpiresAt');
       const cachedSchool = readCachedSchool();
+      localStorage.removeItem('token');
+      localStorage.removeItem('tokenExpiresAt');
+      delete axios.defaults.headers.common['Authorization'];
 
-      if (storedToken && expiresAt && Date.now() > Number(expiresAt)) {
-        clearSession();
-        setLoading(false);
-        return;
-      }
-
-      if (!storedToken) {
-        setLoading(false);
-        return;
-      }
-
-      // Restore immediately so a refresh does not bounce to login while the API wakes.
-      axios.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
-      setToken(storedToken);
       if (cachedSchool) {
         schoolRef.current = cachedSchool;
         setSchool(cachedSchool);
-        // Unblock the UI now — verify continues in the background.
+        setToken('session');
         setLoading(false);
       }
 
       try {
-        const response = await axios.get('/api/auth/verify', { timeout: 12000 });
+        const response = await axios.get('/api/auth/verify', { timeout: 12000, withCredentials: true });
         if (response.data?.school) {
           persistSchool(response.data.school, cachedSchool || schoolRef.current);
+          setToken('session');
         } else if (!cachedSchool) {
-          // Token accepted but no school payload and nothing cached.
           clearSession();
         }
       } catch (error) {
         const status = error.response?.status;
-        // Only force logout on real auth failures — not cold starts / network blips.
         if (status === 401 || status === 403) {
           clearSession();
         }
-        // Keep cached school on transient failures so refresh does not bounce to /select-plan.
       } finally {
         setLoading(false);
       }
     };
 
     validateToken();
-  }, [clearSession]);
+  }, [clearSession, persistSchool]);
 
   useEffect(() => {
-    if (token) {
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-    } else {
-      delete axios.defaults.headers.common['Authorization'];
-    }
+    delete axios.defaults.headers.common['Authorization'];
   }, [token]);
 
   useEffect(() => {
@@ -253,8 +232,8 @@ export const AuthProvider = ({ children }) => {
     storeSession(data.token, data.school, data.expiresIn);
   };
 
-  const login = async (email, password) => {
-    const response = await axios.post('/api/auth/login', { email, password });
+  const login = async (email, password, { remember = false } = {}) => {
+    const response = await axios.post('/api/auth/login', { email, password, remember });
     const { token: newToken, school: schoolData, expiresIn } = response.data || {};
     if (!newToken || !schoolData) {
       const err = new Error('Login response was invalid. The API may still be starting or misconfigured.');
@@ -275,6 +254,7 @@ export const AuthProvider = ({ children }) => {
     method,
     phone,
     provider,
+    remember,
   } = {}) => {
     const response = await axios.post(
       '/api/auth/google',
@@ -288,6 +268,7 @@ export const AuthProvider = ({ children }) => {
         method,
         phone,
         provider,
+        remember: Boolean(remember),
       },
       { timeout: 20000 }
     );
@@ -388,7 +369,12 @@ export const AuthProvider = ({ children }) => {
     };
   }, [loading, token, school?.role, school?.payment_plan, school?.plan_approved]);
 
-  const logout = () => {
+  const logout = async ({ everywhere = false } = {}) => {
+    try {
+      await axios.post(everywhere ? '/api/auth/logout-all' : '/api/auth/logout', {}, { withCredentials: true });
+    } catch {
+      // Cookie/session may already be gone.
+    }
     clearSession();
   };
 

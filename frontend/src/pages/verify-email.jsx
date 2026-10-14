@@ -97,10 +97,8 @@ const VerifyEmail = () => {
       });
       if (storeSessionFromAuth) {
         storeSessionFromAuth(data);
-      } else if (data.token && data.school) {
-        localStorage.setItem('token', data.token);
+      } else if (data.school) {
         localStorage.setItem('school', JSON.stringify(data.school));
-        axios.defaults.headers.common.Authorization = `Bearer ${data.token}`;
       }
       toast.success('Account ready');
       navigate(getPostAuthPath(data.school), { replace: true });

@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import {
   getPaystackConfig,
   listBanks,
@@ -600,11 +601,62 @@ export function registerWalletRoutes(app, { authenticateToken, enforcePlanApprov
     }
   });
 
+  const pendingWithdrawals = new Map();
+
+  async function saveWithdrawalApproval(row) {
+    pendingWithdrawals.set(row.id, row);
+    if (!supabase) return;
+    const { error } = await supabase.from('withdrawal_approvals').insert([
+      {
+        id: row.id,
+        school_id: row.school_id,
+        reference: row.reference,
+        amount_minor: row.amount_minor,
+        account_id: row.account_id,
+        requested_by: row.requested_by,
+        status: 'pending',
+      },
+    ]);
+    if (error && error.code !== '42P01' && error.code !== '23505') {
+      console.warn('Withdrawal approval persist failed:', error.message);
+    }
+  }
+
+  async function loadWithdrawalApproval(schoolId, id) {
+    const cached = pendingWithdrawals.get(id);
+    if (cached && cached.school_id === schoolId) return cached;
+    if (!supabase) return null;
+    const { data, error } = await supabase
+      .from('withdrawal_approvals')
+      .select('*')
+      .eq('id', id)
+      .eq('school_id', schoolId)
+      .maybeSingle();
+    if (error || !data) return null;
+    pendingWithdrawals.set(id, data);
+    return data;
+  }
+
+  async function markWithdrawalConfirmed(id, confirmedBy) {
+    const now = new Date().toISOString();
+    const cached = pendingWithdrawals.get(id);
+    if (cached) pendingWithdrawals.set(id, { ...cached, status: 'confirmed', confirmed_by: confirmedBy, confirmed_at: now });
+    if (!supabase) return;
+    await supabase
+      .from('withdrawal_approvals')
+      .update({ status: 'confirmed', confirmed_by: confirmedBy, confirmed_at: now })
+      .eq('id', id);
+  }
+
   app.post('/api/wallet/withdraw', authenticateToken, enforcePlanApproval, async (req, res) => {
     try {
       const schoolId = req.user.schoolId;
-      const { account_id, amount, reason } = req.body || {};
+      const { account_id, amount, reason, confirm, approval_id } = req.body || {};
       const amountMajor = Number(amount);
+
+      if (confirm && approval_id) {
+        return res.status(400).json({ error: 'Use POST /api/wallet/withdraw/:id/confirm to send the money.' });
+      }
 
       if (!account_id) return res.status(400).json({ error: 'account_id is required' });
       if (!Number.isFinite(amountMajor) || amountMajor < 1) {
@@ -614,7 +666,7 @@ export function registerWalletRoutes(app, { authenticateToken, enforcePlanApprov
       const account = await getWalletAccount(schoolId, account_id);
       if (!account) return res.status(404).json({ error: 'Select a saved bank or MoMo account first' });
 
-      const { currency, configured } = getPaystackConfig();
+      const { configured } = getPaystackConfig();
       if (!configured) {
         return res.status(503).json({
           error: 'Paystack is not configured. Add PAYSTACK_SECRET_KEY to backend/.env',
@@ -626,9 +678,57 @@ export function registerWalletRoutes(app, { authenticateToken, enforcePlanApprov
         });
       }
 
-      const amountMinor = toMinorUnits(amountMajor);
-      const reference = makeWalletReference('wdr');
+      const approval = {
+        id: randomUUID(),
+        school_id: schoolId,
+        reference: makeWalletReference('wdr'),
+        amount_minor: toMinorUnits(amountMajor),
+        amount_major: amountMajor,
+        account_id: account.id,
+        requested_by: req.user.email || req.user.schoolId,
+        reason: reason || `Withdrawal to ${account.label || account.bank_name || account.type}`,
+        status: 'pending',
+      };
+      await saveWithdrawalApproval(approval);
 
+      return res.json({
+        status: 'awaiting_confirmation',
+        approval_id: approval.id,
+        reference: approval.reference,
+        amount: amountMajor,
+        display_text: 'Confirm this withdrawal. Money leaves the wallet only after the second confirmation.',
+      });
+    } catch (err) {
+      if (err.status === 400) return res.status(400).json({ error: err.message });
+      console.error('Withdraw request error:', err);
+      res.status(500).json({ error: 'Failed to start withdrawal' });
+    }
+  });
+
+  app.post('/api/wallet/withdraw/:id/confirm', authenticateToken, enforcePlanApproval, async (req, res) => {
+    try {
+      const schoolId = req.user.schoolId;
+      const approval = await loadWithdrawalApproval(schoolId, req.params.id);
+      if (!approval) return res.status(404).json({ error: 'Withdrawal request not found' });
+      if (approval.status && approval.status !== 'pending') {
+        return res.status(409).json({ error: 'This withdrawal was already confirmed or cancelled.' });
+      }
+
+      const account = await getWalletAccount(schoolId, approval.account_id);
+      if (!account) return res.status(404).json({ error: 'Select a saved bank or MoMo account first' });
+
+      const { currency, configured } = getPaystackConfig();
+      if (!configured) {
+        return res.status(503).json({
+          error: 'Paystack is not configured. Add PAYSTACK_SECRET_KEY to backend/.env',
+        });
+      }
+
+      const amountMinor = Number(approval.amount_minor);
+      const reference = approval.reference || makeWalletReference('wdr');
+      const confirmedBy = req.user.email || req.user.schoolId;
+
+      await markWithdrawalConfirmed(approval.id, confirmedBy);
       await reserveWithdrawal(schoolId, amountMinor);
       await createWalletTransaction(schoolId, {
         type: 'withdrawal',
@@ -637,8 +737,14 @@ export function registerWalletRoutes(app, { authenticateToken, enforcePlanApprov
         channel: account.type,
         account_id: account.id,
         reference,
-        description: reason || `Withdrawal to ${account.label || account.bank_name || account.type}`,
-        metadata: { school_id: schoolId, account_id: account.id, wallet_action: 'withdrawal' },
+        description: approval.reason || `Withdrawal to ${account.label || account.bank_name || account.type}`,
+        metadata: {
+          school_id: schoolId,
+          account_id: account.id,
+          wallet_action: 'withdrawal',
+          requested_by: approval.requested_by,
+          confirmed_by: confirmedBy,
+        },
       });
 
       try {
@@ -647,12 +753,12 @@ export function registerWalletRoutes(app, { authenticateToken, enforcePlanApprov
           currency,
           recipientCode: account.paystack_recipient_code,
           reference,
-          reason: reason || `School wallet withdrawal`,
+          reason: approval.reason || 'School wallet withdrawal',
         });
 
         await updateWalletTransaction(reference, {
           provider_reference: transfer?.transfer_code || transfer?.reference || reference,
-          metadata: { paystack_status: transfer?.status },
+          metadata: { paystack_status: transfer?.status, confirmed_by: confirmedBy },
         });
 
         if (transfer?.status === 'success') {
@@ -662,6 +768,7 @@ export function registerWalletRoutes(app, { authenticateToken, enforcePlanApprov
         return res.json({
           reference,
           status: transfer?.status || 'pending',
+          confirmed_by: confirmedBy,
           wallet: formatMoney(await getWallet(schoolId)),
           transaction: formatTransaction(await getWalletTransactionByReference(reference)),
         });
@@ -672,8 +779,8 @@ export function registerWalletRoutes(app, { authenticateToken, enforcePlanApprov
     } catch (err) {
       if (err.status === 400) return res.status(400).json({ error: err.message });
       if (err.code?.startsWith('PAYSTACK') || err.status) return handlePaystackError(res, err);
-      console.error('Withdraw error:', err);
-      res.status(500).json({ error: 'Failed to start withdrawal' });
+      console.error('Withdraw confirm error:', err);
+      res.status(500).json({ error: 'Failed to confirm withdrawal' });
     }
   });
 

@@ -7,6 +7,7 @@ import './index.css'
 import { enqueueMutation, isOfflineMutationUrl, mutationLabel } from './utils/offlineQueue'
 
 axios.defaults.timeout = 20000;
+axios.defaults.withCredentials = true;
 
 const KEEP_ALIVE_MS = 4 * 60 * 1000;
 const pingApi = () => {

@@ -3,9 +3,15 @@
  * Gate scanners extract the barcode and mark attendance instead.
  */
 
-export function buildPersonIdUrl(barcode, origin = typeof window !== 'undefined' ? window.location.origin : '') {
+export function buildPersonIdUrl(
+  barcode,
+  origin = typeof window !== 'undefined' ? window.location.origin : '',
+  gate = ''
+) {
   if (!barcode) return '';
-  return `${origin}/id/${encodeURIComponent(barcode)}`;
+  const url = `${origin}/id/${encodeURIComponent(barcode)}`;
+  if (gate) return `${url}?g=${encodeURIComponent(gate)}`;
+  return url;
 }
 
 export function buildFeePayUrl(barcode, origin = typeof window !== 'undefined' ? window.location.origin : '') {

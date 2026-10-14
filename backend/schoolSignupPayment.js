@@ -644,8 +644,13 @@ export async function cancelSignupCharge(reference) {
   });
 }
 
-function isSuccessfulCharge(status) {
+export function isSuccessfulCharge(status) {
   return String(status || '').toLowerCase() === 'success';
+}
+
+/** Failed or incomplete Paystack charges must not create a school. */
+export function paymentCreatesSchool(status) {
+  return isSuccessfulCharge(status);
 }
 
 function checkoutKindFrom(metadata, reference, pending) {
@@ -756,6 +761,14 @@ async function createPaidSchool({ pending, metadata, plan, reference, googleSign
   const subscription = initializeSubscription();
   const schoolRecord = {
     name: schoolName,
+    name_slug: String(schoolName)
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/&/g, ' and ')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 80) || 'school',
     email,
     password_hash: hashedPassword,
     initial_password: googleSignup ? null : PASSWORD_SETUP_MARKER,

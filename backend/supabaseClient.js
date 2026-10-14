@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
+import { getTenantStore } from './tenantContext.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({
@@ -10,8 +11,9 @@ dotenv.config({
 });
 
 const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey =
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const anonKey = process.env.SUPABASE_ANON_KEY;
+const supabaseKey = serviceKey || anonKey;
 
 if (!supabaseUrl || !supabaseKey) {
   console.error(
@@ -19,9 +21,34 @@ if (!supabaseUrl || !supabaseKey) {
   );
 }
 
-export const supabase =
+const platform =
   supabaseUrl && supabaseKey
     ? createClient(supabaseUrl, supabaseKey, {
         auth: { persistSession: false, autoRefreshToken: false },
       })
     : null;
+
+/** Master-key client: signup, plan changes, Paystack webhook, cron. */
+export const platformSupabase = platform;
+
+/**
+ * School screens use a tenant JWT when SUPABASE_JWT_SECRET is set.
+ * Platform jobs and unauthenticated routes keep the service-role client.
+ */
+export const supabase = platform
+  ? new Proxy(platform, {
+      get(target, prop, receiver) {
+        const tenant = getTenantStore();
+        const client = tenant?.db || target;
+        const value = client[prop];
+        if (typeof value === 'function') return value.bind(client);
+        return value;
+      },
+    })
+  : null;
+
+if (platform && serviceKey && !process.env.SUPABASE_JWT_SECRET) {
+  console.warn(
+    'SUPABASE_JWT_SECRET is not set. School screens still use the master key. Set it to the Supabase JWT secret so RLS can isolate tenants.'
+  );
+}

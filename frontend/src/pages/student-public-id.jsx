@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
-import { GraduationCap, User, Hash, Briefcase, Trophy, CreditCard } from 'lucide-react';
+import { GraduationCap, User, Hash, Briefcase, Trophy } from 'lucide-react';
 
 const StudentPublicId = () => {
   const { barcode } = useParams();
+  const [searchParams] = useSearchParams();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -16,7 +17,8 @@ const StudentPublicId = () => {
       setError(null);
       try {
         const { data: profile } = await axios.get(
-          `/api/public/id/${encodeURIComponent(barcode || '')}`
+          `/api/public/id/${encodeURIComponent(barcode || '')}`,
+          { params: { g: searchParams.get('g') || undefined, s: searchParams.get('s') || undefined } }
         );
         if (!cancelled) setData(profile);
       } catch (err) {
@@ -31,7 +33,7 @@ const StudentPublicId = () => {
     return () => {
       cancelled = true;
     };
-  }, [barcode]);
+  }, [barcode, searchParams]);
 
   if (loading) {
     return (
@@ -138,17 +140,11 @@ const StudentPublicId = () => {
           ) : null}
         </div>
 
-        <div className="mt-6 text-center">
-          {isStudent && (data.barcode || barcode) ? (
-            <Link
-              to={`/pay/${encodeURIComponent(data.barcode || barcode)}`}
-              className="inline-flex items-center gap-2 rounded-full bg-sky-500 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-400"
-            >
-              <CreditCard className="h-4 w-4" />
-              Pay fees
-            </Link>
-          ) : null}
-        </div>
+        {data.locked ? (
+          <p className="mt-6 text-center text-sm text-slate-400">
+            {data.hint || 'Ask the school desk to scan this card. Contact numbers and fees stay behind login.'}
+          </p>
+        ) : null}
 
         <p className="mt-auto pt-8 text-center text-xs text-slate-600">
           If you found this card, please return it to the school · SCHOOLTYPE

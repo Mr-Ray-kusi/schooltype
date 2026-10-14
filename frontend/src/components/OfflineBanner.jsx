@@ -7,6 +7,7 @@ import { invalidateCache } from '../utils/requestCache';
 
 const OfflineBanner = () => {
   const [syncing, setSyncing] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
   const syncingRef = useRef(false);
   const skipUntilOnlineRef = useRef(false);
 
@@ -18,6 +19,7 @@ const OfflineBanner = () => {
 
       await compactPendingQueue();
       const items = await listPending();
+      setPendingCount(items.length);
       if (!items.length) {
         skipUntilOnlineRef.current = false;
         return;
@@ -51,6 +53,7 @@ const OfflineBanner = () => {
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
     const unsub = subscribeOffline(() => {
+      listPending().then((items) => setPendingCount(items.length)).catch(() => {});
       runSync();
     });
     const start = () => runSync();
@@ -64,12 +67,22 @@ const OfflineBanner = () => {
     };
   }, []);
 
-  if (!syncing) return null;
+  const offline = typeof navigator !== 'undefined' && !navigator.onLine;
+
+  if (!syncing && !pendingCount && !offline) return null;
 
   return (
     <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-sky-500/40 bg-sky-500/10 px-4 py-2.5 text-sm text-sky-100">
-      <RefreshCw className="h-4 w-4 animate-spin" />
-      Syncing offline changes
+      {syncing ? <RefreshCw className="h-4 w-4 animate-spin" /> : null}
+      {offline
+        ? pendingCount
+          ? `Saved on this phone — ${pendingCount} mark${pendingCount === 1 ? '' : 's'} waiting to sync`
+          : 'You are offline. New marks will save on this phone and sync later.'
+        : syncing
+          ? pendingCount
+            ? `Syncing ${pendingCount} saved mark${pendingCount === 1 ? '' : 's'}`
+            : 'Syncing offline changes'
+          : `${pendingCount} mark${pendingCount === 1 ? '' : 's'} waiting`}
     </div>
   );
 };
