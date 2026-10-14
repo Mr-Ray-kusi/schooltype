@@ -14,10 +14,10 @@ export const isSchoolPaid = (school) => {
   if (!school) return false;
   if (school.plan_approved === true || school.plan_status === 'approved') return true;
   if (String(school.plan_status || '').toLowerCase() === 'rejected') return false;
-  if (!school.payment_plan) return false;
   if (Number(school.total_paid) > 0) return true;
-  if (school.plan_selected_at) return true;
-  return Boolean(school.last_payment_at || school.subscription_started_at);
+  if (school.last_payment_at || school.subscription_started_at) return true;
+  if (!school.payment_plan) return false;
+  return Boolean(school.plan_selected_at);
 };
 
 export const getPostAuthPath = (school) => {

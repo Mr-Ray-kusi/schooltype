@@ -1,7 +1,7 @@
 import { randomBytes } from 'crypto';
 import { supabase, platformSupabase } from './supabaseClient.js';
 import { initializeSubscription } from './subscription.js';
-import { resolvePlanId } from './plans.js';
+import { PAYMENT_PLANS, resolvePlanId } from './plans.js';
 
 function billingDb() {
   return platformSupabase || supabase;
@@ -291,20 +291,31 @@ export async function replaceSchoolSubscriptionPayments(schoolId, records = []) 
   return records || [];
 }
 
+export function inferPlanIdFromAmount(amount) {
+  const paid = Number(amount) || 0;
+  if (paid <= 0) return null;
+  const exact = Object.values(PAYMENT_PLANS).find((plan) => Number(plan.price) === paid);
+  if (exact) return exact.id;
+  if (paid >= 30) return 'large';
+  if (paid >= 20) return 'mid';
+  return 'small';
+}
+
 /** True when signup/renewal payment already happened — do not send the school to pay again. */
 export function schoolHasPaidPlan(school) {
   if (!school) return false;
   const status = String(school.plan_status || '').toLowerCase();
   if (status === 'rejected') return false;
   if (status === 'approved' || school.plan_approved === true) return true;
-  if (!school.payment_plan) return false;
   if (['paid', 'active', 'success', 'complete'].includes(status)) return true;
   if (Number(school.total_paid) > 0) return true;
   if (school.last_payment_at || school.subscription_started_at) return true;
-  if (school.payment_plan && school.plan_selected_at) return true;
-  const records = school.payment_records;
-  if (Array.isArray(records) && records.length > 0) return true;
-  if (typeof records === 'string' && records.trim().length > 2 && records.trim() !== '[]') return true;
+  if (Array.isArray(school.payment_records) && school.payment_records.length > 0) return true;
+  if (typeof school.payment_records === 'string' && school.payment_records.trim().length > 2 && school.payment_records.trim() !== '[]') {
+    return true;
+  }
+  if (!school.payment_plan) return false;
+  if (school.plan_selected_at) return true;
   return false;
 }
 
@@ -331,7 +342,7 @@ export async function syncPaidPlanFromLedger(school) {
     return schoolHasPaidPlan(merged) ? { ...school, ...merged, plan_status: 'approved' } : school;
   }
 
-  let planId = resolvePlanId(merged.payment_plan);
+  let planId = resolvePlanId(merged.payment_plan) || inferPlanIdFromAmount(merged.total_paid);
   let paid = schoolHasPaidPlan(merged);
   let totalPaid = Number(merged.total_paid) || 0;
 

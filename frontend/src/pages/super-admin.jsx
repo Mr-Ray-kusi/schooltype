@@ -145,8 +145,9 @@ const SuperAdmin = () => {
           ) : (
             <div className="divide-y divide-slate-600">
               {sortedSchools.map((item) => {
-                const status = item.plan_status || (item.payment_plan ? 'pending' : 'none');
-                const needsAction = status === 'pending' || status === 'none';
+                const paidAlready = item.plan_approved === true || Number(item.total_paid) > 0;
+                const status = paidAlready ? 'approved' : item.plan_status || (item.payment_plan ? 'pending' : 'none');
+                const needsAction = !paidAlready && (status === 'pending' || status === 'none');
                 const subBadge = subscriptionBadge(item);
 
                 return (

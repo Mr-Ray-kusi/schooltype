@@ -35,6 +35,7 @@ import {
   mergeSchoolWithExtras,
   schoolHasPaidPlan,
   syncPaidPlanFromLedger,
+  inferPlanIdFromAmount,
   upsertSchoolExtras,
   deleteSchoolExtras,
   ensureScannerToken,
@@ -367,8 +368,11 @@ const buildAttendanceSummaryPayload = (date, totals, attendanceRows) => {
 const formatSchool = (school, { includeCredentials = false, light = false } = {}) => {
   if (school?.id) hydrateExtrasFromSchool(school);
   const merged = mergeSchoolWithExtras(school);
-  const paymentPlan = merged.payment_plan || null;
+  let paymentPlan = merged.payment_plan || null;
   const planApproved = schoolHasPaidPlan(merged);
+  if (planApproved && !paymentPlan) {
+    paymentPlan = inferPlanIdFromAmount(merged.total_paid) || 'small';
+  }
   const planStatus = planApproved ? 'approved' : paymentPlan ? merged.plan_status || 'pending' : null;
   const plan = paymentPlan ? getPlan(paymentPlan) : null;
   const pendingPlanFeatures = paymentPlan ? getPlanFeatures(paymentPlan) : [];
@@ -376,11 +380,15 @@ const formatSchool = (school, { includeCredentials = false, light = false } = {}
   const featuresUnlocked = planApproved && subscription.subscription_active;
 
   // Persist approval when signup payment already landed but plan_status was left pending.
-  if (school?.id && paymentPlan && planApproved && school.plan_status !== 'approved') {
-    updateSchoolRecord(school.id, { plan_status: 'approved' }).catch((err) => {
+  if (school?.id && planApproved && (school.plan_status !== 'approved' || !school.payment_plan) && paymentPlan) {
+    const repair = { payment_plan: paymentPlan, plan_status: 'approved' };
+    if (!merged.subscription_started_at && !merged.next_payment_due) {
+      Object.assign(repair, initializeSubscription());
+    }
+    updateSchoolRecord(school.id, repair).catch((err) => {
       console.warn('Failed to repair plan_status to approved:', err?.message || err);
     });
-    upsertSchoolExtras(school.id, { plan_status: 'approved' }).catch(() => {});
+    upsertSchoolExtras(school.id, repair).catch(() => {});
   }
 
   const formatted = {
@@ -1906,6 +1914,7 @@ app.put('/api/school/branding', authenticateToken, async (req, res) => {
 // ============ SUPER ADMIN ROUTES ============
 
 const buildSchoolWithStats = async (school, countMaps = null) => {
+  school = await syncPaidPlanFromLedger(school);
   let studentsCount = 0;
   let staffCount = 0;
   let nonStaffCount = 0;
@@ -2153,7 +2162,7 @@ app.post('/api/super-admin/broadcast-email', authenticateToken, requireSuperAdmi
 
 app.get('/api/super-admin/schools/:id', authenticateToken, requireSuperAdmin, async (req, res) => {
   try {
-    const { data: school, error } = await supabase
+    const { data: school, error } = await schoolMaster()
       .from('schools')
       .select('*')
       .eq('id', req.params.id)
@@ -2626,7 +2635,8 @@ app.get('/api/super-admin/overview', authenticateToken, requireSuperAdmin, async
       const merged = mergeSchoolWithExtras(school);
       totalRevenue += merged.total_paid || 0;
 
-      const status = merged.payment_plan ? merged.plan_status || 'pending' : 'none';
+      const paid = schoolHasPaidPlan(merged);
+      const status = paid ? 'approved' : merged.payment_plan ? merged.plan_status || 'pending' : 'none';
       if (status === 'approved') {
         activeSubscriptions += 1;
       } else if (status === 'pending' || status === 'none') {
@@ -2682,10 +2692,14 @@ app.patch('/api/super-admin/schools/:id/approval', authenticateToken, requireSup
     const merged = mergeSchoolWithExtras(existingSchool);
 
     if (status === 'approved' && !merged.payment_plan) {
+      merged.payment_plan = inferPlanIdFromAmount(merged.total_paid) || (schoolHasPaidPlan(merged) ? 'small' : null);
+    }
+    if (status === 'approved' && !merged.payment_plan) {
       return res.status(400).json({ error: 'The school must select a payment plan before you can approve their account' });
     }
 
     const extrasUpdate = { plan_status: status };
+    if (status === 'approved' && merged.payment_plan) extrasUpdate.payment_plan = merged.payment_plan;
     if (status === 'approved' && !merged.subscription_started_at) {
       if (merged.next_payment_due && merged.last_payment_at) {
         Object.assign(extrasUpdate, {
@@ -2703,6 +2717,7 @@ app.patch('/api/super-admin/schools/:id/approval', authenticateToken, requireSup
     }
     const { data: statusRow, error: statusError } = await updateSchoolRecord(req.params.id, {
       plan_status: status,
+      ...(status === 'approved' && merged.payment_plan ? { payment_plan: merged.payment_plan } : {}),
     });
 
     if (statusError || !statusRow || statusRow.plan_status !== status) {

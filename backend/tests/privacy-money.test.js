@@ -100,6 +100,13 @@ test('a school that already paid at signup is not asked to pay again', () => {
     }),
     true
   );
+  assert.equal(
+    schoolHasPaidPlan({
+      plan_status: 'pending',
+      total_paid: 10,
+    }),
+    true
+  );
   assert.equal(schoolHasPaidPlan({ payment_plan: 'starter', plan_status: 'pending' }), false);
   assert.equal(schoolHasPaidPlan({ payment_plan: 'starter', plan_status: 'approved' }), true);
   assert.equal(

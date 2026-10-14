@@ -152,12 +152,15 @@ const SuperAdminSchool = () => {
 
   if (!school) return null;
 
-  const status = school.plan_status || (school.payment_plan ? 'pending' : 'none');
+  const paidAlready = school.plan_approved === true || Number(school.total_paid) > 0;
+  const status = paidAlready ? 'approved' : school.plan_status || (school.payment_plan ? 'pending' : 'none');
   const features =
-    school.plan_approved && school.subscription_active !== false
-      ? school.plan_features
+    paidAlready && school.subscription_active !== false
+      ? school.plan_features?.length
+        ? school.plan_features
+        : school.pending_plan_features
       : school.pending_plan_features;
-  const featuresUnlocked = school.plan_approved && school.subscription_active !== false;
+  const featuresUnlocked = paidAlready && school.subscription_active !== false;
   const subStatus = school.subscription_frozen
     ? 'frozen'
     : !school.subscription_active && school.plan_approved
@@ -223,7 +226,7 @@ const SuperAdminSchool = () => {
                   >
                     {status === 'none' ? 'Awaiting plan' : status}
                   </span>
-                  {school.plan_approved ? (
+                  {paidAlready ? (
                     <span
                       className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium capitalize ${
                         subscriptionStyles[subStatus] || subscriptionStyles.current
@@ -232,7 +235,7 @@ const SuperAdminSchool = () => {
                       {subLabel}
                     </span>
                   ) : null}
-                  {school.subscription_active === false ? (
+                  {paidAlready && school.subscription_active === false ? (
                     <span className="inline-flex items-center gap-1 rounded-full border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-xs text-rose-300">
                       <AlertTriangle className="h-3.5 w-3.5" />
                       Features locked
@@ -243,7 +246,7 @@ const SuperAdminSchool = () => {
             </div>
 
             <div className="flex flex-wrap gap-2 lg:justify-end">
-              {status !== 'approved' ? (
+              {!paidAlready && status !== 'approved' ? (
                 <>
                   <button
                     type="button"
@@ -272,7 +275,7 @@ const SuperAdminSchool = () => {
                   Revoke approval
                 </button>
               )}
-              {school.plan_approved ? (
+              {paidAlready ? (
                 <button
                   type="button"
                   disabled={updatingSubscription}
@@ -347,25 +350,29 @@ const SuperAdminSchool = () => {
               <CreditCard className="h-4 w-4 text-violet-300" />
               Payment plan
             </h2>
-            {school.payment_plan ? (
+            {school.payment_plan || paidAlready ? (
               <div className="mt-5 rounded-2xl border border-white/10 bg-zinc-950/50 p-4">
                 <div className="flex flex-wrap items-baseline justify-between gap-3">
-                  <p className="text-lg font-semibold text-white">{school.plan_name}</p>
+                  <p className="text-lg font-semibold text-white">{school.plan_name || 'Paid plan'}</p>
                   {school.plan_price != null ? (
                     <p className="font-semibold text-emerald-300">{formatMoney(school.plan_price)}/year</p>
+                  ) : Number(school.total_paid) > 0 ? (
+                    <p className="font-semibold text-emerald-300">{formatMoney(school.total_paid)} received</p>
                   ) : null}
                 </div>
                 {school.plan_selected_at ? (
                   <p className="mt-1 text-sm text-zinc-500">Selected {formatDate(school.plan_selected_at)}</p>
+                ) : paidAlready ? (
+                  <p className="mt-1 text-sm text-emerald-300">Payment received. Features are unlocked — no admin approval needed.</p>
                 ) : null}
               </div>
             ) : (
               <p className="mt-5 text-sm text-amber-200">
-                This school has not selected a payment plan yet. They must choose one before you can approve.
+                This school has not paid for a plan yet.
               </p>
             )}
             <p className="mt-3 text-xs text-zinc-500">
-              Plans are chosen by the school. Platform admins approve them; they cannot change the plan.
+              Paystack signup or renewal payment unlocks the plan. Platform admins do not approve a paid school again.
             </p>
           </section>
 
@@ -396,7 +403,7 @@ const SuperAdminSchool = () => {
         </div>
 
         <div className="space-y-6">
-          {school.plan_approved ? (
+          {paidAlready ? (
             <section className={cardClass}>
               <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.16em] text-zinc-400">
                 <DollarSign className="h-4 w-4 text-violet-300" />
@@ -462,8 +469,7 @@ const SuperAdminSchool = () => {
                 Subscription & billing
               </h2>
               <p className="mt-5 text-sm text-zinc-400">
-                Billing starts after you approve the school&apos;s selected plan. Approve from the header to unlock
-                features. Revenue updates when Paystack payment succeeds.
+                Billing starts when Paystack payment succeeds. A paid school does not need a second approval.
               </p>
             </section>
           )}
