@@ -281,6 +281,10 @@ const Setup = () => {
         })
       );
       invalidateCache('classes');
+      invalidateCache('staff');
+      invalidateCache('students');
+      invalidateCache('dashboard');
+      invalidateCache('attendance');
       toast.success('Classes updated');
       await load();
     } catch (error) {
@@ -309,6 +313,9 @@ const Setup = () => {
         })
       );
       invalidateCache('subjects');
+      invalidateCache('staff');
+      invalidateCache('dashboard');
+      invalidateCache('report');
       toast.success('Subjects updated');
       await load();
     } catch (error) {

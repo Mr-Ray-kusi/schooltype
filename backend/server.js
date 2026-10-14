@@ -3318,6 +3318,90 @@ const parseCsvList = (value) =>
     .map((part) => part.trim())
     .filter(Boolean);
 
+const labelsEqual = (left, right) =>
+  String(left || '').trim().toLowerCase() === String(right || '').trim().toLowerCase();
+
+const replaceCsvLabel = (csv, fromName, toName) => {
+  const parts = parseCsvList(csv);
+  if (!parts.length) return { next: csv || null, changed: false };
+  let changed = false;
+  const next = parts.map((part) => {
+    if (!labelsEqual(part, fromName)) return part;
+    changed = true;
+    return toName;
+  });
+  return { next: toCsvField(next), changed };
+};
+
+const settleRename = async (promise) => {
+  try {
+    const result = await promise;
+    if (result?.error) return;
+  } catch {
+    // Table or column may not exist on older schools.
+  }
+};
+
+const rewriteStaffCsvColumn = async (schoolId, column, fromName, toName) => {
+  const { data: rows, error } = await supabase
+    .from('staffs')
+    .select(`id, ${column}`)
+    .eq('school_id', schoolId);
+  if (error || !rows?.length) return;
+  await Promise.all(
+    rows.map(async (row) => {
+      const { next, changed } = replaceCsvLabel(row[column], fromName, toName);
+      if (!changed) return;
+      await supabase.from('staffs').update({ [column]: next }).eq('id', row.id).eq('school_id', schoolId);
+    })
+  );
+};
+
+const renameStoredClassName = async (schoolId, fromName, toName) => {
+  const from = String(fromName || '').trim();
+  const to = String(toName || '').trim();
+  if (!schoolId || !from || !to || from === to) return;
+
+  await Promise.all([
+    settleRename(supabase.from('students').update({ class: to }).eq('school_id', schoolId).eq('class', from)),
+    settleRename(
+      supabase.from('student_scores').update({ class_name: to }).eq('school_id', schoolId).eq('class_name', from)
+    ),
+    settleRename(
+      supabase.from('report_cards').update({ class_name: to }).eq('school_id', schoolId).eq('class_name', from)
+    ),
+    settleRename(
+      supabase.from('fee_payments').update({ payer_class: to }).eq('school_id', schoolId).eq('payer_class', from)
+    ),
+    settleRename(
+      supabase.from('class_fees').update({ class_name: to }).eq('school_id', schoolId).eq('class_name', from)
+    ),
+    settleRename(
+      supabase
+        .from('attendance')
+        .update({ user_label: to })
+        .eq('school_id', schoolId)
+        .eq('user_type', 'student')
+        .eq('user_label', from)
+    ),
+    rewriteStaffCsvColumn(schoolId, 'class_names', from, to),
+  ]);
+};
+
+const renameStoredSubjectName = async (schoolId, fromName, toName) => {
+  const from = String(fromName || '').trim();
+  const to = String(toName || '').trim();
+  if (!schoolId || !from || !to || from === to) return;
+
+  await Promise.all([
+    settleRename(
+      supabase.from('student_scores').update({ subject: to }).eq('school_id', schoolId).eq('subject', from)
+    ),
+    settleRename(supabase.from('report_cards').update({ course: to }).eq('school_id', schoolId).eq('course', from)),
+    rewriteStaffCsvColumn(schoolId, 'subjects', from, to),
+  ]);
+};
+
 /** Normalize class labels so "CLASS 1", "Class-1", and "class 1" match. */
 const normalizeClassKey = (value) =>
   String(value || '')
@@ -3882,11 +3966,7 @@ app.put('/api/classes/:id', authenticateToken, enforcePlanApproval, async (req, 
     const { data, error } = await updateClassRecord(req.params.id, req.user.schoolId, updates);
     if (error) throw error;
     if (updates.name && existing?.name && updates.name !== existing.name) {
-      await supabase
-        .from('students')
-        .update({ class: updates.name })
-        .eq('school_id', req.user.schoolId)
-        .eq('class', existing.name);
+      await renameStoredClassName(req.user.schoolId, existing.name, updates.name);
     }
     bumpSchoolCaches(req.user.schoolId);
     res.json(data);
@@ -3954,6 +4034,13 @@ app.put('/api/subjects/:id', authenticateToken, enforcePlanApproval, async (req,
     const name = String(req.body.name || '').trim();
     if (!name) return res.status(400).json({ error: 'Subject name is required' });
 
+    const { data: existing } = await supabase
+      .from('subjects')
+      .select('name')
+      .eq('id', req.params.id)
+      .eq('school_id', req.user.schoolId)
+      .maybeSingle();
+
     const { data, error } = await supabase
       .from('subjects')
       .update({ name })
@@ -3963,6 +4050,9 @@ app.put('/api/subjects/:id', authenticateToken, enforcePlanApproval, async (req,
       .single();
 
     if (error) throw error;
+    if (existing?.name && existing.name !== name) {
+      await renameStoredSubjectName(req.user.schoolId, existing.name, name);
+    }
     bumpSchoolCaches(req.user.schoolId);
     res.json(data);
   } catch (error) {
