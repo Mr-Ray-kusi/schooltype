@@ -10,8 +10,14 @@ const PLAN_APPROVAL_POLL_MS = 15000;
 
 export const useAuth = () => useContext(AuthContext);
 
-export const isSchoolPaid = (school) =>
-  school?.plan_approved === true || school?.plan_status === 'approved';
+export const isSchoolPaid = (school) => {
+  if (!school) return false;
+  if (school.plan_approved === true || school.plan_status === 'approved') return true;
+  if (String(school.plan_status || '').toLowerCase() === 'rejected') return false;
+  if (!school.payment_plan) return false;
+  if (Number(school.total_paid) > 0) return true;
+  return Boolean(school.last_payment_at || school.subscription_started_at);
+};
 
 export const getPostAuthPath = (school) => {
   if (school?.role === 'super_admin') return '/super-admin';
@@ -57,8 +63,8 @@ const mergeSchoolState = (incoming, previous) => {
   if (!previous) {
     return {
       ...incoming,
-      plan_approved:
-        incoming.plan_approved === true || incoming.plan_status === 'approved',
+      plan_approved: isSchoolPaid(incoming),
+      plan_status: isSchoolPaid(incoming) ? 'approved' : incoming.plan_status || null,
     };
   }
 
@@ -85,15 +91,16 @@ const mergeSchoolState = (incoming, previous) => {
     merged.logo_url = previous.logo_url;
   }
 
-  const status = merged.plan_status || previous.plan_status || null;
-  merged.plan_status = status;
-  if (incoming.plan_status != null) {
-    merged.plan_approved = incoming.plan_status === 'approved';
+  if (incoming.plan_status === 'rejected') {
+    merged.plan_approved = false;
+    merged.plan_status = 'rejected';
+  } else if (isSchoolPaid(incoming) || isSchoolPaid(previous) || isSchoolPaid(merged)) {
+    merged.plan_approved = true;
+    merged.plan_status = 'approved';
   } else {
-    merged.plan_approved =
-      incoming.plan_approved === true ||
-      previous.plan_approved === true ||
-      status === 'approved';
+    const status = merged.plan_status || previous.plan_status || null;
+    merged.plan_status = status;
+    merged.plan_approved = status === 'approved';
   }
 
   // If server says approved, unlock features even when plan_features was empty in a stale payload.

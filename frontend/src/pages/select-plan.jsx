@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { useAuth } from '../contexts/authcontext';
+import { useAuth, isSchoolPaid } from '../contexts/authcontext';
 import { PLAN_LIST, formatPlanPriceGhs } from '../constants/plans';
 import { Check, School } from 'lucide-react';
 import { openPaystackCheckout } from '../utils/paystackCheckout';
@@ -30,7 +30,7 @@ const SelectPlan = () => {
       navigate('/super-admin', { replace: true });
       return;
     }
-    if (school?.plan_approved === true || school?.plan_status === 'approved') {
+    if (isSchoolPaid(school)) {
       navigate('/dashboard', { replace: true });
     }
   }, [token, school, navigate]);
@@ -44,6 +44,11 @@ const SelectPlan = () => {
     setLoading(true);
     try {
       const data = await selectPlan(selectedPlan);
+      if (data.alreadyPaid) {
+        toast.success('Your plan is already paid. Opening the dashboard.');
+        navigate('/dashboard');
+        return;
+      }
       if (data.authorization_url) {
         openPaystackCheckout(data);
         return;

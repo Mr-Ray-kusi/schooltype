@@ -33,6 +33,7 @@ import {
 import {
   initSchoolPlanStore,
   mergeSchoolWithExtras,
+  schoolHasPaidPlan,
   upsertSchoolExtras,
   deleteSchoolExtras,
   ensureScannerToken,
@@ -364,21 +365,15 @@ const formatSchool = (school, { includeCredentials = false, light = false } = {}
   if (school?.id) hydrateExtrasFromSchool(school);
   const merged = mergeSchoolWithExtras(school);
   const paymentPlan = merged.payment_plan || null;
-  const planStatus = paymentPlan ? merged.plan_status || 'pending' : null;
-  const planApproved = planStatus === 'approved';
+  const planApproved = schoolHasPaidPlan(merged);
+  const planStatus = planApproved ? 'approved' : paymentPlan ? merged.plan_status || 'pending' : null;
   const plan = paymentPlan ? getPlan(paymentPlan) : null;
   const pendingPlanFeatures = paymentPlan ? getPlanFeatures(paymentPlan) : [];
-  const subscription = getSubscriptionInfo(merged);
+  const subscription = getSubscriptionInfo({ ...merged, plan_status: planStatus });
   const featuresUnlocked = planApproved && subscription.subscription_active;
 
-  // Repair lost plan_status in Postgres when billing dates prove prior approval.
-  if (
-    school?.id &&
-    paymentPlan &&
-    planApproved &&
-    !school.plan_status &&
-    (merged.next_payment_due || merged.subscription_started_at)
-  ) {
+  // Persist approval when signup payment already landed but plan_status was left pending.
+  if (school?.id && paymentPlan && planApproved && school.plan_status !== 'approved') {
     updateSchoolRecord(school.id, { plan_status: 'approved' }).catch((err) => {
       console.warn('Failed to repair plan_status to approved:', err?.message || err);
     });
@@ -748,7 +743,7 @@ const enforcePlanApproval = async (req, res, next) => {
       return res.status(403).json({ error: 'Please select a payment plan first' });
     }
 
-    if ((merged.plan_status || 'pending') !== 'approved') {
+    if (!schoolHasPaidPlan(merged)) {
       return res.status(403).json({ error: 'Complete payment to unlock your plan features' });
     }
 
@@ -1826,7 +1821,7 @@ app.post('/api/school/select-plan', authenticateToken, async (req, res) => {
     }
 
     const merged = mergeSchoolWithExtras(currentSchool);
-    if ((merged.plan_status || '') === 'approved') {
+    if (schoolHasPaidPlan(merged)) {
       return res.json({ school: formatSchool(currentSchool), alreadyPaid: true });
     }
 

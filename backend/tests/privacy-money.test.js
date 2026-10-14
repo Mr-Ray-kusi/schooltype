@@ -10,6 +10,7 @@ const { gateProfile, isValidIdGateCode, makeIdGateCode, publicIdRateLimited, rec
 const { paymentCreatesSchool } = await import('../schoolSignupPayment.js');
 const { signTenantJwt } = await import('../tenantContext.js');
 const { checkLoginAllowed, recordLoginFailure } = await import('../authSecurity.js');
+const { schoolHasPaidPlan } = await import('../schoolPlanStore.js');
 
 test('a public ID without a live check hides class, photo, and contacts', () => {
   const locked = gateProfile(
@@ -86,4 +87,19 @@ test('a locked account stays locked after more attempts', async () => {
   await recordLoginFailure(email, ip);
   const still = await checkLoginAllowed(email, ip);
   assert.equal(still.allowed, false);
+});
+
+test('a school that already paid at signup is not asked to pay again', () => {
+  assert.equal(
+    schoolHasPaidPlan({
+      payment_plan: 'starter',
+      plan_status: 'pending',
+      last_payment_at: '2026-10-13',
+      subscription_started_at: '2026-10-13',
+      total_paid: 10,
+    }),
+    true
+  );
+  assert.equal(schoolHasPaidPlan({ payment_plan: 'starter', plan_status: 'pending' }), false);
+  assert.equal(schoolHasPaidPlan({ payment_plan: 'starter', plan_status: 'approved' }), true);
 });

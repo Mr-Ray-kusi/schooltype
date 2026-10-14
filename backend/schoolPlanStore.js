@@ -283,6 +283,21 @@ export async function replaceSchoolSubscriptionPayments(schoolId, records = []) 
   return records || [];
 }
 
+/** True when signup/renewal payment already happened — do not send the school to pay again. */
+export function schoolHasPaidPlan(school) {
+  if (!school) return false;
+  const status = String(school.plan_status || '').toLowerCase();
+  if (status === 'rejected') return false;
+  if (status === 'approved' || school.plan_approved === true) return true;
+  if (!school.payment_plan) return false;
+  if (Number(school.total_paid) > 0) return true;
+  if (school.last_payment_at || school.subscription_started_at) return true;
+  const records = school.payment_records;
+  if (Array.isArray(records) && records.length > 0) return true;
+  if (typeof records === 'string' && records.trim().length > 2 && records.trim() !== '[]') return true;
+  return false;
+}
+
 export function mergeSchoolWithExtras(school) {
   if (!school) return school;
 
@@ -293,16 +308,18 @@ export function mergeSchoolWithExtras(school) {
   const rawStatus = school.plan_status ?? extras.plan_status ?? null;
   let planStatus = rawStatus || (paymentPlan ? 'pending' : null);
 
-  // Self-heal only when status is missing (null), not when explicitly pending/rejected.
-  // Approval initializes billing dates; if those exist but status column was never set, treat as approved.
-  if (
-    paymentPlan &&
-    !rawStatus &&
-    (school.next_payment_due ||
-      extras.next_payment_due ||
-      school.subscription_started_at ||
-      extras.subscription_started_at)
-  ) {
+  const paymentEvidence = {
+    payment_plan: paymentPlan,
+    plan_status: extras.plan_status === 'approved' ? 'approved' : planStatus,
+    plan_approved: school.plan_approved || extras.plan_approved,
+    total_paid: school.total_paid ?? extras.total_paid,
+    last_payment_at: school.last_payment_at || extras.last_payment_at,
+    subscription_started_at: school.subscription_started_at || extras.subscription_started_at,
+    payment_records: school.payment_records || extras.payment_records,
+  };
+
+  // Signup payment can leave billing dates / total_paid while plan_status stays pending.
+  if (paymentPlan && planStatus !== 'rejected' && schoolHasPaidPlan(paymentEvidence)) {
     planStatus = 'approved';
   }
 
