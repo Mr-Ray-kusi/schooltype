@@ -702,41 +702,43 @@ const Setup = () => {
         {subjects.length === 0 ? (
           <p className="mt-2 text-xs text-slate-500">No subjects yet.</p>
         ) : (
-          <ul className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-            {subjects.map((item) => (
-              <li
-                key={item.id}
-                className="flex min-w-0 items-center gap-1 rounded-md bg-slate-800/70 px-2 py-1"
-              >
-                <input
-                  type="text"
-                  value={subjectDrafts[item.id] ?? item.name}
-                  onChange={(e) =>
-                    setSubjectDrafts((prev) => ({ ...prev, [item.id]: e.target.value }))
-                  }
-                  className={`${fieldClass} min-w-0 flex-1 px-2 py-1 text-xs`}
-                  aria-label={`Edit ${item.name}`}
-                />
-                <button
-                  type="button"
-                  onClick={() => deleteSubject(item.id)}
-                  className="shrink-0 text-red-400 hover:text-red-300"
-                  aria-label={`Delete ${item.name}`}
+          <>
+            <ul className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+              {subjects.map((item) => (
+                <li
+                  key={item.id}
+                  className="flex min-w-0 items-center gap-1 rounded-md bg-slate-800/70 px-2 py-1"
                 >
-                  <Trash2 className="h-3 w-3" />
-                </button>
-              </li>
-            ))}
-          </ul>
-          <button
-            type="button"
-            onClick={saveSubjectEdits}
-            disabled={savingSubjectsEdit}
-            className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
-          >
-            <Save className="h-3.5 w-3.5" />
-            {savingSubjectsEdit ? 'Saving…' : 'Save subject changes'}
-          </button>
+                  <input
+                    type="text"
+                    value={subjectDrafts[item.id] ?? item.name}
+                    onChange={(e) =>
+                      setSubjectDrafts((prev) => ({ ...prev, [item.id]: e.target.value }))
+                    }
+                    className={`${fieldClass} min-w-0 flex-1 px-2 py-1 text-xs`}
+                    aria-label={`Edit ${item.name}`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => deleteSubject(item.id)}
+                    className="shrink-0 text-red-400 hover:text-red-300"
+                    aria-label={`Delete ${item.name}`}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <button
+              type="button"
+              onClick={saveSubjectEdits}
+              disabled={savingSubjectsEdit}
+              className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+            >
+              <Save className="h-3.5 w-3.5" />
+              {savingSubjectsEdit ? 'Saving…' : 'Save subject changes'}
+            </button>
+          </>
         )}
       </section>
     </div>
