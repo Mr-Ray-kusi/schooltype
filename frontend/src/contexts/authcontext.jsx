@@ -16,6 +16,7 @@ export const isSchoolPaid = (school) => {
   if (String(school.plan_status || '').toLowerCase() === 'rejected') return false;
   if (!school.payment_plan) return false;
   if (Number(school.total_paid) > 0) return true;
+  if (school.plan_selected_at) return true;
   return Boolean(school.last_payment_at || school.subscription_started_at);
 };
 

@@ -1,5 +1,11 @@
 import { randomBytes } from 'crypto';
-import { supabase } from './supabaseClient.js';
+import { supabase, platformSupabase } from './supabaseClient.js';
+import { initializeSubscription } from './subscription.js';
+import { resolvePlanId } from './plans.js';
+
+function billingDb() {
+  return platformSupabase || supabase;
+}
 
 const SCHOOL_EXTRA_FIELDS = [
   'payment_plan',
@@ -137,14 +143,16 @@ function mapPaymentRow(row) {
 }
 
 async function loadPaymentRecords(schoolId) {
-  let result = await supabase
+  const client = billingDb();
+  if (!client) return [];
+  let result = await client
     .from('subscription_payments')
     .select('amount, plan, plan_name, created_at, status, reference, source')
     .eq('school_id', schoolId)
     .order('created_at', { ascending: false });
 
   if (result.error && (isMissingColumnError(result.error, 'reference') || isMissingColumnError(result.error, 'source'))) {
-    result = await supabase
+    result = await client
       .from('subscription_payments')
       .select('amount, plan, plan_name, created_at, status')
       .eq('school_id', schoolId)
@@ -290,12 +298,114 @@ export function schoolHasPaidPlan(school) {
   if (status === 'rejected') return false;
   if (status === 'approved' || school.plan_approved === true) return true;
   if (!school.payment_plan) return false;
+  if (['paid', 'active', 'success', 'complete'].includes(status)) return true;
   if (Number(school.total_paid) > 0) return true;
   if (school.last_payment_at || school.subscription_started_at) return true;
+  if (school.payment_plan && school.plan_selected_at) return true;
   const records = school.payment_records;
   if (Array.isArray(records) && records.length > 0) return true;
   if (typeof records === 'string' && records.trim().length > 2 && records.trim() !== '[]') return true;
   return false;
+}
+
+function paidSignupStatus(status) {
+  const value = String(status || '').toLowerCase();
+  return ['fulfilled', 'paid', 'complete', 'success', 'approved'].includes(value);
+}
+
+/**
+ * If Paystack already created/paid this school but plan_status stayed pending,
+ * copy that proof onto the school row so sign-in opens the dashboard.
+ */
+export async function syncPaidPlanFromLedger(school) {
+  if (!school?.id) return school;
+  if (String(school.role || '') === 'super_admin') return school;
+
+  const merged = mergeSchoolWithExtras(school);
+  if (schoolHasPaidPlan(merged) && merged.plan_status === 'approved' && merged.payment_plan) {
+    return { ...school, ...merged, plan_status: 'approved' };
+  }
+
+  const client = billingDb();
+  if (!client) {
+    return schoolHasPaidPlan(merged) ? { ...school, ...merged, plan_status: 'approved' } : school;
+  }
+
+  let planId = resolvePlanId(merged.payment_plan);
+  let paid = schoolHasPaidPlan(merged);
+  let totalPaid = Number(merged.total_paid) || 0;
+
+  try {
+    if (school.email) {
+      const { data: pendingRows } = await client
+        .from('pending_signups')
+        .select('payment_plan, status, paystack_reference, school_id')
+        .eq('email', String(school.email).trim().toLowerCase())
+        .limit(20);
+      const hit = (pendingRows || []).find(
+        (row) =>
+          String(row.status || '') !== 'replaced' &&
+          (paidSignupStatus(row.status) || row.payment_plan || row.paystack_reference)
+      );
+      if (hit) {
+        paid = true;
+        planId = planId || resolvePlanId(hit.payment_plan);
+      }
+    }
+  } catch {
+    // pending_signups may be missing
+  }
+
+  try {
+    const { data: pays } = await client
+      .from('subscription_payments')
+      .select('amount, plan, plan_id, status, created_at')
+      .eq('school_id', school.id)
+      .limit(20);
+    const hit = (pays || []).find(
+      (row) => Number(row.amount) > 0 || paidSignupStatus(row.status) || row.plan || row.plan_id
+    );
+    if (hit) {
+      paid = true;
+      planId = planId || resolvePlanId(hit.plan || hit.plan_id);
+      totalPaid = Math.max(totalPaid, Number(hit.amount) || 0);
+    }
+  } catch {
+    // subscription_payments may be missing
+  }
+
+  if (!paid) return school;
+  if (!planId) planId = 'small';
+
+  const subscription =
+    merged.subscription_started_at && merged.next_payment_due
+      ? {
+          subscription_started_at: merged.subscription_started_at,
+          last_payment_at: merged.last_payment_at || merged.subscription_started_at,
+          next_payment_due: merged.next_payment_due,
+        }
+      : initializeSubscription();
+
+  const updates = {
+    payment_plan: planId || merged.payment_plan,
+    plan_status: 'approved',
+    subscription_frozen: false,
+    total_paid: totalPaid || merged.total_paid || 0,
+    ...subscription,
+  };
+
+  try {
+    await client.from('schools').update(updates).eq('id', school.id);
+    cache.set(school.id, {
+      ...(cache.get(school.id) || {}),
+      ...updates,
+      school_id: school.id,
+    });
+  } catch (error) {
+    console.warn('Failed to persist paid plan after signup payment:', error.message || error);
+  }
+
+  return { ...school, ...merged, ...updates };
 }
 
 export function mergeSchoolWithExtras(school) {

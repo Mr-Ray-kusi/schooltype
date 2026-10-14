@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
-import { supabase } from './supabaseClient.js';
+import { supabase, platformSupabase } from './supabaseClient.js';
 import { createTenantClient, runWithTenant } from './tenantContext.js';
 import { readAccessToken, setSessionCookie, clearSessionCookie } from './cookieAuth.js';
 import {
@@ -34,6 +34,7 @@ import {
   initSchoolPlanStore,
   mergeSchoolWithExtras,
   schoolHasPaidPlan,
+  syncPaidPlanFromLedger,
   upsertSchoolExtras,
   deleteSchoolExtras,
   ensureScannerToken,
@@ -275,6 +276,8 @@ const withoutPhotoUrl = (row) => {
   return rest;
 };
 
+const schoolMaster = () => platformSupabase || supabase;
+
 const selectSchoolById = async (id, columns) => {
   const optional = [
     'role',
@@ -292,7 +295,7 @@ const selectSchoolById = async (id, columns) => {
   ];
   let cols = [...columns];
   for (let attempt = 0; attempt <= optional.length; attempt++) {
-    const { data, error } = await supabase
+    const { data, error } = await schoolMaster()
       .from('schools')
       .select(cols.join(', '))
       .eq('id', id)
@@ -471,7 +474,7 @@ const fillIdentityCodes = (payload) => {
 };
 
 const findSchoolByEmail = async (email) => {
-  const { data, error } = await supabase
+  const { data, error } = await schoolMaster()
     .from('schools')
     .select('*')
     .eq('email', email)
@@ -737,7 +740,7 @@ const enforcePlanApproval = async (req, res, next) => {
       return res.status(403).json({ error: 'School account not found' });
     }
 
-    const merged = mergeSchoolWithExtras(school);
+    const merged = mergeSchoolWithExtras(await syncPaidPlanFromLedger(school));
 
     if (!merged.payment_plan) {
       return res.status(403).json({ error: 'Please select a payment plan first' });
@@ -1225,14 +1228,14 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     // Prefer exact match; fall back to case-insensitive if needed
-    let { data: school, error: schoolError } = await supabase
+    let { data: school, error: schoolError } = await schoolMaster()
       .from('schools')
       .select('*')
       .eq('email', email)
       .maybeSingle();
 
     if (!school && !schoolError) {
-      const fallback = await supabase
+      const fallback = await schoolMaster()
         .from('schools')
         .select('*')
         .ilike('email', email)
@@ -1266,7 +1269,7 @@ app.post('/api/auth/login', async (req, res) => {
       isValidPassword = true;
       try {
         const repairedHash = await bcrypt.hash(password, 10);
-        await supabase
+        await schoolMaster()
           .from('schools')
           .update({ password_hash: repairedHash, initial_password: null })
           .eq('id', school.id);
@@ -1313,6 +1316,7 @@ app.post('/api/auth/login', async (req, res) => {
 
     await clearLoginFailures(email);
 
+    school = await syncPaidPlanFromLedger(school);
     const session = await issueSchoolSession(res, school, { remember: Boolean(remember) });
     if (getSchoolRole(school) !== 'super_admin') {
       recordPlatformEvent({
@@ -1412,12 +1416,13 @@ app.post('/api/auth/google', async (req, res) => {
       if (school.email_verified !== true) repairs.email_verified = true;
       if (needsPasswordSetup(school)) repairs.initial_password = null;
       if (Object.keys(repairs).length) {
-        const { data: updated } = await supabase.from('schools').update(repairs).eq('id', school.id).select().single();
+        const { data: updated } = await schoolMaster().from('schools').update(repairs).eq('id', school.id).select().single();
         if (updated) school = updated;
       }
     }
 
     await clearLoginFailures(email);
+    school = await syncPaidPlanFromLedger(school);
     const session = await issueSchoolSession(res, school, { remember: Boolean(req.body?.remember) });
     if (getSchoolRole(school) !== 'super_admin') {
       recordPlatformEvent({
@@ -1663,7 +1668,9 @@ app.post('/api/auth/set-password', async (req, res) => {
       return res.status(500).json({ error: 'Could not save password. Please try again.' });
     }
 
-    const ready = updated || { ...school, password_hash: hashedPassword, initial_password: null };
+    const ready = await syncPaidPlanFromLedger(
+      updated || { ...school, password_hash: hashedPassword, initial_password: null }
+    );
     const session = await issueSchoolSession(res, ready, { remember: false });
 
     res.json({
@@ -1773,11 +1780,13 @@ app.post('/api/auth/logout-all', authenticateToken, async (req, res) => {
 app.get('/api/auth/verify', authenticateToken, async (req, res) => {
   try {
     // Token is valid if we reach here (authenticateToken middleware verified it)
-    const { data: school, error } = await selectSchoolById(req.user.schoolId, SCHOOL_AUTH_COLUMNS);
+    let { data: school, error } = await selectSchoolById(req.user.schoolId, SCHOOL_AUTH_COLUMNS);
 
     if (error || !school) {
       return res.status(401).json({ error: 'School not found' });
     }
+
+    school = await syncPaidPlanFromLedger(school);
 
     if (getSchoolRole(school) !== 'super_admin' && !isSchoolEmailVerified(school)) {
       return res.status(403).json({
@@ -1810,7 +1819,7 @@ app.post('/api/school/select-plan', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Invalid payment plan' });
     }
 
-    const { data: currentSchool, error: fetchError } = await supabase
+    const { data: currentSchool, error: fetchError } = await schoolMaster()
       .from('schools')
       .select('*')
       .eq('id', req.user.schoolId)
