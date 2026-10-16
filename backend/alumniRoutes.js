@@ -1,8 +1,13 @@
 import { supabase } from './supabaseClient.js';
 import { cacheInvalidate } from './ttlCache.js';
-import { resolveFeePeriod } from './academicTerms.js';
+import { listAcademicTerms, resolveFeePeriod } from './academicTerms.js';
 import { isSuccessfulFeeStatus } from './feePayments.js';
-import { academicYearFromPeriod, buildClassHierarchy } from './classHierarchy.js';
+import {
+  academicPeriodFromDate,
+  academicYearFromPeriod,
+  buildClassHierarchy,
+  periodFromTermName,
+} from './classHierarchy.js';
 
 const isMissing = (error, column) => {
   const msg = String(error?.message || error?.details || error?.hint || '');
@@ -133,18 +138,65 @@ async function loadBatchStudents(schoolId, year, overview) {
   });
 }
 
+function scorePercent(row) {
+  const score = Number(row?.score);
+  const max = Number(row?.max_score);
+  if (!Number.isFinite(score)) return null;
+  const denom = Number.isFinite(max) && max > 0 ? max : 100;
+  return Math.round((score / denom) * 1000) / 10;
+}
+
+function letterGrade(percent) {
+  if (percent == null || Number.isNaN(percent)) return '—';
+  if (percent >= 80) return 'A';
+  if (percent >= 70) return 'B';
+  if (percent >= 60) return 'C';
+  if (percent >= 50) return 'D';
+  if (percent >= 40) return 'E';
+  return 'F';
+}
+
+function rankByScore(rows) {
+  const sorted = [...rows].sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0));
+  const positions = new Map();
+  let position = 0;
+  let last = null;
+  sorted.forEach((row, index) => {
+    const score = Number(row.score) || 0;
+    if (score !== last) {
+      position = index + 1;
+      last = score;
+    }
+    positions.set(row.student_id, position);
+  });
+  return positions;
+}
+
+function periodKey(period) {
+  if (!period) return null;
+  return `${period.academicYear}||${period.term}`;
+}
+
 async function attachBatchDetails(schoolId, students) {
   const ids = students.map((row) => row.id).filter(Boolean);
   if (!ids.length) return [];
 
-  const [scores, payments, attendance, reports] = await Promise.all([
+  const [ownScores, allScores, payments, attendance, reports, terms] = await Promise.all([
     settle(
       supabase
         .from('student_scores')
-        .select('student_id, subject, class_name, term, score, max_score, attitude, remark, updated_at')
+        .select('student_id, subject, class_name, term, score, max_score, attitude, remark, updated_at, created_at')
         .eq('school_id', schoolId)
         .in('student_id', ids)
         .order('updated_at', { ascending: true }),
+      []
+    ),
+    settle(
+      supabase
+        .from('student_scores')
+        .select('student_id, subject, class_name, term, score, max_score, updated_at')
+        .eq('school_id', schoolId)
+        .limit(8000),
       []
     ),
     settle(
@@ -173,52 +225,124 @@ async function attachBatchDetails(schoolId, students) {
         .limit(80),
       []
     ),
+    listAcademicTerms(schoolId).catch(() => []),
   ]);
 
-  const scoresBy = new Map();
-  for (const row of scores || []) {
-    const list = scoresBy.get(row.student_id) || [];
-    list.push({
-      subject: row.subject,
-      class_name: row.class_name,
-      term: row.term,
-      score: row.score,
-      max_score: row.max_score,
-      attitude: row.attitude,
-      remark: row.remark,
-    });
-    scoresBy.set(row.student_id, list);
-  }
-
-  const feesBy = new Map();
-  for (const row of payments || []) {
-    if (!isSuccessfulFeeStatus(row.status)) continue;
-    const list = feesBy.get(row.payer_id) || [];
-    list.push({
-      amount: Number(row.amount) || 0,
-      month: row.payment_month,
-      channel: row.channel || row.payment_method,
-      created_at: row.created_at,
-    });
-    feesBy.set(row.payer_id, list);
-  }
-
-  const attendanceBy = new Map();
-  for (const row of attendance || []) {
-    const entry = attendanceBy.get(row.user_id) || { present_days: 0, late_days: 0 };
-    entry.present_days += 1;
-    if (String(row.punctuality || row.status).toLowerCase() === 'late') entry.late_days += 1;
-    attendanceBy.set(row.user_id, entry);
-  }
+  const peerScores = allScores?.length ? allScores : ownScores || [];
 
   return students.map((student) => {
-    const reportCards = scoresBy.get(student.id) || [];
-    const feeRows = feesBy.get(student.id) || [];
-    const att = attendanceBy.get(student.id) || { present_days: 0, late_days: 0 };
+    const reportCards = (ownScores || []).filter((row) => row.student_id === student.id);
+    const feeRows = (payments || [])
+      .filter((row) => row.payer_id === student.id && isSuccessfulFeeStatus(row.status))
+      .map((row) => ({
+        amount: Number(row.amount) || 0,
+        month: row.payment_month,
+        channel: row.channel || row.payment_method,
+        created_at: row.created_at,
+      }));
+    const attendanceRows = (attendance || []).filter((row) => row.user_id === student.id);
+    const att = {
+      present_days: attendanceRows.length,
+      late_days: attendanceRows.filter(
+        (row) => String(row.punctuality || row.status).toLowerCase() === 'late'
+      ).length,
+    };
     const className = student.alumni_class || student.class;
     const classReports = (reports || []).filter(
       (row) => !row.class_name || row.class_name === className
     );
+
+    const buckets = new Map();
+    const ensure = (period, classLabel) => {
+      const key = periodKey(period);
+      if (!key) return null;
+      if (!buckets.has(key)) {
+        buckets.set(key, {
+          key,
+          academic_year: period.academicYear,
+          term: period.term,
+          sort_key: period.sortKey,
+          class_name: classLabel || className,
+          subjects: [],
+          attendance: { present_days: 0, late_days: 0 },
+          fees: { paid_amount: 0, payments: [] },
+        });
+      }
+      return buckets.get(key);
+    };
+
+    for (const row of reportCards) {
+      const period = periodFromTermName(row.term, row.updated_at || row.created_at, terms);
+      const bucket = ensure(period, row.class_name);
+      if (!bucket) continue;
+      const percent = scorePercent(row);
+      const peers = peerScores.filter(
+        (peer) =>
+          String(peer.subject || '') === String(row.subject || '') &&
+          String(peer.term || '') === String(row.term || '') &&
+          String(peer.class_name || '') === String(row.class_name || '')
+      );
+      const positions = rankByScore(peers);
+      bucket.subjects.push({
+        subject: row.subject,
+        class_name: row.class_name,
+        term: row.term,
+        score: row.score,
+        max_score: row.max_score || 100,
+        percent,
+        grade: letterGrade(percent),
+        position: positions.get(student.id) || null,
+        attitude: row.attitude,
+        remark: row.remark,
+      });
+    }
+
+    for (const row of attendanceRows) {
+      const period = academicPeriodFromDate(row.date, terms);
+      const bucket = ensure(period, className);
+      if (!bucket) continue;
+      bucket.attendance.present_days += 1;
+      if (String(row.punctuality || row.status).toLowerCase() === 'late') {
+        bucket.attendance.late_days += 1;
+      }
+    }
+
+    for (const row of feeRows) {
+      const period = academicPeriodFromDate(row.month || row.created_at, terms);
+      const bucket = ensure(period, className);
+      if (!bucket) continue;
+      bucket.fees.payments.push(row);
+      bucket.fees.paid_amount += Number(row.amount) || 0;
+    }
+
+    const termRecords = [...buckets.values()]
+      .map((bucket) => {
+        const totalMarks = bucket.subjects.reduce((sum, row) => sum + (Number(row.score) || 0), 0);
+        const totalMax = bucket.subjects.reduce((sum, row) => {
+          const max = Number(row.max_score);
+          return sum + (Number.isFinite(max) && max > 0 ? max : 100);
+        }, 0);
+        const overallPercent = totalMax > 0 ? Math.round((totalMarks / totalMax) * 1000) / 10 : null;
+        const classTermPeers = new Map();
+        for (const peer of peerScores) {
+          if (String(peer.term || '') !== String(bucket.term || '')) continue;
+          if (String(peer.class_name || '') !== String(bucket.class_name || '')) continue;
+          const entry = classTermPeers.get(peer.student_id) || { student_id: peer.student_id, score: 0 };
+          entry.score += Number(peer.score) || 0;
+          classTermPeers.set(peer.student_id, entry);
+        }
+        const overallPositions = rankByScore([...classTermPeers.values()]);
+        return {
+          ...bucket,
+          overall_percent: overallPercent,
+          overall_grade: letterGrade(overallPercent),
+          overall_position: overallPositions.get(student.id) || null,
+          total_marks: totalMarks,
+          total_max: totalMax,
+        };
+      })
+      .sort((a, b) => String(a.sort_key).localeCompare(String(b.sort_key)));
+
     return {
       id: student.id,
       name: student.name,
@@ -228,7 +352,16 @@ async function attachBatchDetails(schoolId, students) {
       enrolled_on: student.created_at,
       alumni_year: student.alumni_year || null,
       status: isAlumni(student) ? 'alumni' : 'completing',
-      report_cards: reportCards,
+      report_cards: reportCards.map((row) => ({
+        subject: row.subject,
+        class_name: row.class_name,
+        term: row.term,
+        score: row.score,
+        max_score: row.max_score,
+        attitude: row.attitude,
+        remark: row.remark,
+      })),
+      terms: termRecords,
       class_reports: classReports.slice(0, 8),
       attendance: att,
       fees: {

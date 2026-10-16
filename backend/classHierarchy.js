@@ -96,3 +96,61 @@ export function academicYearFromPeriod(period, fallbackDate = new Date()) {
   }).formatToParts(fallbackDate);
   return Number(parts.find((part) => part.type === 'year')?.value) || fallbackDate.getFullYear();
 }
+
+export function accraYmd(value) {
+  if (!value) return null;
+  const raw = String(value);
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+  if (/^\d{4}-\d{2}$/.test(raw)) return `${raw}-15`;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Accra',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const year = parts.find((part) => part.type === 'year')?.value;
+  const month = parts.find((part) => part.type === 'month')?.value;
+  const day = parts.find((part) => part.type === 'day')?.value;
+  return year && month && day ? `${year}-${month}-${day}` : null;
+}
+
+/** Map a date onto Ghana academic year + term. Uses Setup term dates when they cover the day. */
+export function academicPeriodFromDate(value, terms = []) {
+  const day = accraYmd(value);
+  if (!day) return null;
+  const hit = (terms || []).find(
+    (term) => term.starts_on && term.ends_on && term.starts_on <= day && term.ends_on >= day
+  );
+  if (hit) {
+    const startYear = Number(String(hit.starts_on).slice(0, 4));
+    const startMonth = Number(String(hit.starts_on).slice(5, 7));
+    const academicYear = startMonth >= 8 ? `${startYear}/${startYear + 1}` : `${startYear - 1}/${startYear}`;
+    return {
+      academicYear,
+      term: hit.name,
+      sortKey: `${academicYear}-${String(hit.sort_order || hit.name).padStart(2, '0')}`,
+    };
+  }
+  const year = Number(day.slice(0, 4));
+  const month = Number(day.slice(5, 7));
+  if (month >= 9) {
+    return { academicYear: `${year}/${year + 1}`, term: 'First Term', sortKey: `${year}/${year + 1}-1` };
+  }
+  if (month <= 4) {
+    return { academicYear: `${year - 1}/${year}`, term: 'Second Term', sortKey: `${year - 1}/${year}-2` };
+  }
+  return { academicYear: `${year - 1}/${year}`, term: 'Third Term', sortKey: `${year - 1}/${year}-3` };
+}
+
+export function periodFromTermName(termName, dateValue, terms = []) {
+  const fromDate = academicPeriodFromDate(dateValue, terms);
+  const name = String(termName || '').trim();
+  if (fromDate && name) {
+    return { ...fromDate, term: name, sortKey: `${fromDate.academicYear}-${name}` };
+  }
+  if (fromDate) return fromDate;
+  if (name) return { academicYear: '—', term: name, sortKey: `0000-${name}` };
+  return null;
+}

@@ -1,13 +1,17 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
-import { ChevronDown, ChevronRight, GraduationCap } from 'lucide-react';
+import { ChevronDown, ChevronRight, Download, GraduationCap } from 'lucide-react';
+import { useAuth } from '../contexts/authcontext';
 import { invalidateCache, peekCache, staleGet } from '../utils/requestCache';
+import { downloadAlumniStudentPdf } from '../utils/alumniRecordPdf';
+import { ordinal } from '../utils/reportCardPdf';
 
 const money = (value) =>
   `GHS ${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const Alumni = () => {
+  const { school } = useAuth();
   const [overview, setOverview] = useState(null);
   const [year, setYear] = useState(null);
   const [batch, setBatch] = useState(null);
@@ -78,6 +82,17 @@ const Alumni = () => {
       toast.error(error.response?.data?.error || 'Could not save this alumni batch');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const openStudent = (student) => {
+    const opening = openId !== student.id;
+    setOpenId(opening ? student.id : null);
+    if (!opening) return;
+    try {
+      downloadAlumniStudentPdf(student, school?.name || 'School');
+    } catch {
+      toast.error('Could not build this student PDF');
     }
   };
 
@@ -179,7 +194,7 @@ const Alumni = () => {
               <div key={student.id}>
                 <button
                   type="button"
-                  onClick={() => setOpenId(open ? null : student.id)}
+                  onClick={() => openStudent(student)}
                   className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-slate-700/40"
                 >
                   {open ? (
@@ -202,47 +217,76 @@ const Alumni = () => {
                   </span>
                 </button>
                 {open ? (
-                  <div className="space-y-3 bg-slate-900/50 px-4 py-3 text-sm">
-                    <div>
-                      <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Report cards</p>
-                      {student.report_cards?.length ? (
-                        <ul className="mt-1 space-y-1 text-slate-200">
-                          {student.report_cards.map((row, index) => (
-                            <li key={`${row.term}-${row.subject}-${index}`}>
-                              {row.term || 'Term'} · {row.subject}
-                              {row.class_name ? ` · ${row.class_name}` : ''}
-                              {row.score != null ? ` · ${row.score}/${row.max_score || 100}` : ''}
-                              {row.attitude ? ` · ${row.attitude}` : ''}
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <p className="mt-1 text-slate-500">No scores from enrollment to this batch.</p>
-                      )}
+                  <div className="space-y-4 bg-slate-900/50 px-4 py-3 text-sm">
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          try {
+                            downloadAlumniStudentPdf(student, school?.name || 'School');
+                          } catch {
+                            toast.error('Could not build this student PDF');
+                          }
+                        }}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-600 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-800"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        Download PDF
+                      </button>
                     </div>
-                    <div>
-                      <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Attendance</p>
-                      <p className="mt-1 text-slate-200">
-                        {student.attendance?.present_days || 0} days present
-                        {student.attendance?.late_days
-                          ? ` · ${student.attendance.late_days} late`
-                          : ''}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Fees paid</p>
-                      <p className="mt-1 text-slate-200">{money(student.fees?.paid_amount)}</p>
-                      {student.fees?.payments?.length ? (
-                        <ul className="mt-1 space-y-0.5 text-xs text-slate-400">
-                          {student.fees.payments.map((row, index) => (
-                            <li key={`${row.created_at}-${index}`}>
-                              {row.month || '—'} · {money(row.amount)}
-                              {row.channel ? ` · ${row.channel}` : ''}
-                            </li>
-                          ))}
-                        </ul>
-                      ) : null}
-                    </div>
+                    {student.terms?.length ? (
+                      student.terms.map((term) => (
+                        <div key={term.key} className="rounded-lg border border-slate-700 p-3">
+                          <p className="font-medium text-white">
+                            {term.academic_year} · {term.term}
+                            {term.class_name ? ` · ${term.class_name}` : ''}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-400">
+                            {term.attendance?.present_days || 0} days present
+                            {term.attendance?.late_days ? ` · ${term.attendance.late_days} late` : ''}
+                            {' · '}
+                            {money(term.fees?.paid_amount)} fees
+                            {term.overall_percent != null
+                              ? ` · ${term.overall_percent}% ${term.overall_grade || ''}`
+                              : ''}
+                            {term.overall_position ? ` · ${ordinal(term.overall_position)}` : ''}
+                          </p>
+                          {term.subjects?.length ? (
+                            <div className="mt-2 overflow-x-auto">
+                              <table className="w-full min-w-[480px] text-left text-xs">
+                                <thead className="text-slate-500">
+                                  <tr>
+                                    <th className="py-1 pr-2 font-medium">Subject</th>
+                                    <th className="py-1 pr-2 font-medium">Score</th>
+                                    <th className="py-1 pr-2 font-medium">Grade</th>
+                                    <th className="py-1 pr-2 font-medium">Position</th>
+                                    <th className="py-1 font-medium">Attitude</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {term.subjects.map((row, index) => (
+                                    <tr key={`${row.subject}-${index}`} className="border-t border-slate-800 text-slate-200">
+                                      <td className="py-1 pr-2">{row.subject}</td>
+                                      <td className="py-1 pr-2">
+                                        {row.score == null ? '—' : `${row.score}/${row.max_score || 100}`}
+                                      </td>
+                                      <td className="py-1 pr-2">{row.grade || '—'}</td>
+                                      <td className="py-1 pr-2">{ordinal(row.position)}</td>
+                                      <td className="py-1">{row.attitude || '—'}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          ) : (
+                            <p className="mt-2 text-xs text-slate-500">No subjects recorded for this term.</p>
+                          )}
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-slate-500">No term records from the day of enrollment yet.</p>
+                    )}
                   </div>
                 ) : null}
               </div>
