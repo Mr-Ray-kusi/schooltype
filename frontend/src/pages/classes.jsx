@@ -1,10 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { BookOpen, Calendar, GraduationCap, ImagePlus, Plus, Save, Trash2 } from 'lucide-react';
+import { BookOpen, Calendar, GraduationCap, ImagePlus, Plus, Save, Trash2, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/authcontext';
 import { invalidateCache, peekCache, staleGet } from '../utils/requestCache';
 import MultiSelectDropdown from '../components/MultiSelectDropdown';
+import PersonRecordTable from '../components/PersonRecordTable';
+import PaginationBar from '../components/PaginationBar';
+import { LIST_PAGE_SIZE } from '../utils/listApi';
+import { sortClasses } from '../utils/classHierarchy';
 
 const TERM_NAMES = ['First Term', 'Second Term', 'Third Term', 'Fourth Term'];
 
@@ -83,8 +87,9 @@ const Setup = () => {
   const [subjectRows, setSubjectRows] = useState([emptySubjectRow()]);
   const [savingClasses, setSavingClasses] = useState(false);
   const [savingSubjects, setSavingSubjects] = useState(false);
-  const [classDrafts, setClassDrafts] = useState({});
+  const [editingClass, setEditingClass] = useState(null);
   const [savingClassEdits, setSavingClassEdits] = useState(false);
+  const [classPage, setClassPage] = useState(1);
   const [subjectDrafts, setSubjectDrafts] = useState({});
   const [savingSubjectsEdit, setSavingSubjectsEdit] = useState(false);
   const [termCount, setTermCount] = useState(2);
@@ -94,19 +99,9 @@ const Setup = () => {
 
   const load = async () => {
     const apply = ([classData, subjectData]) => {
-      setClasses(classData);
+      setClasses(sortClasses(classData || []));
       setSubjects(subjectData);
       const cores = coreNames(subjectData);
-      const drafts = {};
-      for (const item of classData || []) {
-        drafts[item.id] = {
-          name: item.name || '',
-          capacity: item.capacity != null && item.capacity !== '' ? String(item.capacity) : '',
-          feeAmount: Number(item.fee_amount) > 0 ? String(item.fee_amount) : '',
-          subjects: withoutCores(parseCsvList(item.subjects), cores),
-        };
-      }
-      setClassDrafts(drafts);
       const nextSubjects = {};
       for (const item of subjectData || []) {
         nextSubjects[item.id] = { name: item.name || '', core: Boolean(item.is_core) };
@@ -328,37 +323,46 @@ const Setup = () => {
     }
   };
 
-  const saveClassEdits = async () => {
-    if (!classes.length) {
-      toast.error('Add a class first, then edit it.');
+  const openClass = (item) => {
+    setEditingClass({
+      id: item.id,
+      name: item.name || '',
+      capacity: item.capacity != null && item.capacity !== '' ? String(item.capacity) : '',
+      feeAmount: Number(item.fee_amount) > 0 ? String(item.fee_amount) : '',
+      subjects: withoutCores(parseCsvList(item.subjects), coreSubjectNames),
+    });
+  };
+
+  const saveEditingClass = async (e) => {
+    e.preventDefault();
+    if (!editingClass?.id) return;
+    const name = String(editingClass.name || '').trim();
+    if (!name) {
+      toast.error('Class name is required');
       return;
     }
+    const feeAmount =
+      editingClass.feeAmount === '' || editingClass.feeAmount == null ? 0 : Number(editingClass.feeAmount);
     setSavingClassEdits(true);
     try {
-      await Promise.all(
-        classes.map((item) => {
-          const draft = classDrafts[item.id] || {};
-          const name = String(draft.name || '').trim();
-          if (!name) throw new Error('Class name is required');
-          const feeAmount = draft.feeAmount === '' || draft.feeAmount == null ? 0 : Number(draft.feeAmount);
-          return axios.put(`/api/classes/${item.id}`, {
-            name,
-            capacity: draft.capacity === '' || draft.capacity == null ? null : Number(draft.capacity),
-            fee_amount: Number.isFinite(feeAmount) && feeAmount >= 0 ? feeAmount : 0,
-            subjects: draft.subjects || [],
-          });
-        })
-      );
+      await axios.put(`/api/classes/${editingClass.id}`, {
+        name,
+        capacity:
+          editingClass.capacity === '' || editingClass.capacity == null ? null : Number(editingClass.capacity),
+        fee_amount: Number.isFinite(feeAmount) && feeAmount >= 0 ? feeAmount : 0,
+        subjects: withoutCores(editingClass.subjects || [], coreSubjectNames),
+      });
       invalidateCache('classes');
       invalidateCache('staff');
       invalidateCache('students');
       invalidateCache('dashboard');
       invalidateCache('attendance');
-      toast.success('Classes updated');
+      toast.success('Class updated');
+      setEditingClass(null);
       await load();
     } catch (error) {
       if (!error.offlineQueued && error.response) {
-        toast.error(error.response?.data?.error || error.message || 'Failed to update classes');
+        toast.error(error.response?.data?.error || error.message || 'Failed to update class');
       } else if (error.message) {
         toast.error(error.message);
       }
@@ -403,6 +407,7 @@ const Setup = () => {
     if (!window.confirm('Delete this class?')) return;
     try {
       await axios.delete(`/api/classes/${id}`);
+      if (editingClass?.id === id) setEditingClass(null);
       invalidateCache('classes');
       load();
     } catch (error) {
@@ -434,6 +439,13 @@ const Setup = () => {
     (subjects || [])
       .filter((item) => !matchesCore(item.name, coreSubjectNames))
       .map((item) => item.name)
+  );
+  const orderedClasses = useMemo(() => sortClasses(classes), [classes]);
+  const classPages = Math.max(1, Math.ceil(orderedClasses.length / LIST_PAGE_SIZE));
+  const safeClassPage = Math.min(classPage, classPages);
+  const pagedClasses = orderedClasses.slice(
+    (safeClassPage - 1) * LIST_PAGE_SIZE,
+    safeClassPage * LIST_PAGE_SIZE
   );
 
   if (loading && classes.length === 0 && subjects.length === 0) {
@@ -663,90 +675,45 @@ const Setup = () => {
           </button>
         </form>
 
-        {classes.length ? (
-          <div className="mt-3 overflow-x-auto border-t border-slate-800 pt-3">
-            <div className="space-y-2">
-              {classes.map((item) => {
-                const draft = classDrafts[item.id] || {
-                  name: item.name || '',
-                  capacity: '',
-                  feeAmount: '',
-                  subjects: withoutCores(parseCsvList(item.subjects), coreSubjectNames),
-                };
-                return (
-                  <div key={item.id} className="space-y-1.5">
-                    <div className="grid grid-cols-[1fr_6rem_7rem_auto] items-center gap-2">
-                      <input
-                        type="text"
-                        value={draft.name}
-                        onChange={(e) =>
-                          setClassDrafts((prev) => ({
-                            ...prev,
-                            [item.id]: { ...draft, name: e.target.value },
-                          }))
-                        }
-                        className={fieldClass}
-                        placeholder="Class name"
-                      />
-                      <input
-                        type="number"
-                        min="1"
-                        value={draft.capacity}
-                        onChange={(e) =>
-                          setClassDrafts((prev) => ({
-                            ...prev,
-                            [item.id]: { ...draft, capacity: e.target.value },
-                          }))
-                        }
-                        className={fieldClass}
-                        placeholder="Cap"
-                      />
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={draft.feeAmount}
-                        onChange={(e) =>
-                          setClassDrafts((prev) => ({
-                            ...prev,
-                            [item.id]: { ...draft, feeAmount: e.target.value },
-                          }))
-                        }
-                        className={fieldClass}
-                        placeholder="Fee"
-                      />
-                      <button type="button" onClick={() => deleteClass(item.id)} className="p-1 text-red-400 hover:text-red-300">
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                    <MultiSelectDropdown
-                      compact
-                      label="Other subjects"
-                      options={otherSubjectNames}
-                      exclude={coreSubjectNames}
-                      selected={withoutCores(draft.subjects || [], coreSubjectNames)}
-                      onChange={(selected) =>
-                        setClassDrafts((prev) => ({
-                          ...prev,
-                          [item.id]: { ...draft, subjects: withoutCores(selected, coreSubjectNames) },
-                        }))
-                      }
-                      placeholder="Add for this class"
-                      emptyHint="Add other subjects below."
-                    />
-                  </div>
-                );
-              })}
-            </div>
-            <button
-              type="button"
-              onClick={saveClassEdits}
-              disabled={savingClassEdits}
-              className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-sky-500 px-3 py-1.5 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-50"
-            >
-              <Save className="h-3.5 w-3.5" />
-              {savingClassEdits ? 'Saving…' : 'Save class changes'}
-            </button>
+        {orderedClasses.length ? (
+          <div className="mt-3 space-y-3 border-t border-slate-800 pt-3">
+            <p className="text-xs text-slate-500">Click a class to edit name, fees, capacity, and subjects.</p>
+            <PersonRecordTable
+              compact
+              minWidth="560px"
+              rows={pagedClasses}
+              onSelect={openClass}
+              columns={[
+                { key: 'name', header: 'Class' },
+                {
+                  key: 'capacity',
+                  header: 'Capacity',
+                  render: (row) => (row.capacity ? row.capacity : '—'),
+                },
+                {
+                  key: 'fee_amount',
+                  header: 'Term fee',
+                  render: (row) => {
+                    const fee = Number(row.fee_amount);
+                    return Number.isFinite(fee) && fee > 0 ? fee.toLocaleString() : '—';
+                  },
+                },
+                {
+                  key: 'subjects',
+                  header: 'Other subjects',
+                  render: (row) => {
+                    const names = withoutCores(parseCsvList(row.subjects), coreSubjectNames);
+                    return names.length ? names.join(', ') : '—';
+                  },
+                },
+              ]}
+            />
+            <PaginationBar
+              page={safeClassPage}
+              total={orderedClasses.length}
+              limit={LIST_PAGE_SIZE}
+              onPageChange={setClassPage}
+            />
           </div>
         ) : (
           <p className="mt-3 text-xs text-slate-500">No classes yet.</p>
@@ -900,6 +867,105 @@ const Setup = () => {
           </>
         )}
       </section>
+
+      {editingClass ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-slate-600 bg-slate-800 p-5">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <h2 className="text-lg font-bold text-white">Edit class</h2>
+              <button
+                type="button"
+                onClick={() => setEditingClass(null)}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-700 hover:text-white"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <form onSubmit={saveEditingClass} className="space-y-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-300">Class name</label>
+                <input
+                  type="text"
+                  value={editingClass.name}
+                  onChange={(e) => setEditingClass({ ...editingClass, name: e.target.value })}
+                  className={fieldClass}
+                  placeholder="Class name"
+                  required
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-300">Capacity</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={editingClass.capacity}
+                    onChange={(e) => setEditingClass({ ...editingClass, capacity: e.target.value })}
+                    className={fieldClass}
+                    placeholder="Capacity"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-300">Term fee</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={editingClass.feeAmount}
+                    onChange={(e) => setEditingClass({ ...editingClass, feeAmount: e.target.value })}
+                    className={fieldClass}
+                    placeholder="Term fee"
+                  />
+                </div>
+              </div>
+              {coreSubjectNames.length ? (
+                <p className="text-xs text-slate-400">
+                  Core: <span className="text-sky-200">{coreSubjectNames.join(', ')}</span>
+                </p>
+              ) : null}
+              <MultiSelectDropdown
+                compact
+                label="Other subjects"
+                options={otherSubjectNames}
+                exclude={coreSubjectNames}
+                selected={withoutCores(editingClass.subjects || [], coreSubjectNames)}
+                onChange={(selected) =>
+                  setEditingClass({
+                    ...editingClass,
+                    subjects: withoutCores(selected, coreSubjectNames),
+                  })
+                }
+                placeholder="Add for this class"
+                emptyHint="Add other subjects below first."
+              />
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="submit"
+                  disabled={savingClassEdits}
+                  className="flex-1 rounded-lg bg-sky-500 py-2 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-50"
+                >
+                  {savingClassEdits ? 'Saving…' : 'Save'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => deleteClass(editingClass.id)}
+                  className="rounded-lg bg-red-500/15 px-3 py-2 text-sm font-medium text-red-300 hover:bg-red-500/25"
+                >
+                  Delete
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditingClass(null)}
+                  className="flex-1 rounded-lg bg-slate-600 py-2 text-sm text-slate-100 hover:bg-slate-500"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 };

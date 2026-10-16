@@ -87,6 +87,26 @@ export function buildClassHierarchy(classes = []) {
   };
 }
 
+export function sortClasses(classes = []) {
+  const hierarchy = buildClassHierarchy(classes);
+  const byId = new Map((classes || []).filter((row) => row?.id).map((row) => [String(row.id), row]));
+  const used = new Set();
+  const ordered = [];
+  for (const item of hierarchy.classes) {
+    const row = (item.id && byId.get(String(item.id))) ||
+      (classes || []).find((entry) => String(entry?.name || '').trim().toLowerCase() === item.name.toLowerCase());
+    if (!row || (row.id && used.has(String(row.id)))) continue;
+    if (row.id) used.add(String(row.id));
+    ordered.push(row);
+  }
+  for (const row of classes || []) {
+    if (row?.id && used.has(String(row.id))) continue;
+    ordered.push(row);
+    if (row?.id) used.add(String(row.id));
+  }
+  return ordered;
+}
+
 export function nextClassName(currentName, classes = []) {
   const hierarchy = buildClassHierarchy(classes);
   const current = hierarchy.classes.find(

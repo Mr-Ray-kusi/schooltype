@@ -87,6 +87,7 @@ import {
 import { getFeeOverviewPayload, registerFeeRoutes, registerStaffFeeRoutes } from './feeRoutes.js';
 import { registerAlumniRoutes } from './alumniRoutes.js';
 import { applyTermPromotion } from './studentPromotion.js';
+import { sortClasses } from './classHierarchy.js';
 import { initPlatformSmsStore, claimDemoMoneyReset, getSchoolSmsBalance, resetSmsInventoryToZero } from './platformSmsStore.js';
 import { registerSmsBillingRoutes, settleSmsPayment, refundSchoolAndPlatformUnits, findPlatformSchoolId } from './smsBilling.js';
 import { sendSmsBatch, getSmsProviderStatus, attachFeePayLink, toE164 } from './smsProvider.js';
@@ -3909,7 +3910,7 @@ app.get('/api/classes', authenticateToken, enforcePlanApproval, async (req, res)
       .order('created_at', { ascending: true });
 
     if (error) throw error;
-    res.json(data || []);
+    res.json(sortClasses(data || []));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
