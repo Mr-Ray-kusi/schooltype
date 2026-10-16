@@ -4,13 +4,22 @@ import { BookOpen, Calendar, GraduationCap, ImagePlus, Plus, Save, Trash2 } from
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/authcontext';
 import { invalidateCache, peekCache, staleGet } from '../utils/requestCache';
+import MultiSelectDropdown from '../components/MultiSelectDropdown';
 
 const TERM_NAMES = ['First Term', 'Second Term', 'Third Term', 'Fourth Term'];
 
 const fieldClass =
   'w-full rounded-lg border border-slate-600/80 bg-slate-950/60 px-3 py-1.5 text-sm text-white placeholder:text-slate-500 outline-none focus:border-sky-500/60 focus:ring-1 focus:ring-sky-500/30';
 
-const emptyClassRow = () => ({ name: '', capacity: '', feeAmount: '' });
+const emptyClassRow = () => ({ name: '', capacity: '', feeAmount: '', subjects: [] });
+
+const parseCsvList = (value) => {
+  if (Array.isArray(value)) return value.map((item) => String(item || '').trim()).filter(Boolean);
+  return String(value || '')
+    .split(/[,;\n]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+};
 const emptySubjectRow = () => ({ name: '' });
 const emptyTermRow = (index) => ({
   id: '',
@@ -52,6 +61,7 @@ const Setup = () => {
           name: item.name || '',
           capacity: item.capacity != null && item.capacity !== '' ? String(item.capacity) : '',
           feeAmount: Number(item.fee_amount) > 0 ? String(item.fee_amount) : '',
+          subjects: parseCsvList(item.subjects),
         };
       }
       setClassDrafts(drafts);
@@ -218,6 +228,7 @@ const Setup = () => {
           name: row.name.trim(),
           capacity: row.capacity || null,
           fee_amount: row.feeAmount === '' ? 0 : Number(row.feeAmount) || 0,
+          subjects: row.subjects || [],
         });
       }
       invalidateCache('classes');
@@ -277,6 +288,7 @@ const Setup = () => {
             name,
             capacity: draft.capacity === '' || draft.capacity == null ? null : Number(draft.capacity),
             fee_amount: Number.isFinite(feeAmount) && feeAmount >= 0 ? feeAmount : 0,
+            subjects: draft.subjects || [],
           });
         })
       );
@@ -507,44 +519,58 @@ const Setup = () => {
               className={fieldClass}
             />
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-3">
             {classRows.map((row, index) => (
-              <div key={index} className="grid grid-cols-3 gap-2">
-                <input
-                  type="text"
-                  value={row.name}
-                  onChange={(e) => {
+              <div key={index} className="space-y-2 rounded-lg border border-slate-800 p-2">
+                <div className="grid grid-cols-3 gap-2">
+                  <input
+                    type="text"
+                    value={row.name}
+                    onChange={(e) => {
+                      const next = [...classRows];
+                      next[index] = { ...next[index], name: e.target.value };
+                      setClassRows(next);
+                    }}
+                    className={fieldClass}
+                    placeholder="Class name"
+                  />
+                  <input
+                    type="number"
+                    min="1"
+                    value={row.capacity}
+                    onChange={(e) => {
+                      const next = [...classRows];
+                      next[index] = { ...next[index], capacity: e.target.value };
+                      setClassRows(next);
+                    }}
+                    className={fieldClass}
+                    placeholder="Capacity"
+                  />
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={row.feeAmount}
+                    onChange={(e) => {
+                      const next = [...classRows];
+                      next[index] = { ...next[index], feeAmount: e.target.value };
+                      setClassRows(next);
+                    }}
+                    className={fieldClass}
+                    placeholder="Term fee"
+                  />
+                </div>
+                <MultiSelectDropdown
+                  label="Subjects for this class"
+                  options={subjects.map((item) => item.name).filter(Boolean)}
+                  selected={row.subjects || []}
+                  onChange={(selected) => {
                     const next = [...classRows];
-                    next[index] = { ...next[index], name: e.target.value };
+                    next[index] = { ...next[index], subjects: selected };
                     setClassRows(next);
                   }}
-                  className={fieldClass}
-                  placeholder="Class name"
-                />
-                <input
-                  type="number"
-                  min="1"
-                  value={row.capacity}
-                  onChange={(e) => {
-                    const next = [...classRows];
-                    next[index] = { ...next[index], capacity: e.target.value };
-                    setClassRows(next);
-                  }}
-                  className={fieldClass}
-                  placeholder="Capacity"
-                />
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={row.feeAmount}
-                  onChange={(e) => {
-                    const next = [...classRows];
-                    next[index] = { ...next[index], feeAmount: e.target.value };
-                    setClassRows(next);
-                  }}
-                  className={fieldClass}
-                  placeholder="Term fee"
+                  placeholder="Add a subject"
+                  emptyHint="Add subjects below first, then assign them to this class."
                 />
               </div>
             ))}
@@ -561,21 +587,17 @@ const Setup = () => {
 
         {classes.length ? (
           <div className="mt-3 overflow-x-auto border-t border-slate-800 pt-3">
-            <table className="w-full min-w-[480px] text-left text-sm">
-              <thead className="text-xs uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="pb-2 pr-2 font-medium">Class</th>
-                  <th className="pb-2 pr-2 font-medium">Capacity</th>
-                  <th className="pb-2 pr-2 font-medium">Term fee (GHS)</th>
-                  <th className="pb-2 font-medium" />
-                </tr>
-              </thead>
-              <tbody>
-                {classes.map((item) => {
-                  const draft = classDrafts[item.id] || { name: item.name || '', capacity: '', feeAmount: '' };
-                  return (
-                  <tr key={item.id} className="border-t border-slate-800/80">
-                    <td className="py-1.5 pr-2">
+            <div className="space-y-3">
+              {classes.map((item) => {
+                const draft = classDrafts[item.id] || {
+                  name: item.name || '',
+                  capacity: '',
+                  feeAmount: '',
+                  subjects: parseCsvList(item.subjects),
+                };
+                return (
+                  <div key={item.id} className="rounded-lg border border-slate-800 p-2">
+                    <div className="grid grid-cols-[1fr_6rem_7rem_auto] items-center gap-2">
                       <input
                         type="text"
                         value={draft.name}
@@ -588,8 +610,6 @@ const Setup = () => {
                         className={fieldClass}
                         placeholder="Class name"
                       />
-                    </td>
-                    <td className="py-1.5 pr-2">
                       <input
                         type="number"
                         min="1"
@@ -600,11 +620,9 @@ const Setup = () => {
                             [item.id]: { ...draft, capacity: e.target.value },
                           }))
                         }
-                        className={`${fieldClass} max-w-[7rem]`}
-                        placeholder="Capacity"
+                        className={fieldClass}
+                        placeholder="Cap"
                       />
-                    </td>
-                    <td className="py-1.5 pr-2">
                       <input
                         type="number"
                         min="0"
@@ -616,20 +634,32 @@ const Setup = () => {
                             [item.id]: { ...draft, feeAmount: e.target.value },
                           }))
                         }
-                        className={`${fieldClass} max-w-[8rem]`}
-                        placeholder="0.00"
+                        className={fieldClass}
+                        placeholder="Fee"
                       />
-                    </td>
-                    <td className="py-1.5 text-right">
                       <button type="button" onClick={() => deleteClass(item.id)} className="p-1 text-red-400 hover:text-red-300">
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
-                    </td>
-                  </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                    </div>
+                    <div className="mt-2">
+                      <MultiSelectDropdown
+                        label="Subjects"
+                        options={subjects.map((row) => row.name).filter(Boolean)}
+                        selected={draft.subjects || []}
+                        onChange={(selected) =>
+                          setClassDrafts((prev) => ({
+                            ...prev,
+                            [item.id]: { ...draft, subjects: selected },
+                          }))
+                        }
+                        placeholder="Add a subject"
+                        emptyHint="Add subjects below first."
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
             <button
               type="button"
               onClick={saveClassEdits}

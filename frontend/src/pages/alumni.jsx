@@ -86,14 +86,7 @@ const Alumni = () => {
   };
 
   const openStudent = (student) => {
-    const opening = openId !== student.id;
-    setOpenId(opening ? student.id : null);
-    if (!opening) return;
-    try {
-      downloadAlumniStudentPdf(student, school?.name || 'School');
-    } catch {
-      toast.error('Could not build this student PDF');
-    }
+    setOpenId((current) => (current === student.id ? null : student.id));
   };
 
   if (loading && !overview) {
@@ -209,6 +202,15 @@ const Alumni = () => {
                       {student.class || '—'}
                       {student.roll_number ? ` · ${student.roll_number}` : ''}
                       {student.enrolled_year ? ` · enrolled ${student.enrolled_year}` : ''}
+                      {student.last_term_percent != null
+                        ? ` · last term ${student.last_term_percent}%${
+                            student.last_term_result === 'promoted'
+                              ? ' promoted'
+                              : student.last_term_result === 'retained'
+                                ? ' retained'
+                                : ''
+                          }`
+                        : ''}
                     </span>
                   </span>
                   <span className="shrink-0 text-right text-xs text-slate-400">

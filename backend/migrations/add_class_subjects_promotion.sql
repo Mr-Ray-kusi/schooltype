@@ -1,0 +1,4 @@
+ALTER TABLE classes ADD COLUMN IF NOT EXISTS subjects TEXT;
+ALTER TABLE students ADD COLUMN IF NOT EXISTS last_promotion_key TEXT;
+ALTER TABLE students ADD COLUMN IF NOT EXISTS last_term_percent NUMERIC;
+ALTER TABLE students ADD COLUMN IF NOT EXISTS last_term_result TEXT;

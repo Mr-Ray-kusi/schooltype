@@ -87,6 +87,16 @@ export function buildClassHierarchy(classes = []) {
   };
 }
 
+export function nextClassName(currentName, classes = []) {
+  const hierarchy = buildClassHierarchy(classes);
+  const current = hierarchy.classes.find(
+    (row) => String(row.name).toLowerCase() === String(currentName || '').trim().toLowerCase()
+  );
+  if (!current) return null;
+  const following = hierarchy.classes.filter((row) => row.rank > current.rank);
+  return following[0]?.name || null;
+}
+
 export function academicYearFromPeriod(period, fallbackDate = new Date()) {
   const fromPeriod = String(period?.ends_on || period?.starts_on || '').slice(0, 4);
   if (/^\d{4}$/.test(fromPeriod)) return Number(fromPeriod);

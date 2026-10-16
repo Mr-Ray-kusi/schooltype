@@ -86,6 +86,7 @@ import {
 } from './schoolSignupPayment.js';
 import { getFeeOverviewPayload, registerFeeRoutes, registerStaffFeeRoutes } from './feeRoutes.js';
 import { registerAlumniRoutes } from './alumniRoutes.js';
+import { applyTermPromotion } from './studentPromotion.js';
 import { initPlatformSmsStore, claimDemoMoneyReset, getSchoolSmsBalance, resetSmsInventoryToZero } from './platformSmsStore.js';
 import { registerSmsBillingRoutes, settleSmsPayment, refundSchoolAndPlatformUnits, findPlatformSchoolId } from './smsBilling.js';
 import { sendSmsBatch, getSmsProviderStatus, attachFeePayLink, toE164 } from './smsProvider.js';
@@ -3857,7 +3858,7 @@ app.delete('/api/non-staff/:id', authenticateToken, enforcePlanApproval, async (
 
 const insertClassRecord = async (record) => {
   const payload = { ...record };
-  const optionalColumns = ['capacity', 'form', 'fee_amount'];
+  const optionalColumns = ['capacity', 'form', 'fee_amount', 'subjects'];
 
   for (let attempt = 0; attempt <= optionalColumns.length; attempt++) {
     const { data, error } = await supabase.from('classes').insert([payload]).select().single();
@@ -3876,7 +3877,7 @@ const insertClassRecord = async (record) => {
 
 const updateClassRecord = async (id, schoolId, updates) => {
   const payload = { ...updates };
-  const optionalColumns = ['capacity', 'form', 'fee_amount'];
+  const optionalColumns = ['capacity', 'form', 'fee_amount', 'subjects'];
 
   for (let attempt = 0; attempt <= optionalColumns.length; attempt++) {
     const { data, error } = await supabase
@@ -3937,6 +3938,8 @@ app.post('/api/classes', authenticateToken, enforcePlanApproval, async (req, res
       const feeAmount = Number(feeRaw);
       if (Number.isFinite(feeAmount) && feeAmount >= 0) record.fee_amount = feeAmount;
     }
+    const subjectsValue = toCsvField(req.body.subjects);
+    if (subjectsValue) record.subjects = subjectsValue;
 
     const { data, error } = await insertClassRecord(record);
     if (error) throw error;
@@ -3963,6 +3966,9 @@ app.put('/api/classes/:id', authenticateToken, enforcePlanApproval, async (req, 
     if (req.body.fee_amount !== undefined || req.body.feeAmount !== undefined) {
       const feeRaw = req.body.fee_amount ?? req.body.feeAmount;
       updates.fee_amount = feeRaw === '' || feeRaw === null ? 0 : Number(feeRaw) || 0;
+    }
+    if (req.body.subjects !== undefined) {
+      updates.subjects = toCsvField(req.body.subjects);
     }
 
     const { data: existing } = await supabase
@@ -4741,12 +4747,12 @@ const upsertStaffPortalScore = async ({ schoolId, staffId, staff, body }) => {
     throw portalHttpError(403, 'You are not assigned to this subject');
   }
 
-  const { data: student, error: studentError } = await supabase
-    .from('students')
-    .select('id, name, class, school_id')
-    .eq('id', studentId)
-    .eq('school_id', schoolId)
-    .maybeSingle();
+    const { data: student, error: studentError } = await supabase
+      .from('students')
+      .select('id, name, class, school_id')
+      .eq('id', studentId)
+      .eq('school_id', schoolId)
+      .maybeSingle();
   if (studentError) throw studentError;
   if (!student) throw portalHttpError(404, 'Student not found');
 
@@ -4824,7 +4830,14 @@ const upsertStaffPortalScore = async ({ schoolId, staffId, staff, body }) => {
     saved = data;
   }
 
-  return { saved, student, subject, className: className || studentClass, term };
+  let promotion = null;
+  try {
+    promotion = await applyTermPromotion(schoolId, studentId, term);
+  } catch (err) {
+    console.warn('Term promotion check failed:', err.message || err);
+  }
+
+  return { saved, student, subject, className: className || studentClass, term, promotion };
 };
 
 app.post('/api/staff-portal/session/scores', authenticateStaffPortal, async (req, res) => {

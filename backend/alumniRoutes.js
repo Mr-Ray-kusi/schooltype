@@ -43,7 +43,7 @@ async function loadClasses(schoolId) {
 async function loadCurrentStudents(schoolId) {
   const { data, error } = await supabase
     .from('students')
-    .select('id, name, class, roll_number, created_at, alumni_year, alumni_class, alumni_completed_at, barcode')
+    .select('id, name, class, roll_number, created_at, alumni_year, alumni_class, alumni_completed_at, barcode, last_term_percent, last_term_result')
     .eq('school_id', schoolId)
     .order('name', { ascending: true });
   if (error) {
@@ -55,6 +55,15 @@ async function loadCurrentStudents(schoolId) {
         .order('name', { ascending: true });
       if (retry.error) throw retry.error;
       return (retry.data || []).map((row) => ({ ...row, alumni_year: null, alumni_class: null }));
+    }
+    if (isMissing(error, 'last_term_percent') || isMissing(error, 'last_term_result')) {
+      const retry = await supabase
+        .from('students')
+        .select('id, name, class, roll_number, created_at, alumni_year, alumni_class, alumni_completed_at, barcode')
+        .eq('school_id', schoolId)
+        .order('name', { ascending: true });
+      if (retry.error) throw retry.error;
+      return retry.data || [];
     }
     throw error;
   }
@@ -351,6 +360,8 @@ async function attachBatchDetails(schoolId, students) {
       enrolled_year: enrollmentYear(student),
       enrolled_on: student.created_at,
       alumni_year: student.alumni_year || null,
+      last_term_percent: student.last_term_percent ?? null,
+      last_term_result: student.last_term_result || null,
       status: isAlumni(student) ? 'alumni' : 'completing',
       report_cards: reportCards.map((row) => ({
         subject: row.subject,
