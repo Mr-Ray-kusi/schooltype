@@ -2213,8 +2213,10 @@ const enrichAttendanceRows = async (attendance, lateAfterTime = '08:00') => {
     'non-staff': new Set(),
   };
   for (const record of rows) {
-    if (!record.user_name && record.user_id && byType[record.user_type]) {
-      byType[record.user_type].add(record.user_id);
+    const type =
+      record.user_type === 'nonstaff' || record.user_type === 'non_staff' ? 'non-staff' : record.user_type;
+    if (!record.user_name && record.user_id && byType[type]) {
+      byType[type].add(record.user_id);
     }
   }
 
@@ -2238,18 +2240,22 @@ const enrichAttendanceRows = async (attendance, lateAfterTime = '08:00') => {
   ]);
 
   return rows.map((record) => {
+    const userType =
+      record.user_type === 'nonstaff' || record.user_type === 'non_staff'
+        ? 'non-staff'
+        : record.user_type;
     let user = null;
     if (record.user_name) {
       user = {
         name: record.user_name,
-        role: record.user_type === 'student' ? null : record.user_label || null,
-        class: record.user_type === 'student' ? record.user_label || null : null,
+        role: userType === 'student' ? null : record.user_label || null,
+        class: userType === 'student' ? record.user_label || null : null,
       };
-    } else if (record.user_type === 'student') {
+    } else if (userType === 'student') {
       user = students.get(record.user_id) || null;
-    } else if (record.user_type === 'staff') {
+    } else if (userType === 'staff') {
       user = staff.get(record.user_id) || null;
-    } else if (record.user_type === 'non-staff') {
+    } else if (userType === 'non-staff') {
       user = nonStaff.get(record.user_id) || null;
     }
 
@@ -2260,6 +2266,7 @@ const enrichAttendanceRows = async (attendance, lateAfterTime = '08:00') => {
 
     return {
       ...record,
+      user_type: userType,
       user,
       punctuality,
       status: punctuality,
@@ -2469,6 +2476,13 @@ const lateCutoffReached = (ymd, lateAfterTime, now = new Date()) => {
   return getAttendancePunctuality(now, lateAfterTime) === 'late';
 };
 
+const normalizeAttendanceUserType = (value) => {
+  const raw = String(value || '').trim().toLowerCase();
+  if (raw === 'nonstaff' || raw === 'non_staff' || raw === 'non-staff') return 'non-staff';
+  if (raw === 'staff') return 'staff';
+  return 'student';
+};
+
 const loadEnrolledStudents = async (schoolId) => {
   let { data, error } = await supabase
     .from('students')
@@ -2480,7 +2494,30 @@ const loadEnrolledStudents = async (schoolId) => {
     error = retry.error;
   }
   if (error || !data?.length) return [];
-  return data.filter((row) => row.alumni_year == null || Number(row.alumni_year) <= 0);
+  return data
+    .filter((row) => row.alumni_year == null || Number(row.alumni_year) <= 0)
+    .map((row) => ({ id: row.id, name: row.name, label: row.class, user_type: 'student' }));
+};
+
+const loadSchoolPeopleForAttendance = async (schoolId) => {
+  const [students, staffRes, nonStaffRes] = await Promise.all([
+    loadEnrolledStudents(schoolId),
+    supabase.from('staffs').select('id, name, role').eq('school_id', schoolId),
+    supabase.from('nonstaffs').select('id, name, role').eq('school_id', schoolId),
+  ]);
+  const staff = (staffRes.data || []).map((row) => ({
+    id: row.id,
+    name: row.name,
+    label: row.role,
+    user_type: 'staff',
+  }));
+  const nonStaff = (nonStaffRes.data || []).map((row) => ({
+    id: row.id,
+    name: row.name,
+    label: row.role,
+    user_type: 'non-staff',
+  }));
+  return [...students, ...staff, ...nonStaff];
 };
 
 const ensureUnscannedStudentsMarkedLate = async (schoolId, ymd) => {
@@ -2493,31 +2530,28 @@ const ensureUnscannedStudentsMarkedLate = async (schoolId, ymd) => {
   const lateAfterTime = await getSchoolLateAfterTime(schoolId);
   if (!lateCutoffReached(date, lateAfterTime)) return 0;
 
-  const [students, markedRes] = await Promise.all([
-    loadEnrolledStudents(schoolId),
-    supabase
-      .from('attendance')
-      .select('user_id')
-      .eq('school_id', schoolId)
-      .eq('date', date)
-      .eq('user_type', 'student'),
+  const [people, markedRes] = await Promise.all([
+    loadSchoolPeopleForAttendance(schoolId),
+    supabase.from('attendance').select('user_id, user_type').eq('school_id', schoolId).eq('date', date),
   ]);
-  if (!students.length) return 0;
+  if (!people.length) return 0;
 
-  const marked = new Set((markedRes.data || []).map((row) => row.user_id));
-  const missing = students.filter((row) => row.id && !marked.has(row.id));
+  const marked = new Set(
+    (markedRes.data || []).map((row) => `${normalizeAttendanceUserType(row.user_type)}:${row.user_id}`)
+  );
+  const missing = people.filter((row) => row.id && !marked.has(`${row.user_type}:${row.id}`));
   if (!missing.length) return 0;
 
   const stamp = `${date}T${lateAfterTime}:00.000Z`;
-  const rows = missing.map((student) => ({
+  const rows = missing.map((person) => ({
     school_id: schoolId,
-    user_type: 'student',
-    user_id: student.id,
+    user_type: person.user_type,
+    user_id: person.id,
     date,
     timestamp: stamp,
     status: 'late',
-    user_name: student.name || null,
-    user_label: student.class || null,
+    user_name: person.name || null,
+    user_label: person.label || null,
   }));
 
   let inserted = 0;
@@ -4308,7 +4342,7 @@ const markAttendanceForSchool = async (schoolId, attendanceCode) => {
     .maybeSingle();
 
   if (existingAttendance) {
-    if (userType === 'student' && String(existingAttendance.status || '').toLowerCase() === 'late') {
+    if (String(existingAttendance.status || '').toLowerCase() === 'late') {
       const updates = { timestamp: now.toISOString(), status: punctuality, user_name: userName || null, user_label: userLabel || null };
       let { error: updateError } = await supabase
         .from('attendance')

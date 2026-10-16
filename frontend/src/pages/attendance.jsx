@@ -113,6 +113,10 @@ const Attendance = () => {
   }, [fetchAttendance, fetchSummary]);
 
   useEffect(() => {
+    setSelectedClass('all');
+  }, [selectedType]);
+
+  useEffect(() => {
     const cached = peekCache('classes');
     if (Array.isArray(cached)) setSetupClasses(cached);
     staleGet(
@@ -149,17 +153,33 @@ const Attendance = () => {
   };
 
   const classOptions = useMemo(() => {
+    if (selectedType === 'staff' || selectedType === 'non-staff') {
+      return Array.from(
+        new Set(
+          attendanceRecords
+            .filter((record) => record.user_type === selectedType)
+            .map((record) => getPersonLabel(record))
+            .filter((value) => value && value !== 'N/A')
+        )
+      ).sort((a, b) => a.localeCompare(b));
+    }
     const fromSetup = (setupClasses || []).map((row) => row.name).filter(Boolean);
     const fromMarked = attendanceRecords
+      .filter((record) => record.user_type === 'student')
       .map((record) => getPersonLabel(record))
       .filter((value) => value && value !== 'N/A');
     return Array.from(new Set([...fromSetup, ...fromMarked])).sort((a, b) => a.localeCompare(b));
-  }, [attendanceRecords, setupClasses]);
+  }, [attendanceRecords, setupClasses, selectedType]);
 
   const filteredRecords = useMemo(() => {
     return attendanceRecords.filter((record) => {
-      if (selectedType !== 'all' && record.user_type !== selectedType) return false;
-      if (selectedClass !== 'all' && getPersonLabel(record) !== selectedClass) return false;
+      const type = record.user_type === 'nonstaff' || record.user_type === 'non_staff' ? 'non-staff' : record.user_type;
+      if (selectedType !== 'all' && type !== selectedType) return false;
+      if (selectedClass !== 'all') {
+        if (type === 'student' || selectedType === 'staff' || selectedType === 'non-staff') {
+          if (getPersonLabel(record) !== selectedClass) return false;
+        }
+      }
       return true;
     });
   }, [attendanceRecords, selectedType, selectedClass]);
@@ -200,7 +220,7 @@ const Attendance = () => {
             {lateCount > 0 ? ` · ${lateCount} late` : ''}
           </p>
           <p className="mt-0.5 text-xs text-slate-500">
-            From the term start date, students not scanned by the late time are marked late.
+            From the term start date, students, staff, and non-staff not scanned by the late time are marked late.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 print:hidden">
@@ -265,7 +285,7 @@ const Attendance = () => {
           </select>
         </label>
         <label className="min-w-[8.5rem] flex-1 text-[11px] font-medium uppercase tracking-wide text-slate-400">
-          Class / Roll
+          {selectedType === 'staff' || selectedType === 'non-staff' ? 'Role' : 'Class / Roll'}
           <select
             value={selectedClass}
             onChange={(e) => setSelectedClass(e.target.value)}
