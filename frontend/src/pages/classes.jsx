@@ -81,14 +81,11 @@ const Setup = () => {
   const [subjects, setSubjects] = useState([]);
   const [coreLabels, setCoreLabels] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [classCount, setClassCount] = useState(1);
-  const [classRows, setClassRows] = useState([emptyClassRow()]);
   const [subjectCount, setSubjectCount] = useState(1);
   const [subjectRows, setSubjectRows] = useState([emptySubjectRow()]);
-  const [savingClasses, setSavingClasses] = useState(false);
   const [savingSubjects, setSavingSubjects] = useState(false);
-  const [editingClass, setEditingClass] = useState(null);
-  const [savingClassEdits, setSavingClassEdits] = useState(false);
+  const [classModal, setClassModal] = useState(null);
+  const [savingClass, setSavingClass] = useState(false);
   const [classPage, setClassPage] = useState(1);
   const [subjectDrafts, setSubjectDrafts] = useState({});
   const [savingSubjectsEdit, setSavingSubjectsEdit] = useState(false);
@@ -192,14 +189,6 @@ const Setup = () => {
   };
 
   useEffect(() => {
-    setClassRows((rows) => {
-      const next = rows.slice(0, classCount);
-      while (next.length < classCount) next.push(emptyClassRow());
-      return next;
-    });
-  }, [classCount]);
-
-  useEffect(() => {
     setSubjectRows((rows) => {
       const next = rows.slice(0, subjectCount);
       while (next.length < subjectCount) next.push(emptySubjectRow());
@@ -252,34 +241,61 @@ const Setup = () => {
     }
   };
 
-  const saveClasses = async (e) => {
+  const openAddClass = () => {
+    setClassModal({ mode: 'add', ...emptyClassRow() });
+  };
+
+  const openClass = (item) => {
+    setClassModal({
+      mode: 'edit',
+      id: item.id,
+      name: item.name || '',
+      capacity: item.capacity != null && item.capacity !== '' ? String(item.capacity) : '',
+      feeAmount: Number(item.fee_amount) > 0 ? String(item.fee_amount) : '',
+      subjects: withoutCores(parseCsvList(item.subjects), coreSubjectNames),
+    });
+  };
+
+  const saveClassModal = async (e) => {
     e.preventDefault();
-    const toSave = classRows.filter((row) => row.name.trim());
-    if (!toSave.length) {
-      toast.error('Enter at least one class name');
+    if (!classModal) return;
+    const name = String(classModal.name || '').trim();
+    if (!name) {
+      toast.error('Class name is required');
       return;
     }
-    setSavingClasses(true);
+    const feeAmount =
+      classModal.feeAmount === '' || classModal.feeAmount == null ? 0 : Number(classModal.feeAmount);
+    const payload = {
+      name,
+      capacity: classModal.capacity === '' || classModal.capacity == null ? null : Number(classModal.capacity),
+      fee_amount: Number.isFinite(feeAmount) && feeAmount >= 0 ? feeAmount : 0,
+      subjects: withoutCores(classModal.subjects || [], coreSubjectNames),
+    };
+    setSavingClass(true);
     try {
-      for (const row of toSave) {
-        await axios.post('/api/classes', {
-          name: row.name.trim(),
-          capacity: row.capacity || null,
-          fee_amount: row.feeAmount === '' ? 0 : Number(row.feeAmount) || 0,
-          subjects: row.subjects || [],
-        });
+      if (classModal.mode === 'edit' && classModal.id) {
+        await axios.put(`/api/classes/${classModal.id}`, payload);
+        toast.success('Class updated');
+      } else {
+        await axios.post('/api/classes', payload);
+        toast.success('Class added');
       }
       invalidateCache('classes');
-      setClassRows([emptyClassRow()]);
-      setClassCount(1);
-      toast.success('Classes saved');
+      invalidateCache('staff');
+      invalidateCache('students');
+      invalidateCache('dashboard');
+      invalidateCache('attendance');
+      setClassModal(null);
       await load();
     } catch (error) {
       if (!error.offlineQueued && error.response) {
-        toast.error(error.response?.data?.error || 'Failed to save classes');
+        toast.error(error.response?.data?.error || error.message || 'Failed to save class');
+      } else if (error.message) {
+        toast.error(error.message);
       }
     } finally {
-      setSavingClasses(false);
+      setSavingClass(false);
     }
   };
 
@@ -323,54 +339,6 @@ const Setup = () => {
     }
   };
 
-  const openClass = (item) => {
-    setEditingClass({
-      id: item.id,
-      name: item.name || '',
-      capacity: item.capacity != null && item.capacity !== '' ? String(item.capacity) : '',
-      feeAmount: Number(item.fee_amount) > 0 ? String(item.fee_amount) : '',
-      subjects: withoutCores(parseCsvList(item.subjects), coreSubjectNames),
-    });
-  };
-
-  const saveEditingClass = async (e) => {
-    e.preventDefault();
-    if (!editingClass?.id) return;
-    const name = String(editingClass.name || '').trim();
-    if (!name) {
-      toast.error('Class name is required');
-      return;
-    }
-    const feeAmount =
-      editingClass.feeAmount === '' || editingClass.feeAmount == null ? 0 : Number(editingClass.feeAmount);
-    setSavingClassEdits(true);
-    try {
-      await axios.put(`/api/classes/${editingClass.id}`, {
-        name,
-        capacity:
-          editingClass.capacity === '' || editingClass.capacity == null ? null : Number(editingClass.capacity),
-        fee_amount: Number.isFinite(feeAmount) && feeAmount >= 0 ? feeAmount : 0,
-        subjects: withoutCores(editingClass.subjects || [], coreSubjectNames),
-      });
-      invalidateCache('classes');
-      invalidateCache('staff');
-      invalidateCache('students');
-      invalidateCache('dashboard');
-      invalidateCache('attendance');
-      toast.success('Class updated');
-      setEditingClass(null);
-      await load();
-    } catch (error) {
-      if (!error.offlineQueued && error.response) {
-        toast.error(error.response?.data?.error || error.message || 'Failed to update class');
-      } else if (error.message) {
-        toast.error(error.message);
-      }
-    } finally {
-      setSavingClassEdits(false);
-    }
-  };
-
   const saveSubjectEdits = async () => {
     if (!subjects.length) {
       toast.error('Add a subject first, then edit it.');
@@ -407,7 +375,7 @@ const Setup = () => {
     if (!window.confirm('Delete this class?')) return;
     try {
       await axios.delete(`/api/classes/${id}`);
-      if (editingClass?.id === id) setEditingClass(null);
+      if (classModal?.id === id) setClassModal(null);
       invalidateCache('classes');
       load();
     } catch (error) {
@@ -583,104 +551,27 @@ const Setup = () => {
       </section>
 
       <section className="rounded-2xl border border-slate-700/80 bg-slate-900/50 p-4">
-        <div className="mb-3 flex items-center gap-2">
-          <GraduationCap className="h-4 w-4 text-sky-400" />
-          <h2 className="text-sm font-semibold text-white">Classes and fees</h2>
-        </div>
-        {coreSubjectNames.length ? (
-          <p className="mb-3 text-xs text-slate-400">
-            Core for every class: <span className="text-sky-200">{coreSubjectNames.join(', ')}</span>
-          </p>
-        ) : (
-          <p className="mb-3 text-xs text-slate-500">Mark a subject as Core below and every class takes it.</p>
-        )}
-
-        <form onSubmit={saveClasses} className="space-y-2">
-          <div className="max-w-[11rem]">
-            <label className="mb-1 block text-xs font-medium text-slate-300">Number to add</label>
-            <input
-              type="number"
-              min="1"
-              max="40"
-              value={classCount}
-              onChange={(e) => setClassCount(Math.max(1, Math.min(40, Number(e.target.value) || 1)))}
-              className={fieldClass}
-            />
-          </div>
-          <div className="space-y-2">
-            {classRows.map((row, index) => (
-              <div key={index} className="space-y-1.5">
-                <div className="grid grid-cols-3 gap-2">
-                  <input
-                    type="text"
-                    value={row.name}
-                    onChange={(e) => {
-                      const next = [...classRows];
-                      next[index] = { ...next[index], name: e.target.value };
-                      setClassRows(next);
-                    }}
-                    className={fieldClass}
-                    placeholder="Class name"
-                  />
-                  <input
-                    type="number"
-                    min="1"
-                    value={row.capacity}
-                    onChange={(e) => {
-                      const next = [...classRows];
-                      next[index] = { ...next[index], capacity: e.target.value };
-                      setClassRows(next);
-                    }}
-                    className={fieldClass}
-                    placeholder="Capacity"
-                  />
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={row.feeAmount}
-                    onChange={(e) => {
-                      const next = [...classRows];
-                      next[index] = { ...next[index], feeAmount: e.target.value };
-                      setClassRows(next);
-                    }}
-                    className={fieldClass}
-                    placeholder="Term fee"
-                  />
-                </div>
-                <MultiSelectDropdown
-                  compact
-                  label="Other subjects"
-                  options={otherSubjectNames}
-                  exclude={coreSubjectNames}
-                  selected={withoutCores(row.subjects || [], coreSubjectNames)}
-                  onChange={(selected) => {
-                    const next = [...classRows];
-                    next[index] = { ...next[index], subjects: withoutCores(selected, coreSubjectNames) };
-                    setClassRows(next);
-                  }}
-                  placeholder="Add for this class"
-                  emptyHint="Add other subjects below, then pick them here."
-                />
-              </div>
-            ))}
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <GraduationCap className="h-4 w-4 text-sky-400" />
+            <h2 className="text-sm font-semibold text-white">Classes and fees</h2>
           </div>
           <button
-            type="submit"
-            disabled={savingClasses}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-sky-500 px-3 py-1.5 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-50"
+            type="button"
+            onClick={openAddClass}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-sky-500 px-3 py-1.5 text-sm font-semibold text-white hover:bg-sky-400"
           >
             <Plus className="h-3.5 w-3.5" />
-            {savingClasses ? 'Saving…' : 'Add classes'}
+            Add Classes
           </button>
-        </form>
+        </div>
 
         {orderedClasses.length ? (
-          <div className="mt-3 space-y-3 border-t border-slate-800 pt-3">
+          <div className="space-y-3">
             <p className="text-xs text-slate-500">Click a class to edit name, fees, capacity, and subjects.</p>
             <PersonRecordTable
               compact
-              minWidth="560px"
+              minWidth="420px"
               rows={pagedClasses}
               onSelect={openClass}
               columns={[
@@ -696,14 +587,6 @@ const Setup = () => {
                   render: (row) => {
                     const fee = Number(row.fee_amount);
                     return Number.isFinite(fee) && fee > 0 ? fee.toLocaleString() : '—';
-                  },
-                },
-                {
-                  key: 'subjects',
-                  header: 'Other subjects',
-                  render: (row) => {
-                    const names = withoutCores(parseCsvList(row.subjects), coreSubjectNames);
-                    return names.length ? names.join(', ') : '—';
                   },
                 },
               ]}
@@ -868,96 +751,118 @@ const Setup = () => {
         )}
       </section>
 
-      {editingClass ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-slate-600 bg-slate-800 p-5">
-            <div className="mb-4 flex items-start justify-between gap-3">
-              <h2 className="text-lg font-bold text-white">Edit class</h2>
+      {classModal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-slate-700 bg-slate-900 p-6 shadow-2xl shadow-black/40 md:p-8">
+            <div className="mb-6 flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300/90">
+                  {classModal.mode === 'edit' ? 'Class record' : 'Enrollment'}
+                </p>
+                <h2 className="mt-2 text-2xl font-bold tracking-tight text-white">
+                  {classModal.mode === 'edit' ? 'Edit class' : 'Add new class'}
+                </h2>
+              </div>
               <button
                 type="button"
-                onClick={() => setEditingClass(null)}
-                className="rounded-lg p-1 text-slate-400 hover:bg-slate-700 hover:text-white"
+                onClick={() => setClassModal(null)}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white"
                 aria-label="Close"
               >
-                <X className="h-4 w-4" />
+                <X className="h-5 w-5" />
               </button>
             </div>
-            <form onSubmit={saveEditingClass} className="space-y-3">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-300">Class name</label>
-                <input
-                  type="text"
-                  value={editingClass.name}
-                  onChange={(e) => setEditingClass({ ...editingClass, name: e.target.value })}
-                  className={fieldClass}
-                  placeholder="Class name"
-                  required
+            <form onSubmit={saveClassModal} className="space-y-5">
+              <section className="space-y-4">
+                <h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                  Class details
+                </h3>
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-slate-200">
+                    Class name <span className="text-sky-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={classModal.name}
+                    onChange={(e) => setClassModal({ ...classModal, name: e.target.value })}
+                    className={fieldClass}
+                    placeholder="e.g. KG 1, Primary 3, JHS 1"
+                    required
+                  />
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1.5 block text-sm font-medium text-slate-200">Capacity</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={classModal.capacity}
+                      onChange={(e) => setClassModal({ ...classModal, capacity: e.target.value })}
+                      className={fieldClass}
+                      placeholder="Class size"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-sm font-medium text-slate-200">Term fee</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={classModal.feeAmount}
+                      onChange={(e) => setClassModal({ ...classModal, feeAmount: e.target.value })}
+                      className={fieldClass}
+                      placeholder="Amount"
+                    />
+                  </div>
+                </div>
+              </section>
+              <section className="space-y-3">
+                <h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                  Subjects
+                </h3>
+                {coreSubjectNames.length ? (
+                  <p className="text-sm text-slate-400">
+                    Core for every class: <span className="text-sky-200">{coreSubjectNames.join(', ')}</span>
+                  </p>
+                ) : (
+                  <p className="text-sm text-slate-500">Mark core subjects below if every class takes them.</p>
+                )}
+                <MultiSelectDropdown
+                  label="Other subjects"
+                  options={otherSubjectNames}
+                  exclude={coreSubjectNames}
+                  selected={withoutCores(classModal.subjects || [], coreSubjectNames)}
+                  onChange={(selected) =>
+                    setClassModal({
+                      ...classModal,
+                      subjects: withoutCores(selected, coreSubjectNames),
+                    })
+                  }
+                  placeholder="Select a subject for this class"
+                  emptyHint="Add other subjects in Setup first."
                 />
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-300">Capacity</label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={editingClass.capacity}
-                    onChange={(e) => setEditingClass({ ...editingClass, capacity: e.target.value })}
-                    className={fieldClass}
-                    placeholder="Capacity"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-300">Term fee</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={editingClass.feeAmount}
-                    onChange={(e) => setEditingClass({ ...editingClass, feeAmount: e.target.value })}
-                    className={fieldClass}
-                    placeholder="Term fee"
-                  />
-                </div>
-              </div>
-              {coreSubjectNames.length ? (
-                <p className="text-xs text-slate-400">
-                  Core: <span className="text-sky-200">{coreSubjectNames.join(', ')}</span>
-                </p>
-              ) : null}
-              <MultiSelectDropdown
-                compact
-                label="Other subjects"
-                options={otherSubjectNames}
-                exclude={coreSubjectNames}
-                selected={withoutCores(editingClass.subjects || [], coreSubjectNames)}
-                onChange={(selected) =>
-                  setEditingClass({
-                    ...editingClass,
-                    subjects: withoutCores(selected, coreSubjectNames),
-                  })
-                }
-                placeholder="Add for this class"
-                emptyHint="Add other subjects below first."
-              />
-              <div className="flex gap-2 pt-1">
+              </section>
+              <div className="flex flex-wrap gap-2 pt-1">
                 <button
                   type="submit"
-                  disabled={savingClassEdits}
-                  className="flex-1 rounded-lg bg-sky-500 py-2 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-50"
+                  disabled={savingClass}
+                  className="flex-1 rounded-xl bg-sky-500 px-4 py-3 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-50"
                 >
-                  {savingClassEdits ? 'Saving…' : 'Save'}
+                  {savingClass ? 'Saving…' : classModal.mode === 'edit' ? 'Save class' : 'Add class'}
                 </button>
+                {classModal.mode === 'edit' ? (
+                  <button
+                    type="button"
+                    onClick={() => deleteClass(classModal.id)}
+                    className="rounded-xl bg-red-500/15 px-4 py-3 text-sm font-medium text-red-300 hover:bg-red-500/25"
+                  >
+                    Delete
+                  </button>
+                ) : null}
                 <button
                   type="button"
-                  onClick={() => deleteClass(editingClass.id)}
-                  className="rounded-lg bg-red-500/15 px-3 py-2 text-sm font-medium text-red-300 hover:bg-red-500/25"
-                >
-                  Delete
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setEditingClass(null)}
-                  className="flex-1 rounded-lg bg-slate-600 py-2 text-sm text-slate-100 hover:bg-slate-500"
+                  onClick={() => setClassModal(null)}
+                  className="flex-1 rounded-xl bg-slate-700 px-4 py-3 text-sm text-slate-100 hover:bg-slate-600"
                 >
                   Cancel
                 </button>
