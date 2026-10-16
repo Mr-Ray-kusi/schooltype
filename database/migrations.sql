@@ -97,6 +97,7 @@ CREATE TABLE IF NOT EXISTS subjects (
   name TEXT NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+ALTER TABLE subjects ADD COLUMN IF NOT EXISTS is_core BOOLEAN DEFAULT false;
 
 CREATE INDEX IF NOT EXISTS idx_subjects_school ON subjects (school_id);
 

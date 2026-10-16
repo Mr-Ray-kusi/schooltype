@@ -24,9 +24,27 @@ function termPercent(scores) {
   };
 }
 
+function uniqueNames(values) {
+  const seen = new Set();
+  const out = [];
+  for (const value of values) {
+    const name = String(value || '').trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(name);
+  }
+  return out;
+}
+
 function requiredSubjects(classRow, schoolSubjects, scoredSubjects) {
-  const fromClass = parseCsv(classRow?.subjects);
-  if (fromClass.length) return fromClass;
+  const cores = (schoolSubjects || [])
+    .filter((row) => row?.is_core)
+    .map((row) => row.name);
+  const electives = parseCsv(classRow?.subjects);
+  const combined = uniqueNames([...cores, ...electives]);
+  if (combined.length) return combined;
   const fromSchool = (schoolSubjects || []).map((row) => row.name).filter(Boolean);
   if (fromSchool.length) return fromSchool;
   return scoredSubjects;
@@ -65,7 +83,7 @@ export async function applyTermPromotion(schoolId, studentId, term) {
       .eq('student_id', studentId)
       .eq('term', term),
     supabase.from('classes').select('id, name, form, subjects').eq('school_id', schoolId),
-    supabase.from('subjects').select('name').eq('school_id', schoolId),
+    supabase.from('subjects').select('name, is_core').eq('school_id', schoolId),
   ]);
   let classes = classesRes.data;
   if (classesRes.error) {
@@ -73,7 +91,11 @@ export async function applyTermPromotion(schoolId, studentId, term) {
     classes = retry.data;
   }
   const scores = scoresRes.data;
-  const schoolSubjects = schoolSubjectsRes.error ? [] : schoolSubjectsRes.data;
+  let schoolSubjects = schoolSubjectsRes.data;
+  if (schoolSubjectsRes.error) {
+    const retry = await supabase.from('subjects').select('name').eq('school_id', schoolId);
+    schoolSubjects = retry.error ? [] : retry.data;
+  }
 
   const termScores = (scores || []).filter((row) => sameLabel(row.term, term));
   if (!termScores.length) return null;

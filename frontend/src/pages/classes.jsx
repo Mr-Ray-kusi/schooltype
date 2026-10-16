@@ -20,7 +20,32 @@ const parseCsvList = (value) => {
     .map((item) => item.trim())
     .filter(Boolean);
 };
-const emptySubjectRow = () => ({ name: '' });
+
+const coreNames = (list) =>
+  (list || []).filter((item) => item?.is_core).map((item) => item.name).filter(Boolean);
+
+const electiveNames = (list) =>
+  (list || []).filter((item) => !item?.is_core).map((item) => item.name).filter(Boolean);
+
+const withoutCores = (selected, cores) => {
+  const coreSet = new Set((cores || []).map((name) => String(name).toLowerCase()));
+  return (selected || []).filter((name) => !coreSet.has(String(name).toLowerCase()));
+};
+
+const emptySubjectRow = () => ({ name: '', core: false });
+
+const CoreCheck = ({ checked, onChange, id }) => (
+  <label htmlFor={id} className="inline-flex shrink-0 cursor-pointer items-center gap-1 text-[11px] text-slate-400">
+    <input
+      id={id}
+      type="checkbox"
+      checked={Boolean(checked)}
+      onChange={(e) => onChange(e.target.checked)}
+      className="h-3.5 w-3.5 rounded border-slate-500 bg-slate-950 text-sky-500 focus:ring-sky-500/40"
+    />
+    Core
+  </label>
+);
 const emptyTermRow = (index) => ({
   id: '',
   name: TERM_NAMES[index] || `Term ${index + 1}`,
@@ -55,19 +80,20 @@ const Setup = () => {
     const apply = ([classData, subjectData]) => {
       setClasses(classData);
       setSubjects(subjectData);
+      const cores = coreNames(subjectData);
       const drafts = {};
       for (const item of classData || []) {
         drafts[item.id] = {
           name: item.name || '',
           capacity: item.capacity != null && item.capacity !== '' ? String(item.capacity) : '',
           feeAmount: Number(item.fee_amount) > 0 ? String(item.fee_amount) : '',
-          subjects: parseCsvList(item.subjects),
+          subjects: withoutCores(parseCsvList(item.subjects), cores),
         };
       }
       setClassDrafts(drafts);
       const nextSubjects = {};
       for (const item of subjectData || []) {
-        nextSubjects[item.id] = item.name || '';
+        nextSubjects[item.id] = { name: item.name || '', core: Boolean(item.is_core) };
       }
       setSubjectDrafts(nextSubjects);
     };
@@ -255,7 +281,7 @@ const Setup = () => {
     setSavingSubjects(true);
     try {
       for (const row of toSave) {
-        await axios.post('/api/subjects', { name: row.name.trim() });
+        await axios.post('/api/subjects', { name: row.name.trim(), is_core: Boolean(row.core) });
       }
       invalidateCache('subjects');
       setSubjectRows([emptySubjectRow()]);
@@ -319,9 +345,13 @@ const Setup = () => {
     try {
       await Promise.all(
         subjects.map((item) => {
-          const name = String(subjectDrafts[item.id] || '').trim();
+          const draft = subjectDrafts[item.id] || {};
+          const name = String(draft.name ?? item.name ?? '').trim();
           if (!name) throw new Error('Subject name is required');
-          return axios.put(`/api/subjects/${item.id}`, { name });
+          return axios.put(`/api/subjects/${item.id}`, {
+            name,
+            is_core: Boolean(draft.core),
+          });
         })
       );
       invalidateCache('subjects');
@@ -366,6 +396,9 @@ const Setup = () => {
       }
     }
   };
+
+  const coreSubjectNames = coreNames(subjects);
+  const otherSubjectNames = electiveNames(subjects);
 
   if (loading && classes.length === 0 && subjects.length === 0) {
     return <div className="py-8 text-center text-sm text-slate-300">Loading setup…</div>;
@@ -506,6 +539,13 @@ const Setup = () => {
           <GraduationCap className="h-4 w-4 text-sky-400" />
           <h2 className="text-sm font-semibold text-white">Classes and fees</h2>
         </div>
+        {coreSubjectNames.length ? (
+          <p className="mb-3 text-xs text-slate-400">
+            Core for every class: <span className="text-sky-200">{coreSubjectNames.join(', ')}</span>
+          </p>
+        ) : (
+          <p className="mb-3 text-xs text-slate-500">Mark a subject as Core below and every class takes it.</p>
+        )}
 
         <form onSubmit={saveClasses} className="space-y-2">
           <div className="max-w-[11rem]">
@@ -519,9 +559,9 @@ const Setup = () => {
               className={fieldClass}
             />
           </div>
-          <div className="space-y-3">
+          <div className="space-y-2">
             {classRows.map((row, index) => (
-              <div key={index} className="space-y-2 rounded-lg border border-slate-800 p-2">
+              <div key={index} className="space-y-1.5">
                 <div className="grid grid-cols-3 gap-2">
                   <input
                     type="text"
@@ -561,16 +601,17 @@ const Setup = () => {
                   />
                 </div>
                 <MultiSelectDropdown
-                  label="Subjects for this class"
-                  options={subjects.map((item) => item.name).filter(Boolean)}
-                  selected={row.subjects || []}
+                  compact
+                  label="Other subjects"
+                  options={otherSubjectNames}
+                  selected={withoutCores(row.subjects || [], coreSubjectNames)}
                   onChange={(selected) => {
                     const next = [...classRows];
                     next[index] = { ...next[index], subjects: selected };
                     setClassRows(next);
                   }}
-                  placeholder="Add a subject"
-                  emptyHint="Add subjects below first, then assign them to this class."
+                  placeholder="Add for this class"
+                  emptyHint="Add other subjects below, then pick them here."
                 />
               </div>
             ))}
@@ -587,16 +628,16 @@ const Setup = () => {
 
         {classes.length ? (
           <div className="mt-3 overflow-x-auto border-t border-slate-800 pt-3">
-            <div className="space-y-3">
+            <div className="space-y-2">
               {classes.map((item) => {
                 const draft = classDrafts[item.id] || {
                   name: item.name || '',
                   capacity: '',
                   feeAmount: '',
-                  subjects: parseCsvList(item.subjects),
+                  subjects: withoutCores(parseCsvList(item.subjects), coreSubjectNames),
                 };
                 return (
-                  <div key={item.id} className="rounded-lg border border-slate-800 p-2">
+                  <div key={item.id} className="space-y-1.5">
                     <div className="grid grid-cols-[1fr_6rem_7rem_auto] items-center gap-2">
                       <input
                         type="text"
@@ -641,21 +682,20 @@ const Setup = () => {
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     </div>
-                    <div className="mt-2">
-                      <MultiSelectDropdown
-                        label="Subjects"
-                        options={subjects.map((row) => row.name).filter(Boolean)}
-                        selected={draft.subjects || []}
-                        onChange={(selected) =>
-                          setClassDrafts((prev) => ({
-                            ...prev,
-                            [item.id]: { ...draft, subjects: selected },
-                          }))
-                        }
-                        placeholder="Add a subject"
-                        emptyHint="Add subjects below first."
-                      />
-                    </div>
+                    <MultiSelectDropdown
+                      compact
+                      label="Other subjects"
+                      options={otherSubjectNames}
+                      selected={withoutCores(draft.subjects || [], coreSubjectNames)}
+                      onChange={(selected) =>
+                        setClassDrafts((prev) => ({
+                          ...prev,
+                          [item.id]: { ...draft, subjects: selected },
+                        }))
+                      }
+                      placeholder="Add for this class"
+                      emptyHint="Add other subjects below."
+                    />
                   </div>
                 );
               })}
@@ -680,6 +720,7 @@ const Setup = () => {
           <BookOpen className="h-4 w-4 text-emerald-400" />
           <h2 className="text-sm font-semibold text-white">Subjects</h2>
         </div>
+        <p className="mb-2 text-[11px] text-slate-500">Core = all classes. Leave Core off to pick it per class.</p>
         <form onSubmit={saveSubjects} className="space-y-1.5">
           <div className="flex items-end gap-1.5">
             <div className="w-14 shrink-0">
@@ -701,11 +742,22 @@ const Setup = () => {
                 value={subjectRows[0]?.name || ''}
                 onChange={(e) => {
                   const next = [...subjectRows];
-                  next[0] = { name: e.target.value };
+                  next[0] = { ...next[0], name: e.target.value };
                   setSubjectRows(next);
                 }}
                 className={fieldClass}
                 placeholder="Subject name"
+              />
+            </div>
+            <div className="mb-1.5">
+              <CoreCheck
+                id="new-subject-core-0"
+                checked={subjectRows[0]?.core}
+                onChange={(core) => {
+                  const next = [...subjectRows];
+                  next[0] = { ...next[0], core };
+                  setSubjectRows(next);
+                }}
               />
             </div>
             <button
@@ -718,20 +770,30 @@ const Setup = () => {
             </button>
           </div>
           {subjectRows.length > 1 ? (
-            <div className="grid grid-cols-2 gap-1.5">
+            <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
               {subjectRows.slice(1).map((row, index) => (
-                <input
-                  key={index + 1}
-                  type="text"
-                  value={row.name}
-                  onChange={(e) => {
-                    const next = [...subjectRows];
-                    next[index + 1] = { name: e.target.value };
-                    setSubjectRows(next);
-                  }}
-                  className={fieldClass}
-                  placeholder={`Subject ${index + 2}`}
-                />
+                <div key={index + 1} className="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    value={row.name}
+                    onChange={(e) => {
+                      const next = [...subjectRows];
+                      next[index + 1] = { ...next[index + 1], name: e.target.value };
+                      setSubjectRows(next);
+                    }}
+                    className={fieldClass}
+                    placeholder={`Subject ${index + 2}`}
+                  />
+                  <CoreCheck
+                    id={`new-subject-core-${index + 1}`}
+                    checked={row.core}
+                    onChange={(core) => {
+                      const next = [...subjectRows];
+                      next[index + 1] = { ...next[index + 1], core };
+                      setSubjectRows(next);
+                    }}
+                  />
+                </div>
               ))}
             </div>
           ) : null}
@@ -741,30 +803,46 @@ const Setup = () => {
         ) : (
           <>
             <ul className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-              {subjects.map((item) => (
-                <li
-                  key={item.id}
-                  className="flex min-w-0 items-center gap-1 rounded-md bg-slate-800/70 px-2 py-1"
-                >
-                  <input
-                    type="text"
-                    value={subjectDrafts[item.id] ?? item.name}
-                    onChange={(e) =>
-                      setSubjectDrafts((prev) => ({ ...prev, [item.id]: e.target.value }))
-                    }
-                    className={`${fieldClass} min-w-0 flex-1 px-2 py-1 text-xs`}
-                    aria-label={`Edit ${item.name}`}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => deleteSubject(item.id)}
-                    className="shrink-0 text-red-400 hover:text-red-300"
-                    aria-label={`Delete ${item.name}`}
+              {subjects.map((item) => {
+                const draft = subjectDrafts[item.id] || { name: item.name, core: Boolean(item.is_core) };
+                return (
+                  <li
+                    key={item.id}
+                    className="flex min-w-0 items-center gap-1 rounded-md bg-slate-800/70 px-2 py-1"
                   >
-                    <Trash2 className="h-3 w-3" />
-                  </button>
-                </li>
-              ))}
+                    <input
+                      type="text"
+                      value={draft.name}
+                      onChange={(e) =>
+                        setSubjectDrafts((prev) => ({
+                          ...prev,
+                          [item.id]: { ...draft, name: e.target.value },
+                        }))
+                      }
+                      className={`${fieldClass} min-w-0 flex-1 px-2 py-1 text-xs`}
+                      aria-label={`Edit ${item.name}`}
+                    />
+                    <CoreCheck
+                      id={`subject-core-${item.id}`}
+                      checked={draft.core}
+                      onChange={(core) =>
+                        setSubjectDrafts((prev) => ({
+                          ...prev,
+                          [item.id]: { ...draft, core },
+                        }))
+                      }
+                    />
+                    <button
+                      type="button"
+                      onClick={() => deleteSubject(item.id)}
+                      className="shrink-0 text-red-400 hover:text-red-300"
+                      aria-label={`Delete ${item.name}`}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
             <button
               type="button"

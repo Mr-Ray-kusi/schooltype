@@ -4005,6 +4005,45 @@ app.delete('/api/classes/:id', authenticateToken, enforcePlanApproval, async (re
   }
 });
 
+const truthyFlag = (value) =>
+  value === true || value === 1 || String(value || '').trim().toLowerCase() === 'true';
+
+const stripSubjectFromClasses = async (schoolId, subjectName) => {
+  const target = String(subjectName || '').trim().toLowerCase();
+  if (!schoolId || !target) return;
+  const { data, error } = await supabase
+    .from('classes')
+    .select('id, subjects')
+    .eq('school_id', schoolId);
+  if (error || !data?.length) return;
+  await Promise.all(
+    data.map(async (row) => {
+      const current = parseCsvList(row.subjects);
+      const next = current.filter((item) => item.toLowerCase() !== target);
+      if (next.length === current.length) return;
+      await supabase
+        .from('classes')
+        .update({ subjects: toCsvField(next) })
+        .eq('id', row.id)
+        .eq('school_id', schoolId);
+    })
+  );
+};
+
+const insertSubjectRecord = async (record) => {
+  const payload = { ...record };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { data, error } = await supabase.from('subjects').insert([payload]).select().single();
+    if (!error) return { data, error: null };
+    if (payload.is_core !== undefined && isMissingColumnError(error, 'is_core')) {
+      delete payload.is_core;
+      continue;
+    }
+    return { data: null, error };
+  }
+  return { data: null, error: { message: 'Failed to create subject' } };
+};
+
 app.get('/api/subjects', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
     const { data, error } = await supabase
@@ -4019,7 +4058,12 @@ app.get('/api/subjects', authenticateToken, enforcePlanApproval, async (req, res
       }
       throw error;
     }
-    res.json(data || []);
+    res.json(
+      (data || []).map((row) => ({
+        ...row,
+        is_core: Boolean(row.is_core),
+      }))
+    );
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -4030,15 +4074,17 @@ app.post('/api/subjects', authenticateToken, enforcePlanApproval, async (req, re
     const name = String(req.body.name || '').trim();
     if (!name) return res.status(400).json({ error: 'Subject name is required' });
 
-    const { data, error } = await supabase
-      .from('subjects')
-      .insert([{ id: uuidv4(), school_id: req.user.schoolId, name, created_at: new Date() }])
-      .select()
-      .single();
-
+    const record = {
+      id: uuidv4(),
+      school_id: req.user.schoolId,
+      name,
+      is_core: truthyFlag(req.body.is_core ?? req.body.core),
+      created_at: new Date(),
+    };
+    const { data, error } = await insertSubjectRecord(record);
     if (error) throw error;
     bumpSchoolCaches(req.user.schoolId);
-    res.json(data);
+    res.json({ ...data, is_core: Boolean(data?.is_core) });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -4048,6 +4094,10 @@ app.put('/api/subjects/:id', authenticateToken, enforcePlanApproval, async (req,
   try {
     const name = String(req.body.name || '').trim();
     if (!name) return res.status(400).json({ error: 'Subject name is required' });
+    const isCore =
+      req.body.is_core !== undefined || req.body.core !== undefined
+        ? truthyFlag(req.body.is_core ?? req.body.core)
+        : undefined;
 
     const { data: existing } = await supabase
       .from('subjects')
@@ -4056,20 +4106,37 @@ app.put('/api/subjects/:id', authenticateToken, enforcePlanApproval, async (req,
       .eq('school_id', req.user.schoolId)
       .maybeSingle();
 
-    const { data, error } = await supabase
+    const updates = { name };
+    if (isCore !== undefined) updates.is_core = isCore;
+
+    let { data, error } = await supabase
       .from('subjects')
-      .update({ name })
+      .update(updates)
       .eq('id', req.params.id)
       .eq('school_id', req.user.schoolId)
       .select()
       .single();
-
+    if (error && updates.is_core !== undefined && isMissingColumnError(error, 'is_core')) {
+      delete updates.is_core;
+      const retry = await supabase
+        .from('subjects')
+        .update(updates)
+        .eq('id', req.params.id)
+        .eq('school_id', req.user.schoolId)
+        .select()
+        .single();
+      data = retry.data;
+      error = retry.error;
+    }
     if (error) throw error;
     if (existing?.name && existing.name !== name) {
       await renameStoredSubjectName(req.user.schoolId, existing.name, name);
     }
+    if (isCore) {
+      await stripSubjectFromClasses(req.user.schoolId, name);
+    }
     bumpSchoolCaches(req.user.schoolId);
-    res.json(data);
+    res.json({ ...data, is_core: Boolean(data?.is_core || isCore) });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
