@@ -88,7 +88,7 @@ import { getFeeOverviewPayload, registerFeeRoutes, registerStaffFeeRoutes } from
 import { registerAlumniRoutes } from './alumniRoutes.js';
 import { applyTermPromotion } from './studentPromotion.js';
 import { sortClasses } from './classHierarchy.js';
-import { listAcademicTerms } from './academicTerms.js';
+import { listAcademicTerms, resolveFeePeriod } from './academicTerms.js';
 import { initPlatformSmsStore, claimDemoMoneyReset, getSchoolSmsBalance, resetSmsInventoryToZero } from './platformSmsStore.js';
 import { registerSmsBillingRoutes, settleSmsPayment, refundSchoolAndPlatformUnits, findPlatformSchoolId } from './smsBilling.js';
 import { sendSmsBatch, getSmsProviderStatus, attachFeePayLink, toE164 } from './smsProvider.js';
@@ -2571,6 +2571,70 @@ const ensureUnscannedStudentsMarkedLate = async (schoolId, ymd) => {
     inserted += (data || []).length || chunk.length;
   }
 
+  if (inserted) bumpSchoolCaches(schoolId);
+  return inserted;
+};
+
+const eachSchoolDay = (from, to) => {
+  const days = [];
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) return days;
+  const cursor = new Date(`${from}T12:00:00.000Z`);
+  const end = new Date(`${to}T12:00:00.000Z`);
+  while (cursor.getTime() <= end.getTime()) {
+    const ymd = cursor.toISOString().slice(0, 10);
+    if (isSchoolWeekday(ymd)) days.push(ymd);
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return days;
+};
+
+const fillPersonTermLateDays = async (schoolId, userId, userType, from, to) => {
+  const lateAfterTime = await getSchoolLateAfterTime(schoolId);
+  const today = schoolLocalDate();
+  const last = to < today ? to : today;
+  const days = eachSchoolDay(from, last).filter((day) => lateCutoffReached(day, lateAfterTime));
+  if (!days.length) return 0;
+
+  const { data: existing } = await supabase
+    .from('attendance')
+    .select('date')
+    .eq('school_id', schoolId)
+    .eq('user_id', userId)
+    .eq('user_type', userType)
+    .gte('date', from)
+    .lte('date', last);
+  const have = new Set((existing || []).map((row) => String(row.date).slice(0, 10)));
+  const missingDays = days.filter((day) => !have.has(day));
+  if (!missingDays.length) return 0;
+
+  const personRows = await loadSchoolPeopleForAttendance(schoolId);
+  const person = personRows.find((row) => row.id === userId && row.user_type === userType);
+  const rows = missingDays.map((day) => ({
+    school_id: schoolId,
+    user_type: userType,
+    user_id: userId,
+    date: day,
+    timestamp: `${day}T${lateAfterTime}:00.000Z`,
+    status: 'late',
+    user_name: person?.name || null,
+    user_label: person?.label || null,
+  }));
+
+  let inserted = 0;
+  for (let i = 0; i < rows.length; i += 80) {
+    const chunk = rows.slice(i, i + 80);
+    let { error } = await supabase.from('attendance').insert(chunk);
+    if (error && (isMissingColumnError(error, 'user_name') || isMissingColumnError(error, 'user_label'))) {
+      const stripped = chunk.map(({ user_name, user_label, ...rest }) => rest);
+      const retry = await supabase.from('attendance').insert(stripped);
+      error = retry.error;
+    }
+    if (error) {
+      console.warn('Person term late fill failed:', error.message);
+      continue;
+    }
+    inserted += chunk.length;
+  }
   if (inserted) bumpSchoolCaches(schoolId);
   return inserted;
 };
@@ -5405,6 +5469,62 @@ app.get('/api/attendance', authenticateToken, enforcePlanApproval, async (req, r
     const enrichedAttendance = await enrichAttendanceRows(attendance, lateAfterTime);
 
     res.json(enrichedAttendance);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/attendance/person/:userId', authenticateToken, enforcePlanApproval, async (req, res) => {
+  try {
+    const userId = String(req.params.userId || '').trim();
+    const userType = normalizeAttendanceUserType(req.query.userType || req.query.user_type || 'student');
+    if (!userId) return res.status(400).json({ error: 'Person is required' });
+
+    const period = await resolveFeePeriod(req.user.schoolId).catch(() => null);
+    const today = schoolLocalDate();
+    const from = /^\d{4}-\d{2}-\d{2}$/.test(String(period?.starts_on || ''))
+      ? String(period.starts_on).slice(0, 10)
+      : `${today.slice(0, 7)}-01`;
+    const endCap = /^\d{4}-\d{2}-\d{2}$/.test(String(period?.ends_on || ''))
+      ? String(period.ends_on).slice(0, 10)
+      : today;
+    const to = endCap < today ? endCap : today;
+
+    await fillPersonTermLateDays(req.user.schoolId, userId, userType, from, to);
+
+    const { data, error } = await supabase
+      .from('attendance')
+      .select('*')
+      .eq('school_id', req.user.schoolId)
+      .eq('user_id', userId)
+      .eq('user_type', userType)
+      .gte('date', from)
+      .lte('date', to)
+      .order('date', { ascending: true })
+      .order('timestamp', { ascending: true });
+    if (error) throw error;
+
+    const lateAfterTime = await getSchoolLateAfterTime(req.user.schoolId);
+    const records = await enrichAttendanceRows(data || [], lateAfterTime);
+    const lateDays = records.filter((row) => row.status === 'late' || row.punctuality === 'late').length;
+    const earlyDays = records.length - lateDays;
+
+    res.json({
+      user_id: userId,
+      user_type: userType,
+      term: {
+        name: period?.name || null,
+        starts_on: from,
+        ends_on: period?.ends_on || to,
+        source: period?.source || null,
+      },
+      records,
+      summary: {
+        days: records.length,
+        early: earlyDays,
+        late: lateDays,
+      },
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

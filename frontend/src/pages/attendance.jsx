@@ -1,12 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { AlertTriangle, Clock, Printer, RefreshCw } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronRight, Clock, Download, Printer, RefreshCw } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { cachedGet, invalidateCache, peekCache, staleGet } from '../utils/requestCache';
 import { schoolLocalDate } from '../utils/schoolDate';
 import useLiteMode from '../hooks/useLiteMode';
 import { useLivePoll } from '../hooks/useLivePoll';
+import { useAuth } from '../contexts/authcontext';
+import { downloadTermAttendancePdf } from '../utils/attendanceTermPdf';
 
 const fieldClass =
   'h-9 min-h-9 w-full rounded-lg border border-slate-600 bg-slate-900 px-2.5 text-sm text-white outline-none focus:ring-2 focus:ring-primary-500';
@@ -38,8 +40,89 @@ const getPunctuality = (record) =>
   (record.status === 'early' || record.status === 'late' ? record.status : null) ||
   'early';
 
+const personKey = (record) => `${record.user_type || 'student'}:${record.user_id || record.id}`;
+
+const TermRecords = ({ data, loading, schoolName, personName, personLabel, userType }) => {
+  if (loading && !data) {
+    return <p className="px-3 py-2 text-xs text-slate-400">Loading this term…</p>;
+  }
+  const records = data?.records || [];
+  return (
+    <div className="space-y-2 border-t border-slate-700 bg-slate-900/60 px-3 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-slate-400">
+          {data?.term?.name || 'Current term'}
+          {data?.summary
+            ? ` · ${data.summary.days} days · ${data.summary.early} early · ${data.summary.late} late`
+            : ''}
+        </p>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            try {
+              downloadTermAttendancePdf({
+                schoolName,
+                personName,
+                personLabel,
+                userType,
+                term: data?.term,
+                records,
+                summary: data?.summary,
+              });
+            } catch {
+              toast.error('Could not download this attendance record');
+            }
+          }}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-600 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-800"
+        >
+          <Download className="h-3.5 w-3.5" />
+          Download
+        </button>
+      </div>
+      {records.length === 0 ? (
+        <p className="text-xs text-slate-500">No records for this term yet.</p>
+      ) : (
+        <div className="max-h-56 overflow-y-auto rounded-lg border border-slate-800">
+          <table className="w-full text-left text-xs">
+            <thead className="sticky top-0 bg-slate-900 text-slate-400">
+              <tr>
+                <th className="px-2 py-1.5 font-medium">Date</th>
+                <th className="px-2 py-1.5 font-medium">Time</th>
+                <th className="px-2 py-1.5 font-medium">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {records.map((row) => {
+                const late = getPunctuality(row) === 'late';
+                return (
+                  <tr key={row.id || row.date} className="border-t border-slate-800">
+                    <td className="px-2 py-1 text-slate-200">
+                      {row.date ? format(new Date(`${row.date}T12:00:00`), 'EEE d MMM') : '—'}
+                    </td>
+                    <td className="px-2 py-1 tabular-nums text-slate-300">
+                      {row.timestamp ? format(new Date(row.timestamp), 'hh:mm a') : '—'}
+                    </td>
+                    <td className={`px-2 py-1 ${late ? 'text-amber-400' : 'text-emerald-400'}`}>
+                      {late ? 'Late' : 'Early'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const Attendance = () => {
+  const { school } = useAuth();
   const [attendanceRecords, setAttendanceRecords] = useState([]);
+  const [openKey, setOpenKey] = useState(null);
+  const [termCache, setTermCache] = useState({});
+  const [termLoading, setTermLoading] = useState(false);
   const [selectedDate, setSelectedDate] = useState(schoolLocalDate());
   const [selectedType, setSelectedType] = useState('all');
   const [selectedClass, setSelectedClass] = useState('all');
@@ -196,6 +279,28 @@ const Attendance = () => {
     fetchSummary({ silent: false });
   };
 
+  const togglePerson = async (record) => {
+    if (!record?.user_id) return;
+    const key = personKey(record);
+    if (openKey === key) {
+      setOpenKey(null);
+      return;
+    }
+    setOpenKey(key);
+    if (termCache[key]) return;
+    setTermLoading(true);
+    try {
+      const { data } = await axios.get(`/api/attendance/person/${record.user_id}`, {
+        params: { userType: record.user_type || 'student' },
+      });
+      setTermCache((prev) => ({ ...prev, [key]: data }));
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Could not load this term attendance');
+    } finally {
+      setTermLoading(false);
+    }
+  };
+
   const summaryItems = summary
     ? [
         { label: 'Students', data: summary.students },
@@ -326,22 +431,45 @@ const Attendance = () => {
         <div className="divide-y divide-slate-700 overflow-hidden rounded-xl border border-slate-700 bg-slate-800">
           {filteredRecords.map((record) => {
             const isLate = getPunctuality(record) === 'late';
+            const key = personKey(record);
+            const open = openKey === key;
             return (
-              <div key={record.id} className="flex items-center justify-between gap-3 px-3 py-2">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-white">{getPersonName(record)}</p>
-                  <p className="truncate text-xs text-slate-400">
-                    {record.user_type} · {getPersonLabel(record)}
-                  </p>
-                </div>
-                <div className="shrink-0 text-right">
-                  <p className="text-xs tabular-nums text-slate-300">
-                    {format(new Date(record.timestamp), 'hh:mm a')}
-                  </p>
-                  <p className={`text-xs ${isLate ? 'text-amber-400' : 'text-emerald-400'}`}>
-                    {isLate ? 'Late' : 'Early'}
-                  </p>
-                </div>
+              <div key={record.id}>
+                <button
+                  type="button"
+                  onClick={() => togglePerson(record)}
+                  className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-slate-700/40"
+                >
+                  {open ? (
+                    <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-white">{getPersonName(record)}</p>
+                    <p className="truncate text-xs text-slate-400">
+                      {record.user_type} · {getPersonLabel(record)}
+                    </p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="text-xs tabular-nums text-slate-300">
+                      {format(new Date(record.timestamp), 'hh:mm a')}
+                    </p>
+                    <p className={`text-xs ${isLate ? 'text-amber-400' : 'text-emerald-400'}`}>
+                      {isLate ? 'Late' : 'Early'}
+                    </p>
+                  </div>
+                </button>
+                {open ? (
+                  <TermRecords
+                    data={termCache[key]}
+                    loading={termLoading}
+                    schoolName={school?.name || 'School'}
+                    personName={getPersonName(record)}
+                    personLabel={getPersonLabel(record)}
+                    userType={record.user_type}
+                  />
+                ) : null}
               </div>
             );
           })}
@@ -362,29 +490,59 @@ const Attendance = () => {
               <tbody className="divide-y divide-slate-700/80">
                 {filteredRecords.map((record) => {
                   const isLate = getPunctuality(record) === 'late';
+                  const key = personKey(record);
+                  const open = openKey === key;
                   return (
-                    <tr key={record.id} className="hover:bg-slate-700/40">
-                      <td className="px-3 py-2 font-medium text-white">{getPersonName(record)}</td>
-                      <td className="px-3 py-2">
-                        <span className={`rounded-full px-2 py-0.5 text-[11px] capitalize ${typeBadge(record.user_type)}`}>
-                          {record.user_type}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2 text-slate-300">{getPersonLabel(record)}</td>
-                      <td className="px-3 py-2 tabular-nums text-slate-300">
-                        {format(new Date(record.timestamp), 'hh:mm a')}
-                      </td>
-                      <td className="px-3 py-2">
-                        <span
-                          className={`inline-flex items-center gap-1 text-xs font-medium ${
-                            isLate ? 'text-amber-400' : 'text-emerald-400'
-                          }`}
-                        >
-                          {isLate ? <AlertTriangle className="h-3.5 w-3.5" /> : <Clock className="h-3.5 w-3.5" />}
-                          {isLate ? 'Late' : 'Early'}
-                        </span>
-                      </td>
-                    </tr>
+                    <React.Fragment key={record.id}>
+                      <tr
+                        onClick={() => togglePerson(record)}
+                        className="cursor-pointer hover:bg-slate-700/40"
+                      >
+                        <td className="px-3 py-2 font-medium text-white">
+                          <span className="inline-flex items-center gap-2">
+                            {open ? (
+                              <ChevronDown className="h-4 w-4 text-slate-400" />
+                            ) : (
+                              <ChevronRight className="h-4 w-4 text-slate-400" />
+                            )}
+                            {getPersonName(record)}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2">
+                          <span className={`rounded-full px-2 py-0.5 text-[11px] capitalize ${typeBadge(record.user_type)}`}>
+                            {record.user_type}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 text-slate-300">{getPersonLabel(record)}</td>
+                        <td className="px-3 py-2 tabular-nums text-slate-300">
+                          {format(new Date(record.timestamp), 'hh:mm a')}
+                        </td>
+                        <td className="px-3 py-2">
+                          <span
+                            className={`inline-flex items-center gap-1 text-xs font-medium ${
+                              isLate ? 'text-amber-400' : 'text-emerald-400'
+                            }`}
+                          >
+                            {isLate ? <AlertTriangle className="h-3.5 w-3.5" /> : <Clock className="h-3.5 w-3.5" />}
+                            {isLate ? 'Late' : 'Early'}
+                          </span>
+                        </td>
+                      </tr>
+                      {open ? (
+                        <tr>
+                          <td colSpan={5} className="p-0">
+                            <TermRecords
+                              data={termCache[key]}
+                              loading={termLoading}
+                              schoolName={school?.name || 'School'}
+                              personName={getPersonName(record)}
+                              personLabel={getPersonLabel(record)}
+                              userType={record.user_type}
+                            />
+                          </td>
+                        </tr>
+                      ) : null}
+                    </React.Fragment>
                   );
                 })}
               </tbody>
@@ -394,22 +552,45 @@ const Attendance = () => {
           <div className="divide-y divide-slate-700 overflow-hidden rounded-xl border border-slate-700 bg-slate-800 md:hidden">
             {filteredRecords.map((record) => {
               const isLate = getPunctuality(record) === 'late';
+              const key = personKey(record);
+              const open = openKey === key;
               return (
-                <div key={record.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-white">{getPersonName(record)}</p>
-                    <p className="truncate text-xs text-slate-400">
-                      {record.user_type} · {getPersonLabel(record)}
-                    </p>
-                  </div>
-                  <div className="shrink-0 text-right">
-                    <p className="text-xs tabular-nums text-slate-300">
-                      {format(new Date(record.timestamp), 'hh:mm a')}
-                    </p>
-                    <p className={`text-xs font-medium ${isLate ? 'text-amber-400' : 'text-emerald-400'}`}>
-                      {isLate ? 'Late' : 'Early'}
-                    </p>
-                  </div>
+                <div key={record.id}>
+                  <button
+                    type="button"
+                    onClick={() => togglePerson(record)}
+                    className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left hover:bg-slate-700/40"
+                  >
+                    {open ? (
+                      <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                    ) : (
+                      <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-white">{getPersonName(record)}</p>
+                      <p className="truncate text-xs text-slate-400">
+                        {record.user_type} · {getPersonLabel(record)}
+                      </p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="text-xs tabular-nums text-slate-300">
+                        {format(new Date(record.timestamp), 'hh:mm a')}
+                      </p>
+                      <p className={`text-xs font-medium ${isLate ? 'text-amber-400' : 'text-emerald-400'}`}>
+                        {isLate ? 'Late' : 'Early'}
+                      </p>
+                    </div>
+                  </button>
+                  {open ? (
+                    <TermRecords
+                      data={termCache[key]}
+                      loading={termLoading}
+                      schoolName={school?.name || 'School'}
+                      personName={getPersonName(record)}
+                      personLabel={getPersonLabel(record)}
+                      userType={record.user_type}
+                    />
+                  ) : null}
                 </div>
               );
             })}
