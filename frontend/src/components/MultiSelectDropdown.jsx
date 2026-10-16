@@ -23,9 +23,11 @@ const MultiSelectDropdown = ({
   placeholder = 'Select…',
   emptyHint,
   compact = false,
+  exclude = [],
 }) => {
-  const selectedValues = uniqueValues(selected);
-  const optionValues = uniqueValues([...options, ...selectedValues]);
+  const excluded = new Set(uniqueValues(exclude).map((value) => value.toLowerCase()));
+  const selectedValues = uniqueValues(selected).filter((value) => !excluded.has(value.toLowerCase()));
+  const optionValues = uniqueValues(options).filter((value) => !excluded.has(value.toLowerCase()));
   const available = optionValues.filter(
     (value) => !selectedValues.some((item) => item.toLowerCase() === value.toLowerCase())
   );

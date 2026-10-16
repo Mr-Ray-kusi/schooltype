@@ -21,16 +21,31 @@ const parseCsvList = (value) => {
     .filter(Boolean);
 };
 
-const coreNames = (list) =>
-  (list || []).filter((item) => item?.is_core).map((item) => item.name).filter(Boolean);
-
-const electiveNames = (list) =>
-  (list || []).filter((item) => !item?.is_core).map((item) => item.name).filter(Boolean);
-
-const withoutCores = (selected, cores) => {
-  const coreSet = new Set((cores || []).map((name) => String(name).toLowerCase()));
-  return (selected || []).filter((name) => !coreSet.has(String(name).toLowerCase()));
+const uniqueLabels = (values) => {
+  const seen = new Set();
+  const out = [];
+  for (const value of values || []) {
+    const name = String(value || '').trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(name);
+  }
+  return out;
 };
+
+const coreNames = (list) =>
+  uniqueLabels((list || []).filter((item) => item?.is_core).map((item) => item.name));
+
+const matchesCore = (name, cores) => {
+  const key = String(name || '').trim().toLowerCase();
+  if (!key) return false;
+  return (cores || []).some((item) => String(item || '').trim().toLowerCase() === key);
+};
+
+const withoutCores = (selected, cores) =>
+  (selected || []).filter((name) => !matchesCore(name, cores));
 
 const emptySubjectRow = () => ({ name: '', core: false });
 
@@ -60,6 +75,7 @@ const Setup = () => {
   const [logoDraft, setLogoDraft] = useState(null);
   const [savingLogo, setSavingLogo] = useState(false);
   const [subjects, setSubjects] = useState([]);
+  const [coreLabels, setCoreLabels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [classCount, setClassCount] = useState(1);
   const [classRows, setClassRows] = useState([emptyClassRow()]);
@@ -96,6 +112,7 @@ const Setup = () => {
         nextSubjects[item.id] = { name: item.name || '', core: Boolean(item.is_core) };
       }
       setSubjectDrafts(nextSubjects);
+      setCoreLabels((prev) => uniqueLabels([...prev, ...cores]));
     };
     const cachedClasses = peekCache('classes');
     const cachedSubjects = peekCache('subjects');
@@ -280,14 +297,28 @@ const Setup = () => {
     }
     setSavingSubjects(true);
     try {
+      const created = [];
       for (const row of toSave) {
-        await axios.post('/api/subjects', { name: row.name.trim(), is_core: Boolean(row.core) });
+        const isCore = Boolean(row.core);
+        const { data } = await axios.post('/api/subjects', { name: row.name.trim(), is_core: isCore });
+        created.push({ ...data, name: row.name.trim(), is_core: isCore || Boolean(data?.is_core) });
       }
+      setCoreLabels((prev) =>
+        uniqueLabels([...prev, ...created.filter((item) => item.is_core).map((item) => item.name)])
+      );
       invalidateCache('subjects');
       setSubjectRows([emptySubjectRow()]);
       setSubjectCount(1);
       toast.success('Subjects saved');
       await load();
+      setSubjects((prev) => {
+        const byId = new Map(created.filter((item) => item.id).map((item) => [item.id, item]));
+        return (prev || []).map((item) => {
+          const match = byId.get(item.id);
+          if (!match) return item;
+          return { ...item, is_core: Boolean(item.is_core || match.is_core) };
+        });
+      });
     } catch (error) {
       if (!error.offlineQueued && error.response) {
         toast.error(error.response?.data?.error || 'Failed to save subjects');
@@ -348,10 +379,7 @@ const Setup = () => {
           const draft = subjectDrafts[item.id] || {};
           const name = String(draft.name ?? item.name ?? '').trim();
           if (!name) throw new Error('Subject name is required');
-          return axios.put(`/api/subjects/${item.id}`, {
-            name,
-            is_core: Boolean(draft.core),
-          });
+          return axios.put(`/api/subjects/${item.id}`, { name });
         })
       );
       invalidateCache('subjects');
@@ -386,8 +414,12 @@ const Setup = () => {
 
   const deleteSubject = async (id) => {
     if (!window.confirm('Delete this subject?')) return;
+    const removed = subjects.find((item) => item.id === id);
     try {
       await axios.delete(`/api/subjects/${id}`);
+      if (removed?.name) {
+        setCoreLabels((prev) => prev.filter((name) => !matchesCore(name, [removed.name])));
+      }
       invalidateCache('subjects');
       load();
     } catch (error) {
@@ -397,8 +429,12 @@ const Setup = () => {
     }
   };
 
-  const coreSubjectNames = coreNames(subjects);
-  const otherSubjectNames = electiveNames(subjects);
+  const coreSubjectNames = uniqueLabels([...coreLabels, ...coreNames(subjects)]);
+  const otherSubjectNames = uniqueLabels(
+    (subjects || [])
+      .filter((item) => !matchesCore(item.name, coreSubjectNames))
+      .map((item) => item.name)
+  );
 
   if (loading && classes.length === 0 && subjects.length === 0) {
     return <div className="py-8 text-center text-sm text-slate-300">Loading setup…</div>;
@@ -604,10 +640,11 @@ const Setup = () => {
                   compact
                   label="Other subjects"
                   options={otherSubjectNames}
+                  exclude={coreSubjectNames}
                   selected={withoutCores(row.subjects || [], coreSubjectNames)}
                   onChange={(selected) => {
                     const next = [...classRows];
-                    next[index] = { ...next[index], subjects: selected };
+                    next[index] = { ...next[index], subjects: withoutCores(selected, coreSubjectNames) };
                     setClassRows(next);
                   }}
                   placeholder="Add for this class"
@@ -686,11 +723,12 @@ const Setup = () => {
                       compact
                       label="Other subjects"
                       options={otherSubjectNames}
+                      exclude={coreSubjectNames}
                       selected={withoutCores(draft.subjects || [], coreSubjectNames)}
                       onChange={(selected) =>
                         setClassDrafts((prev) => ({
                           ...prev,
-                          [item.id]: { ...draft, subjects: selected },
+                          [item.id]: { ...draft, subjects: withoutCores(selected, coreSubjectNames) },
                         }))
                       }
                       placeholder="Add for this class"
@@ -803,12 +841,23 @@ const Setup = () => {
         ) : (
           <>
             <ul className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-              {subjects.map((item) => {
+              {[...subjects]
+                .sort((left, right) => {
+                  const leftCore = matchesCore(left.name, coreSubjectNames) || Boolean(left.is_core);
+                  const rightCore = matchesCore(right.name, coreSubjectNames) || Boolean(right.is_core);
+                  return Number(rightCore) - Number(leftCore);
+                })
+                .map((item) => {
                 const draft = subjectDrafts[item.id] || { name: item.name, core: Boolean(item.is_core) };
+                const isCore = Boolean(item.is_core) || Boolean(draft.core) || matchesCore(draft.name || item.name, coreSubjectNames);
                 return (
                   <li
                     key={item.id}
-                    className="flex min-w-0 items-center gap-1 rounded-md bg-slate-800/70 px-2 py-1"
+                    className={
+                      isCore
+                        ? 'flex min-w-0 items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-1'
+                        : 'flex min-w-0 items-center gap-1 rounded-md bg-slate-800/70 px-2 py-1'
+                    }
                   >
                     <input
                       type="text"
@@ -822,16 +871,11 @@ const Setup = () => {
                       className={`${fieldClass} min-w-0 flex-1 px-2 py-1 text-xs`}
                       aria-label={`Edit ${item.name}`}
                     />
-                    <CoreCheck
-                      id={`subject-core-${item.id}`}
-                      checked={draft.core}
-                      onChange={(core) =>
-                        setSubjectDrafts((prev) => ({
-                          ...prev,
-                          [item.id]: { ...draft, core },
-                        }))
-                      }
-                    />
+                    {isCore ? (
+                      <span className="shrink-0 rounded-full bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-medium text-emerald-200">
+                        Core
+                      </span>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => deleteSubject(item.id)}
