@@ -65,13 +65,6 @@ const CoreCheck = ({ checked, onChange, id }) => (
     Core
   </label>
 );
-const emptyTermRow = (index) => ({
-  id: '',
-  name: TERM_NAMES[index] || `Term ${index + 1}`,
-  starts_on: '',
-  ends_on: '',
-});
-
 const Setup = () => {
   const { school, persistSchool } = useAuth();
   const [classes, setClasses] = useState([]);
@@ -89,10 +82,10 @@ const Setup = () => {
   const [classPage, setClassPage] = useState(1);
   const [subjectDrafts, setSubjectDrafts] = useState({});
   const [savingSubjectsEdit, setSavingSubjectsEdit] = useState(false);
-  const [termCount, setTermCount] = useState(2);
-  const [termRows, setTermRows] = useState([emptyTermRow(0), emptyTermRow(1)]);
+  const [termRows, setTermRows] = useState([]);
   const [currentTerm, setCurrentTerm] = useState(null);
   const [savingTerms, setSavingTerms] = useState(false);
+  const [termModal, setTermModal] = useState(null);
 
   const load = async () => {
     const apply = ([classData, subjectData]) => {
@@ -119,18 +112,7 @@ const Setup = () => {
         axios.get('/api/academic-terms').then(({ data }) => data).catch(() => ({ terms: [], current: null })),
       ]);
       apply([classData, subjectData]);
-      const saved = termData?.terms || [];
-      if (saved.length) {
-        setTermCount(saved.length);
-        setTermRows(
-          saved.map((term, index) => ({
-            id: term.id,
-            name: term.name || TERM_NAMES[index] || `Term ${index + 1}`,
-            starts_on: term.starts_on || '',
-            ends_on: term.ends_on || '',
-          }))
-        );
-      }
+      applyTerms(termData?.terms || []);
       setCurrentTerm(termData?.current || null);
     } catch (error) {
       if (error.response) toast.error(error.response?.data?.error || 'Failed to load setup');
@@ -196,49 +178,100 @@ const Setup = () => {
     });
   }, [subjectCount]);
 
-  useEffect(() => {
-    setTermRows((rows) => {
-      const next = rows.slice(0, termCount);
-      while (next.length < termCount) next.push(emptyTermRow(next.length));
-      return next;
-    });
-  }, [termCount]);
+  const applyTerms = (saved) => {
+    setTermRows(
+      (saved || []).map((term, index) => ({
+        id: term.id || '',
+        name: term.name || TERM_NAMES[index] || `Term ${index + 1}`,
+        starts_on: term.starts_on || '',
+        ends_on: term.ends_on || '',
+      }))
+    );
+  };
 
-  const saveTerms = async () => {
-    const toSave = termRows.filter((row) => row.name.trim());
-    if (!toSave.length) {
-      toast.error('Add at least one term name.');
-      return;
-    }
+  const persistTerms = async (rows, successMessage) => {
+    const toSave = (rows || []).filter((row) => String(row.name || '').trim());
     setSavingTerms(true);
     try {
       const { data } = await axios.put('/api/academic-terms', {
         terms: toSave.map((row) => ({
           id: row.id || undefined,
-          name: row.name.trim(),
+          name: String(row.name || '').trim(),
           starts_on: row.starts_on || null,
           ends_on: row.ends_on || null,
         })),
       });
-      const saved = data.terms || [];
-      setTermCount(saved.length || toSave.length);
-      setTermRows(
-        (saved.length ? saved : toSave).map((term, index) => ({
-          id: term.id || '',
-          name: term.name || TERM_NAMES[index],
-          starts_on: term.starts_on || '',
-          ends_on: term.ends_on || '',
-        }))
-      );
+      applyTerms(data.terms || toSave);
       setCurrentTerm(data.current || null);
-      toast.success('Academic terms saved');
+      toast.success(successMessage || 'Academic terms saved');
+      return true;
     } catch (error) {
       if (!error.offlineQueued && error.response) {
         toast.error(error.response?.data?.error || 'Failed to save terms');
       }
+      return false;
     } finally {
       setSavingTerms(false);
     }
+  };
+
+  const openAddTerm = () => {
+    if (termRows.length >= 4) {
+      toast.error('You can add up to 4 terms.');
+      return;
+    }
+    setTermModal({
+      mode: 'add',
+      id: '',
+      name: TERM_NAMES[termRows.length] || `Term ${termRows.length + 1}`,
+      starts_on: '',
+      ends_on: '',
+    });
+  };
+
+  const openTerm = (row, index) => {
+    setTermModal({
+      mode: 'edit',
+      index,
+      id: row.id || '',
+      name: row.name || '',
+      starts_on: row.starts_on || '',
+      ends_on: row.ends_on || '',
+    });
+  };
+
+  const saveTermModal = async (e) => {
+    e.preventDefault();
+    if (!termModal) return;
+    const name = String(termModal.name || '').trim();
+    if (!name) {
+      toast.error('Term name is required');
+      return;
+    }
+    const updated = {
+      id: termModal.id || '',
+      name,
+      starts_on: termModal.starts_on,
+      ends_on: termModal.ends_on,
+    };
+    const next =
+      termModal.mode === 'edit'
+        ? termRows.map((row, index) =>
+            (termModal.id && row.id === termModal.id) || index === termModal.index ? { ...row, ...updated } : row
+          )
+        : [...termRows, updated];
+    const ok = await persistTerms(next, termModal.mode === 'edit' ? 'Term updated' : 'Term added');
+    if (ok) setTermModal(null);
+  };
+
+  const deleteTerm = async () => {
+    if (!termModal || termModal.mode !== 'edit') return;
+    if (!window.confirm('Delete this term?')) return;
+    const next = termRows.filter((row, index) =>
+      termModal.id ? row.id !== termModal.id : index !== termModal.index
+    );
+    const ok = await persistTerms(next, 'Term deleted');
+    if (ok) setTermModal(null);
   };
 
   const openAddClass = () => {
@@ -270,7 +303,10 @@ const Setup = () => {
       name,
       capacity: classModal.capacity === '' || classModal.capacity == null ? null : Number(classModal.capacity),
       fee_amount: Number.isFinite(feeAmount) && feeAmount >= 0 ? feeAmount : 0,
-      subjects: withoutCores(classModal.subjects || [], coreSubjectNames),
+      subjects: uniqueLabels([
+        ...coreSubjectNames,
+        ...withoutCores(classModal.subjects || [], coreSubjectNames),
+      ]),
     };
     setSavingClass(true);
     try {
@@ -470,84 +506,52 @@ const Setup = () => {
             <Calendar className="h-4 w-4 text-sky-300" />
             <h2 className="text-sm font-semibold text-white">Academic terms</h2>
           </div>
-          {currentTerm?.name ? (
-            <p className="text-xs text-slate-400">
-              Current: <span className="text-sky-200">{currentTerm.name}</span>
-            </p>
-          ) : null}
+          <div className="flex flex-wrap items-center gap-2">
+            {currentTerm?.name ? (
+              <p className="text-xs text-slate-400">
+                Current: <span className="text-sky-200">{currentTerm.name}</span>
+              </p>
+            ) : null}
+            <button
+              type="button"
+              onClick={openAddTerm}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-sky-500 px-3 py-1.5 text-sm font-semibold text-white hover:bg-sky-400"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add Terms
+            </button>
+          </div>
         </div>
-        <div className="mb-3 max-w-[11rem]">
-          <label className="mb-1 block text-xs font-medium text-slate-300">Number of terms</label>
-          <input
-            type="number"
-            min="1"
-            max="4"
-            value={termCount}
-            onChange={(e) => setTermCount(Math.max(1, Math.min(4, Number(e.target.value) || 1)))}
-            className={fieldClass}
-          />
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[520px] text-left text-sm">
-            <thead className="text-xs uppercase tracking-wide text-slate-500">
-              <tr>
-                <th className="pb-2 pr-2 font-medium">Term</th>
-                <th className="pb-2 pr-2 font-medium">Starts</th>
-                <th className="pb-2 font-medium">Ends</th>
-              </tr>
-            </thead>
-            <tbody>
-              {termRows.map((row, index) => (
-                <tr key={row.id || index}>
-                  <td className="py-1 pr-2">
-                    <input
-                      className={fieldClass}
-                      value={row.name}
-                      onChange={(e) => {
-                        const next = [...termRows];
-                        next[index] = { ...next[index], name: e.target.value };
-                        setTermRows(next);
-                      }}
-                    />
-                  </td>
-                  <td className="py-1 pr-2">
-                    <input
-                      type="date"
-                      className={fieldClass}
-                      value={row.starts_on}
-                      onChange={(e) => {
-                        const next = [...termRows];
-                        next[index] = { ...next[index], starts_on: e.target.value };
-                        setTermRows(next);
-                      }}
-                    />
-                  </td>
-                  <td className="py-1">
-                    <input
-                      type="date"
-                      className={fieldClass}
-                      value={row.ends_on}
-                      onChange={(e) => {
-                        const next = [...termRows];
-                        next[index] = { ...next[index], ends_on: e.target.value };
-                        setTermRows(next);
-                      }}
-                    />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <button
-          type="button"
-          onClick={saveTerms}
-          disabled={savingTerms}
-          className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-sky-500 px-3 py-1.5 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-50"
-        >
-          <Save className="h-3.5 w-3.5" />
-          {savingTerms ? 'Saving…' : 'Save terms'}
-        </button>
+
+        {termRows.length ? (
+          <div className="space-y-3">
+            <p className="text-xs text-slate-500">Click a term to edit its name and dates.</p>
+            <PersonRecordTable
+              compact
+              minWidth="420px"
+              rows={termRows.map((row, index) => ({ ...row, id: row.id || `term-${index}` }))}
+              onSelect={(row) => {
+                const index = termRows.findIndex((item, i) => (item.id && item.id === row.id) || `term-${i}` === row.id);
+                openTerm(termRows[index] || row, index < 0 ? 0 : index);
+              }}
+              columns={[
+                { key: 'name', header: 'Term' },
+                {
+                  key: 'starts_on',
+                  header: 'Starts',
+                  render: (row) => row.starts_on || '—',
+                },
+                {
+                  key: 'ends_on',
+                  header: 'Ends',
+                  render: (row) => row.ends_on || '—',
+                },
+              ]}
+            />
+          </div>
+        ) : (
+          <p className="mt-3 text-xs text-slate-500">No terms yet.</p>
+        )}
       </section>
 
       <section className="rounded-2xl border border-slate-700/80 bg-slate-900/50 p-4">
@@ -751,6 +755,92 @@ const Setup = () => {
         )}
       </section>
 
+      {termModal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-slate-700 bg-slate-900 p-6 shadow-2xl shadow-black/40 md:p-8">
+            <div className="mb-6 flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300/90">Academic year</p>
+                <h2 className="mt-2 text-2xl font-bold tracking-tight text-white">
+                  {termModal.mode === 'edit' ? 'Edit term' : 'Add new term'}
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setTermModal(null)}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <form onSubmit={saveTermModal} className="space-y-5">
+              <section className="space-y-4">
+                <h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Term details</h3>
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-slate-200">
+                    Term name <span className="text-sky-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={termModal.name}
+                    onChange={(e) => setTermModal({ ...termModal, name: e.target.value })}
+                    className={fieldClass}
+                    placeholder="e.g. First Term"
+                    required
+                  />
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1.5 block text-sm font-medium text-slate-200">Starts</label>
+                    <input
+                      type="date"
+                      value={termModal.starts_on}
+                      onChange={(e) => setTermModal({ ...termModal, starts_on: e.target.value })}
+                      className={fieldClass}
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-sm font-medium text-slate-200">Ends</label>
+                    <input
+                      type="date"
+                      value={termModal.ends_on}
+                      onChange={(e) => setTermModal({ ...termModal, ends_on: e.target.value })}
+                      className={fieldClass}
+                    />
+                  </div>
+                </div>
+              </section>
+              <div className="flex flex-wrap gap-2 pt-1">
+                <button
+                  type="submit"
+                  disabled={savingTerms}
+                  className="flex-1 rounded-xl bg-sky-500 px-4 py-3 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-50"
+                >
+                  {savingTerms ? 'Saving…' : termModal.mode === 'edit' ? 'Save term' : 'Add term'}
+                </button>
+                {termModal.mode === 'edit' ? (
+                  <button
+                    type="button"
+                    onClick={deleteTerm}
+                    className="rounded-xl bg-red-500/15 px-4 py-3 text-sm font-medium text-red-300 hover:bg-red-500/25"
+                  >
+                    Delete
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => setTermModal(null)}
+                  className="flex-1 rounded-xl bg-slate-700 px-4 py-3 text-sm text-slate-100 hover:bg-slate-600"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
       {classModal ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
           <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-slate-700 bg-slate-900 p-6 shadow-2xl shadow-black/40 md:p-8">
@@ -821,11 +911,21 @@ const Setup = () => {
                   Subjects
                 </h3>
                 {coreSubjectNames.length ? (
-                  <p className="text-sm text-slate-400">
-                    Core for every class: <span className="text-sky-200">{coreSubjectNames.join(', ')}</span>
-                  </p>
+                  <div>
+                    <p className="mb-1.5 text-sm font-medium text-slate-200">Core subjects (auto added)</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {coreSubjectNames.map((name) => (
+                        <span
+                          key={name}
+                          className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-xs text-emerald-200"
+                        >
+                          {name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
                 ) : (
-                  <p className="text-sm text-slate-500">Mark core subjects below if every class takes them.</p>
+                  <p className="text-sm text-slate-500">Mark a subject as Core below and it is added to every class automatically.</p>
                 )}
                 <MultiSelectDropdown
                   label="Other subjects"
@@ -838,7 +938,7 @@ const Setup = () => {
                       subjects: withoutCores(selected, coreSubjectNames),
                     })
                   }
-                  placeholder="Select a subject for this class"
+                  placeholder="Add other subjects only"
                   emptyHint="Add other subjects in Setup first."
                 />
               </section>

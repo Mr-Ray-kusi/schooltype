@@ -1,16 +1,15 @@
 /**
  * Read Ghana-style class names and rank them so the last class in a track
- * is the completing class (KG → Primary → JHS → SHS, or Class 1…N).
+ * is the completing class (Nursery → KG → Primary/Class 1…N → JHS → SHS).
  */
 
 const TRACK_ORDER = {
-  creche: 1,
-  nursery: 2,
-  kg: 3,
-  primary: 4,
-  jhs: 5,
-  shs: 6,
-  other: 7,
+  nursery: 1,
+  kg: 2,
+  primary: 3,
+  jhs: 4,
+  shs: 5,
+  other: 6,
 };
 
 function digitsIn(text) {
@@ -23,13 +22,10 @@ export function parseClassName(name, form) {
   const n = raw.toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ');
   const formLevel = Number(form);
 
-  if (/(creche|crèche|daycare|day care)/.test(n)) {
-    return { name: raw, track: 'creche', level: digitsIn(n) || 1 };
-  }
-  if (/(nursery|pre school|preschool|playgroup|play group)/.test(n)) {
+  if (/(creche|crèche|daycare|day care|nurs(?:e|o)ry|nursary|nursory|\bnur\b|pre school|preschool|playgroup|play group)/.test(n)) {
     return { name: raw, track: 'nursery', level: digitsIn(n) || 1 };
   }
-  if (/(kindergarten|\bkg\b|k\.g)/.test(n)) {
+  if (/(kindergarten|k\s*\.?\s*g\b)/.test(n)) {
     return { name: raw, track: 'kg', level: digitsIn(n) || 1 };
   }
   if (/\b(jhs|jss|jh|j h s|junior(?: high)?)\b/.test(n) || /\bbasic\s*(7|8|9)\b/.test(n)) {
