@@ -85,6 +85,7 @@ import {
   cancelSignupCharge,
 } from './schoolSignupPayment.js';
 import { getFeeOverviewPayload, registerFeeRoutes, registerStaffFeeRoutes } from './feeRoutes.js';
+import { registerAlumniRoutes } from './alumniRoutes.js';
 import { initPlatformSmsStore, claimDemoMoneyReset, getSchoolSmsBalance, resetSmsInventoryToZero } from './platformSmsStore.js';
 import { registerSmsBillingRoutes, settleSmsPayment, refundSchoolAndPlatformUnits, findPlatformSchoolId } from './smsBilling.js';
 import { sendSmsBatch, getSmsProviderStatus, attachFeePayLink, toE164 } from './smsProvider.js';
@@ -313,20 +314,26 @@ const selectSchoolById = async (id, columns) => {
   return { data: null, error: { message: 'Failed to load school' } };
 };
 
-const queryPagedRows = async (table, { schoolId, from, to, q, orFilter, columns, includePhotos, eqFilters }) => {
+const queryPagedRows = async (table, { schoolId, from, to, q, orFilter, columns, includePhotos, eqFilters, isNullFilters }) => {
   const selectColumns = includePhotos ? `${columns}, photo_url` : columns;
-  const applyFilters = (query) => {
+  const applyFilters = (query, skipNulls = false) => {
     let next = query.eq('school_id', schoolId).order('created_at', { ascending: false }).range(from, to);
     if (eqFilters) {
       for (const [key, value] of Object.entries(eqFilters)) {
         if (value) next = next.eq(key, value);
       }
     }
+    if (!skipNulls && isNullFilters) {
+      for (const key of isNullFilters) next = next.is(key, null);
+    }
     if (q && orFilter) next = next.or(orFilter);
     return next;
   };
 
   let result = await applyFilters(supabase.from(table).select(selectColumns, { count: 'exact' }));
+  if (result.error && isNullFilters?.some((column) => isMissingColumnError(result.error, column))) {
+    result = await applyFilters(supabase.from(table).select(selectColumns, { count: 'exact' }), true);
+  }
   if (result.error) {
     result = await applyFilters(supabase.from(table).select('*', { count: 'exact' }));
   }
@@ -2911,6 +2918,7 @@ registerWalletRoutes(app, {
   onSchoolCheckoutPaid: fulfillSchoolCheckout,
 });
 registerFeeRoutes(app, { authenticateToken, enforcePlanApproval });
+registerAlumniRoutes(app, { authenticateToken, enforcePlanApproval });
 registerSmsBillingRoutes(app, {
   authenticateToken,
   enforcePlanApproval,
@@ -3082,6 +3090,7 @@ app.get('/api/students', authenticateToken, enforcePlanApproval, async (req, res
       columns: STUDENT_LIST_COLUMNS,
       includePhotos,
       eqFilters: classFilter && classFilter !== 'all' ? { class: classFilter } : undefined,
+      isNullFilters: ['alumni_year'],
     });
     if (error) throw error;
     paginatedJson(res, includePhotos ? mergeStudentPhotos(students) : students, count, page, limit);
@@ -5626,7 +5635,15 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
 
     const [students, staff, nonStaff, messages, attStudents, attStaff, attNonStaff, classes, reportCards, feeGlance, wallet, sms] =
       await Promise.all([
-        supabase.from('students').select('id', { count: 'exact', head: true }).eq('school_id', schoolId),
+        (async () => {
+          const first = await supabase
+            .from('students')
+            .select('id', { count: 'exact', head: true })
+            .eq('school_id', schoolId)
+            .is('alumni_year', null);
+          if (!first.error) return first;
+          return supabase.from('students').select('id', { count: 'exact', head: true }).eq('school_id', schoolId);
+        })(),
         supabase.from('staffs').select('id', { count: 'exact', head: true }).eq('school_id', schoolId),
         supabase.from('nonstaffs').select('id', { count: 'exact', head: true }).eq('school_id', schoolId),
         supabase

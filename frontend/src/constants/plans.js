@@ -141,6 +141,7 @@ export const FEATURE_LABELS = {
 export const ROUTE_FEATURE_MAP = {
   '/dashboard': 'dashboard',
   '/students': 'students',
+  '/alumni': 'students',
   '/staff': 'staff',
   '/non-staff': 'non-staff',
   '/attendance': 'attendance',

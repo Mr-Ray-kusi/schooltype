@@ -39,6 +39,7 @@ const SuperAdminSms = lazyWithRetry(() => import('./pages/super-admin-sms'));
 const SuperAdminMonitor = lazyWithRetry(() => import('./pages/super-admin-monitor'));
 const SuperAdminAnalytics = lazyWithRetry(() => import('./pages/super-admin-analytics'));
 const Notifications = lazyWithRetry(() => import('./pages/notifications'));
+const Alumni = lazyWithRetry(() => import('./pages/alumni'));
 
 const LoadingScreen = () => (
   <div className="flex items-center justify-center h-screen bg-slate-900 text-slate-300">Loading...</div>
@@ -138,6 +139,7 @@ function App() {
                   <Route path="/notifications" element={<Notifications />} />
                   <Route element={<PlanFeatureRoute feature="students" />}>
                     <Route path="/students" element={<Students />} />
+                    <Route path="/alumni" element={<Alumni />} />
                   </Route>
                   <Route element={<PlanFeatureRoute features={['staff', 'non-staff']} />}>
                     <Route path="/staff" element={<Staff />} />

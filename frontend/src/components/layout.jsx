@@ -24,6 +24,7 @@ import {
   ClipboardList,
   Bell,
   Activity,
+  GraduationCap,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import axios from 'axios';
@@ -127,6 +128,7 @@ const Layout = ({ children }) => {
       title: 'Result',
       items: [
         { name: 'Report Cards', href: '/report-cards', icon: FileText, featureKey: 'report-cards' },
+        { name: 'Alumni Status', href: '/alumni', icon: GraduationCap, featureKey: 'students' },
       ],
     },
     {
