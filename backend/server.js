@@ -88,6 +88,7 @@ import { getFeeOverviewPayload, registerFeeRoutes, registerStaffFeeRoutes } from
 import { registerAlumniRoutes } from './alumniRoutes.js';
 import { applyTermPromotion } from './studentPromotion.js';
 import { sortClasses } from './classHierarchy.js';
+import { listAcademicTerms } from './academicTerms.js';
 import { initPlatformSmsStore, claimDemoMoneyReset, getSchoolSmsBalance, resetSmsInventoryToZero } from './platformSmsStore.js';
 import { registerSmsBillingRoutes, settleSmsPayment, refundSchoolAndPlatformUnits, findPlatformSchoolId } from './smsBilling.js';
 import { sendSmsBatch, getSmsProviderStatus, attachFeePayLink, toE164 } from './smsProvider.js';
@@ -2442,6 +2443,104 @@ const getSchoolLateAfterTime = async (schoolId) => {
   return normalizeLateAfterTime(merged.late_after_time);
 };
 
+const isSchoolWeekday = (ymd) => {
+  const sample = new Date(`${ymd}T12:00:00.000Z`);
+  if (Number.isNaN(sample.getTime())) return false;
+  const weekday = new Intl.DateTimeFormat('en-US', {
+    timeZone: ATTENDANCE_TIMEZONE,
+    weekday: 'short',
+  }).format(sample);
+  return weekday !== 'Sat' && weekday !== 'Sun';
+};
+
+const dateInAcademicTerm = (ymd, terms) =>
+  (terms || []).some((term) => {
+    const start = String(term?.starts_on || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || ymd < start) return false;
+    const end = String(term?.ends_on || '').slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(end) && ymd > end) return false;
+    return true;
+  });
+
+const lateCutoffReached = (ymd, lateAfterTime, now = new Date()) => {
+  const today = schoolLocalDate(now);
+  if (ymd > today) return false;
+  if (ymd < today) return true;
+  return getAttendancePunctuality(now, lateAfterTime) === 'late';
+};
+
+const loadEnrolledStudents = async (schoolId) => {
+  let { data, error } = await supabase
+    .from('students')
+    .select('id, name, class, alumni_year')
+    .eq('school_id', schoolId);
+  if (error && (isMissingColumnError(error, 'alumni_year') || String(error.message || '').includes('alumni_year'))) {
+    const retry = await supabase.from('students').select('id, name, class').eq('school_id', schoolId);
+    data = retry.data;
+    error = retry.error;
+  }
+  if (error || !data?.length) return [];
+  return data.filter((row) => row.alumni_year == null || Number(row.alumni_year) <= 0);
+};
+
+const ensureUnscannedStudentsMarkedLate = async (schoolId, ymd) => {
+  const date = String(ymd || '').slice(0, 10);
+  if (!schoolId || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !isSchoolWeekday(date)) return 0;
+
+  const terms = await listAcademicTerms(schoolId).catch(() => []);
+  if (!dateInAcademicTerm(date, terms)) return 0;
+
+  const lateAfterTime = await getSchoolLateAfterTime(schoolId);
+  if (!lateCutoffReached(date, lateAfterTime)) return 0;
+
+  const [students, markedRes] = await Promise.all([
+    loadEnrolledStudents(schoolId),
+    supabase
+      .from('attendance')
+      .select('user_id')
+      .eq('school_id', schoolId)
+      .eq('date', date)
+      .eq('user_type', 'student'),
+  ]);
+  if (!students.length) return 0;
+
+  const marked = new Set((markedRes.data || []).map((row) => row.user_id));
+  const missing = students.filter((row) => row.id && !marked.has(row.id));
+  if (!missing.length) return 0;
+
+  const stamp = `${date}T${lateAfterTime}:00.000Z`;
+  const rows = missing.map((student) => ({
+    school_id: schoolId,
+    user_type: 'student',
+    user_id: student.id,
+    date,
+    timestamp: stamp,
+    status: 'late',
+    user_name: student.name || null,
+    user_label: student.class || null,
+  }));
+
+  let inserted = 0;
+  for (let i = 0; i < rows.length; i += 80) {
+    const chunk = rows.slice(i, i + 80);
+    let { data, error } = await supabase.from('attendance').insert(chunk).select('id');
+    if (error && (isMissingColumnError(error, 'user_name') || isMissingColumnError(error, 'user_label'))) {
+      const stripped = chunk.map(({ user_name, user_label, ...rest }) => rest);
+      const retry = await supabase.from('attendance').insert(stripped).select('id');
+      data = retry.data;
+      error = retry.error;
+    }
+    if (error) {
+      console.warn('Auto-late attendance insert failed:', error.message);
+      continue;
+    }
+    inserted += (data || []).length || chunk.length;
+  }
+
+  if (inserted) bumpSchoolCaches(schoolId);
+  return inserted;
+};
+
 // Platform-wide monitoring for super admin
 app.get('/api/super-admin/monitor', authenticateToken, requireSuperAdmin, async (req, res) => {
   try {
@@ -4201,7 +4300,7 @@ const markAttendanceForSchool = async (schoolId, attendanceCode) => {
 
   const { data: existingAttendance } = await supabase
     .from('attendance')
-    .select('id')
+    .select('id, status')
     .eq('school_id', schoolId)
     .eq('user_type', userType)
     .eq('user_id', userId)
@@ -4209,6 +4308,32 @@ const markAttendanceForSchool = async (schoolId, attendanceCode) => {
     .maybeSingle();
 
   if (existingAttendance) {
+    if (userType === 'student' && String(existingAttendance.status || '').toLowerCase() === 'late') {
+      const updates = { timestamp: now.toISOString(), status: punctuality, user_name: userName || null, user_label: userLabel || null };
+      let { error: updateError } = await supabase
+        .from('attendance')
+        .update(updates)
+        .eq('id', existingAttendance.id)
+        .eq('school_id', schoolId);
+      if (updateError && (isMissingColumnError(updateError, 'user_name') || isMissingColumnError(updateError, 'user_label'))) {
+        delete updates.user_name;
+        delete updates.user_label;
+        const retry = await supabase
+          .from('attendance')
+          .update(updates)
+          .eq('id', existingAttendance.id)
+          .eq('school_id', schoolId);
+        updateError = retry.error;
+      }
+      if (!updateError) {
+        bumpSchoolCaches(schoolId);
+        return {
+          message: `Attendance marked for ${userName} (${punctuality === 'late' ? 'Late' : 'Early'})`,
+          attendance: { ...existingAttendance, ...updates },
+          user: identity,
+        };
+      }
+    }
     const err = new Error('Attendance already marked for today');
     err.status = 400;
     err.user = identity;
@@ -5222,6 +5347,10 @@ app.post('/api/attendance/mark', authenticateToken, enforcePlanApproval, async (
 app.get('/api/attendance', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
     const { date, type } = req.query;
+    const today = schoolLocalDate();
+    const selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(String(date || '')) ? date : today;
+    await ensureUnscannedStudentsMarkedLate(req.user.schoolId, selectedDate);
+
     let query = supabase
       .from('attendance')
       .select('*')
@@ -5273,9 +5402,10 @@ app.get('/api/attendance/summary', authenticateToken, enforcePlanApproval, async
     const today = schoolLocalDate();
     const requestedDate = req.query.date || today;
     const selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) ? requestedDate : today;
+    const filled = await ensureUnscannedStudentsMarkedLate(req.user.schoolId, selectedDate);
     const cacheKey = `att-sum:${req.user.schoolId}:${selectedDate}`;
     const cached = cacheGet(cacheKey);
-    if (cached) return res.json(cached);
+    if (cached && !filled) return res.json(cached);
 
     const [students, staff, nonStaff, attendance] = await Promise.all([
       supabase.from('students').select('id', { count: 'exact', head: true }).eq('school_id', req.user.schoolId),
@@ -5664,9 +5794,10 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
     const today = schoolLocalDate();
     const requestedDate = req.query.date || today;
     const selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) ? requestedDate : today;
+    const filled = await ensureUnscannedStudentsMarkedLate(req.user.schoolId, selectedDate);
     const cacheKey = `dash:${req.user.schoolId}:${selectedDate}`;
     const cached = cacheGet(cacheKey);
-    if (cached) return res.json(cached);
+    if (cached && !filled) return res.json(cached);
 
     if (req.user.role !== 'super_admin') {
       const { data: schoolAccount } = await selectSchoolById(req.user.schoolId, SCHOOL_PLAN_COLUMNS);

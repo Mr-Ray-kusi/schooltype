@@ -199,6 +199,9 @@ const Attendance = () => {
             {filteredRecords.length} marked
             {lateCount > 0 ? ` · ${lateCount} late` : ''}
           </p>
+          <p className="mt-0.5 text-xs text-slate-500">
+            From the term start date, students not scanned by the late time are marked late.
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 print:hidden">
           <input
