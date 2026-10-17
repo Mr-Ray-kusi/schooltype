@@ -1,14 +1,80 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { useAuth, getPostAuthPath } from '../contexts/authcontext';
 import axios from 'axios';
 import toast from 'react-hot-toast';
-import { Mail, Lock, Eye, EyeOff } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, Loader2 } from 'lucide-react';
 import AuthSplitLayout, { AuthBrandMark, AuthField, AUTH_ORANGE } from '../components/AuthSplitLayout';
 import GoogleSignInButton from '../components/GoogleSignInButton';
 import { openPaystackCheckout } from '../utils/paystackCheckout';
 
 const REMEMBER_KEY = 'schootype_remember_email';
+
+function isTransientNetworkError(error) {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
+  if (error?.response) return false;
+  const code = String(error?.code || error?.cause?.code || '');
+  if (code === 'ECONNABORTED' || code === 'ERR_NETWORK' || code === 'ETIMEDOUT' || code === 'ECONNRESET') {
+    return true;
+  }
+  if (error?.request && !error.response) return true;
+  const message = String(error?.message || '').toLowerCase();
+  return (
+    message.includes('network') ||
+    message.includes('timeout') ||
+    message.includes('failed to fetch') ||
+    message.includes('load failed')
+  );
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function waitForOnline() {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined' || navigator.onLine) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    const done = () => {
+      window.removeEventListener('online', done);
+      resolve();
+    };
+    window.addEventListener('online', done);
+  });
+}
+
+async function waitForConnection(signal) {
+  if (signal?.aborted) {
+    const err = new Error('Login cancelled');
+    err.aborted = true;
+    throw err;
+  }
+  await Promise.race([wait(1200), waitForOnline()]);
+  if (signal?.aborted) {
+    const err = new Error('Login cancelled');
+    err.aborted = true;
+    throw err;
+  }
+}
+
+async function runUntilConnected(action, signal) {
+  let delayMs = 1500;
+  for (;;) {
+    try {
+      return await action();
+    } catch (error) {
+      if (signal?.aborted) {
+        error.aborted = true;
+        throw error;
+      }
+      if (!isTransientNetworkError(error)) throw error;
+      await Promise.race([wait(delayMs), waitForOnline()]);
+      await waitForConnection(signal);
+      delayMs = Math.min(Math.round(delayMs * 1.4), 8000);
+    }
+  }
+}
 
 const Login = () => {
   const location = useLocation();
@@ -22,6 +88,13 @@ const Login = () => {
   const [needsVerification, setNeedsVerification] = useState(Boolean(pendingFromSignup));
   const { login, loginWithGoogle } = useAuth();
   const navigate = useNavigate();
+  const loginAttemptRef = useRef(0);
+
+  useEffect(() => {
+    return () => {
+      loginAttemptRef.current += 1;
+    };
+  }, []);
 
   useEffect(() => {
     if (pendingFromSignup) return;
@@ -56,10 +129,15 @@ const Login = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const attempt = ++loginAttemptRef.current;
+    const signal = { get aborted() { return loginAttemptRef.current !== attempt; } };
     setLoading(true);
 
     try {
-      const data = await login(email, password, { remember: rememberMe });
+      const data = await runUntilConnected(
+        () => login(email, password, { remember: rememberMe }),
+        signal
+      );
       try {
         if (rememberMe) localStorage.setItem(REMEMBER_KEY, email.trim().toLowerCase());
         else localStorage.removeItem(REMEMBER_KEY);
@@ -69,6 +147,7 @@ const Login = () => {
       toast.success('Login successful!');
       navigate(getPostAuthPath(data.school));
     } catch (error) {
+      if (error?.aborted || signal.aborted) return;
       const data = error.response?.data;
       if (error.response?.status === 403 && data?.code === 'EMAIL_NOT_VERIFIED') {
         setNeedsVerification(true);
@@ -78,12 +157,10 @@ const Login = () => {
         setNeedsVerification(true);
         if (data.email) setEmail(data.email);
         toast.error(data.error || 'Finish setup from your email link first.');
+      } else if (isTransientNetworkError(error)) {
+        return;
       } else {
-        const message =
-          data?.error ||
-          (error.request && !error.response
-            ? 'Cannot connect to server. Start the backend: cd backend && npm run dev'
-            : 'Login failed');
+        const message = data?.error || 'Check your email and password.';
         if (error.response?.status === 429 && data?.retryAfter) {
           toast.error(`${message} (${data.retryAfter}s)`);
         } else {
@@ -91,7 +168,7 @@ const Login = () => {
         }
       }
     } finally {
-      setLoading(false);
+      if (loginAttemptRef.current === attempt) setLoading(false);
     }
   };
 
@@ -121,8 +198,14 @@ const Login = () => {
           label="Sign in with Google"
           disabled={loading}
           onCredential={async ({ accessToken }) => {
+            const attempt = ++loginAttemptRef.current;
+            const signal = { get aborted() { return loginAttemptRef.current !== attempt; } };
+            setLoading(true);
             try {
-              const data = await loginWithGoogle({ accessToken, remember: rememberMe });
+              const data = await runUntilConnected(
+                () => loginWithGoogle({ accessToken, remember: rememberMe }),
+                signal
+              );
               if (data.authorization_url) {
                 openPaystackCheckout(data);
                 return;
@@ -130,12 +213,16 @@ const Login = () => {
               toast.success('Login successful!');
               navigate(getPostAuthPath(data.school));
             } catch (error) {
+              if (error?.aborted || signal.aborted) return;
               if (error.response?.data?.code === 'ACCOUNT_NOT_FOUND') {
                 toast.error('No school account for this Google email. Create an account first.');
                 navigate('/plans');
                 return;
               }
+              if (isTransientNetworkError(error)) return;
               throw error;
+            } finally {
+              if (loginAttemptRef.current === attempt) setLoading(false);
             }
           }}
         />
@@ -200,8 +287,9 @@ const Login = () => {
         <button
           type="submit"
           disabled={loading}
-          className="auth-accent w-full rounded-xl py-3.5 text-sm font-semibold text-white transition disabled:opacity-50"
+          className="auth-accent inline-flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-semibold text-white transition disabled:opacity-50"
         >
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
           {loading ? 'Signing in…' : 'Sign in'}
         </button>
       </form>
