@@ -4,21 +4,22 @@ import { randomUUID } from 'crypto';
 import { openLocalDb } from './localDb.js';
 import { getDataDir } from './dataPaths.js';
 import { supabase } from './supabaseClient.js';
+import { preferSupabase } from './runtime.js';
 
 const DATA_DIR = getDataDir();
 const DB_PATH = path.join(DATA_DIR, 'school-extras.db');
 
 let dbPromise = null;
 
-/** Prefer Supabase on Vercel (or when WALLET_STORE=supabase). */
+/** Wallets live in Supabase. WALLET_STORE=local is only for offline development. */
 function useCloudWallet() {
-  return Boolean(process.env.VERCEL) || String(process.env.WALLET_STORE || '').toLowerCase() === 'supabase';
+  return preferSupabase('WALLET_STORE');
 }
 
 function assertCloud() {
   if (!supabase) {
     const err = new Error(
-      'Supabase is required for wallets on Vercel. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.'
+      'Supabase is required for wallets. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY on Render.'
     );
     err.status = 503;
     throw err;

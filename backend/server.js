@@ -127,13 +127,14 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 import { cacheGet, cacheSet, cacheInvalidate } from './ttlCache.js';
+import { isProduction, isVercel } from './runtime.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 dotenv.config({
   path: path.join(__dirname, '.env'),
-  // On Vercel, platform env vars must win over any bundled .env file.
-  override: !process.env.VERCEL,
+  // Render injects env vars. A .env file shipped with the image must not replace them.
+  override: !process.env.RENDER && !process.env.VERCEL && process.env.NODE_ENV !== 'production',
 });
 
 let dummyPasswordHash = null;
@@ -143,18 +144,26 @@ const getDummyPasswordHash = () => {
   }
   return dummyPasswordHash;
 };
-const IS_PRODUCTION = Boolean(process.env.VERCEL) || process.env.NODE_ENV === 'production';
+const IS_PRODUCTION = isProduction();
 
 const app = express();
 app.set('trust proxy', 1);
 
-const allowedOrigins = String(
-  process.env.CORS_ORIGINS ||
-    'http://localhost:3000,http://localhost:3001,http://localhost:3002,https://schootype.vercel.app'
-)
-  .split(',')
-  .map((origin) => origin.trim())
-  .filter(Boolean);
+const allowedOrigins = (() => {
+  const raw = String(
+    process.env.CORS_ORIGINS ||
+      'http://localhost:3000,http://localhost:3001,http://localhost:3002,https://schootype.vercel.app'
+  );
+  const list = raw
+    .split(',')
+    .map((origin) => origin.trim().replace(/\/$/, ''))
+    .filter(Boolean);
+  for (const extra of [process.env.FRONTEND_URL, process.env.APP_URL]) {
+    const value = String(extra || '').trim().replace(/\/$/, '');
+    if (value && !list.includes(value)) list.push(value);
+  }
+  return list;
+})();
 
 app.use(
   cors({
@@ -906,7 +915,7 @@ const JWT_SECRET_IS_WEAK =
 
 if (JWT_SECRET_IS_WEAK) {
   const message =
-    'JWT_SECRET is missing or too weak. Set a strong JWT_SECRET (32+ chars) in backend/.env or Vercel env vars.';
+    'JWT_SECRET is missing or too weak. Set a strong JWT_SECRET (32+ chars) in backend/.env or the Render service env.';
   if (IS_PRODUCTION) {
     console.error(message);
   } else {
@@ -1010,8 +1019,8 @@ const initEmailTransporter = () => {
   emailReady = true;
   console.log(`Email transporter configured (${emailUser})`);
 
-  // Don't block serverless cold starts on Gmail SMTP verify.
-  if (!process.env.VERCEL) {
+  // Confirm SMTP once on the long-running server. A serverless boot used to skip this.
+  if (!isVercel()) {
     console.log(`Email transporter verifying SMTP for ${emailUser}…`);
     emailTransporter.verify((error) => {
       if (error) {
@@ -6303,8 +6312,8 @@ export default app;
 const requireCronSecret = (req, res, next) => {
   const expected = process.env.CRON_SECRET;
   if (!expected) {
-    // Allow in non-production for local testing; require secret on Vercel.
-    if (process.env.VERCEL) {
+    // The daily job also runs inside this process. The HTTP route stays locked in production.
+    if (isProduction()) {
       return res.status(503).json({ error: 'CRON_SECRET is not configured' });
     }
     return next();
@@ -6582,9 +6591,9 @@ app.post('/api/super-admin/notifications', authenticateToken, requireSuperAdmin,
   }
 });
 
-// Local / traditional hosting listens on a port. On Vercel the app is
-// exported and invoked as a serverless function (see /api/[[...path]].js).
-if (!process.env.VERCEL) {
+// Render (and local dev) keep one Node process listening. Do not boot this
+// path under Vercel — the API is not a serverless function anymore.
+if (!isVercel()) {
   ready.then((ok) => {
     if (!ok) {
       console.error('Aborting: database initialization failed. Server not started.');
@@ -6592,16 +6601,20 @@ if (!process.env.VERCEL) {
       return;
     }
 
-    const server = app.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`);
+    const host = process.env.HOST || '0.0.0.0';
+    const server = app.listen(PORT, host, () => {
+      console.log(`Schooltype API listening on ${host}:${PORT}`);
+      if (isProduction() && !String(process.env.FRONTEND_URL || '').trim()) {
+        console.warn('FRONTEND_URL is not set. Email links will point at localhost. Set it to https://schootype.vercel.app');
+      }
     });
 
-    // Daily reminder sweep for local/dev hosts (Vercel uses cron).
+    // Daily subscription reminders. Render has no separate cron for this.
     const runReminders = () => {
       runSubscriptionDueReminders({
         sendEmail: async ({ to, subject, text, html }) =>
           sendAuthEmail({ to, subject, text, html }),
-      }).catch((err) => console.warn('Local reminder sweep failed:', err.message));
+      }).catch((err) => console.warn('Reminder sweep failed:', err.message));
     };
     setTimeout(runReminders, 15000);
     setInterval(runReminders, 24 * 60 * 60 * 1000);

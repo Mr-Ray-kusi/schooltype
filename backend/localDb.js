@@ -8,13 +8,12 @@ const require = createRequire(import.meta.url);
  * Thin async wrapper around Node's built-in node:sqlite so local stores
  * keep await db.exec / db.run / db.get / db.all without native npm addons.
  *
- * On Vercel (and any host without node:sqlite), callers should skip this and
- * use in-memory fallbacks — requiring node:sqlite at module load crashes the
- * whole serverless function.
+ * On hosts without node:sqlite, callers should skip this and use Supabase.
+ * Requiring node:sqlite at module load crashes the process, so it is loaded here.
  */
 export function openLocalDb(dbPath) {
   if (process.env.VERCEL) {
-    throw new Error('Local SQLite is not available on Vercel; use in-memory store fallbacks');
+    throw new Error('Local SQLite is not used on this host. Persist data in Supabase.');
   }
 
   let DatabaseSync;

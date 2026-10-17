@@ -7,7 +7,8 @@ import { getTenantStore } from './tenantContext.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({
   path: path.join(__dirname, '.env'),
-  override: !process.env.VERCEL,
+  // Render and any production host inject env vars. A copied .env must not replace them.
+  override: !process.env.RENDER && !process.env.VERCEL && process.env.NODE_ENV !== 'production',
 });
 
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -17,7 +18,7 @@ const supabaseKey = serviceKey || anonKey;
 
 if (!supabaseUrl || !supabaseKey) {
   console.error(
-    'Missing SUPABASE_URL and SUPABASE_ANON_KEY (or SUPABASE_SERVICE_ROLE_KEY). Set them in backend/.env or Vercel env vars.'
+    'Missing SUPABASE_URL and SUPABASE_ANON_KEY (or SUPABASE_SERVICE_ROLE_KEY). Set them in backend/.env locally or in the Render service env.'
   );
 }
 

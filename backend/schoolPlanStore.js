@@ -24,7 +24,7 @@ const SCHOOL_EXTRA_FIELDS = [
   'total_paid',
 ];
 
-/** Plan/approval fields must live in Postgres so every Vercel instance sees them. */
+/** Plan/approval fields must live in Postgres so a Render restart still sees them. */
 const CRITICAL_PLAN_FIELDS = ['payment_plan', 'plan_status'];
 
 const SCHEMA_HELP =
@@ -173,8 +173,8 @@ async function loadPaymentRecords(schoolId) {
 export async function initSchoolPlanStore() {
   cache.clear();
 
-  // On Vercel, skip preloading every school into memory — that made cold starts slow.
-  // Plan fields are read from the schools row (and filled into cache on demand).
+  // A long-running Render process can keep plan rows in memory.
+  // Skip the full preload only if this file is ever invoked as a short-lived function.
   if (process.env.VERCEL) {
     return;
   }

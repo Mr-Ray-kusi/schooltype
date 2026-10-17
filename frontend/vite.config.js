@@ -39,6 +39,7 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: {
+      // Local only. The deployed site uses VITE_API_URL and talks to Render directly.
       '/api': {
         target: 'http://localhost:5000',
         changeOrigin: true,

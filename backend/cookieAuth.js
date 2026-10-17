@@ -27,24 +27,32 @@ export function readAccessToken(req) {
   return parseCookies(req)[SESSION_COOKIE] || '';
 }
 
+function sessionCookieFlags(maxAgeSec) {
+  // The site is on Vercel and the API is on Render, so the browser treats the
+  // session as cross-site. SameSite=None is required for that cookie to be sent.
+  // Local http://localhost stays Lax because None requires Secure.
+  const production = Boolean(process.env.RENDER) || Boolean(process.env.VERCEL) || process.env.NODE_ENV === 'production';
+  const parts = ['Path=/', 'HttpOnly'];
+  if (production) {
+    parts.push('SameSite=None', 'Secure');
+  } else {
+    parts.push('SameSite=Lax');
+  }
+  if (maxAgeSec !== undefined) {
+    parts.push(`Max-Age=${Math.max(0, Number(maxAgeSec) || 0)}`);
+  }
+  return parts;
+}
+
 export function setSessionCookie(res, token, maxAgeSec) {
   const parts = [
     `${SESSION_COOKIE}=${encodeURIComponent(token)}`,
-    'Path=/',
-    'HttpOnly',
-    'SameSite=Lax',
-    `Max-Age=${Math.max(60, Number(maxAgeSec) || 60 * 60 * 12)}`,
+    ...sessionCookieFlags(Math.max(60, Number(maxAgeSec) || 60 * 60 * 12)),
   ];
-  if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
-    parts.push('Secure');
-  }
   res.append('Set-Cookie', parts.join('; '));
 }
 
 export function clearSessionCookie(res) {
-  const parts = [`${SESSION_COOKIE}=`, 'Path=/', 'HttpOnly', 'SameSite=Lax', 'Max-Age=0'];
-  if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
-    parts.push('Secure');
-  }
+  const parts = [`${SESSION_COOKIE}=`, ...sessionCookieFlags(0)];
   res.append('Set-Cookie', parts.join('; '));
 }

@@ -3,16 +3,26 @@ import fs from 'fs';
 import { openLocalDb } from './localDb.js';
 import { getDataDir } from './dataPaths.js';
 import { platformSupabase } from './supabaseClient.js';
+import { useLocalDiskStore } from './runtime.js';
 
 const DATA_DIR = getDataDir();
 const DB_PATH = path.join(DATA_DIR, 'school-extras.db');
-const useMemory = Boolean(process.env.VERCEL);
+const MAX_CACHED_PHOTOS = 40;
 
 let dbPromise = null;
 const cache = new Map();
 
+function rememberPhoto(personId, row) {
+  if (cache.has(personId)) cache.delete(personId);
+  cache.set(personId, row);
+  while (cache.size > MAX_CACHED_PHOTOS) {
+    const oldest = cache.keys().next().value;
+    cache.delete(oldest);
+  }
+}
+
 async function getDb() {
-  if (useMemory) return null;
+  if (!useLocalDiskStore()) return null;
   if (!dbPromise) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
     dbPromise = Promise.resolve(openLocalDb(DB_PATH)).then(async (db) => {
@@ -42,25 +52,9 @@ async function getDb() {
 }
 
 export async function initPersonPhotoStore() {
-  if (platformSupabase) {
-    const { data, error } = await platformSupabase
-      .from('person_photos')
-      .select('person_id, school_id, photo_url')
-      .limit(5000);
-    if (!error) {
-      cache.clear();
-      (data || []).forEach((row) => cache.set(row.person_id, row));
-      if (useMemory) return;
-    }
-  }
-  if (useMemory) {
-    cache.clear();
-    return;
-  }
-  const db = await getDb();
-  const rows = await db.all('SELECT person_id, school_id, photo_url FROM person_photos');
+  // Do not load every ID photo into RAM. List screens use students.photo_url.
+  // person_photos in Supabase is the durable copy written on save.
   cache.clear();
-  rows.forEach((row) => cache.set(row.person_id, row));
 }
 
 export const initStudentPhotoStore = initPersonPhotoStore;
@@ -74,7 +68,7 @@ export const getStudentPhotoSync = getPersonPhotoSync;
 export async function setPersonPhoto(personId, schoolId, photoUrl) {
   if (!personId || !schoolId || !photoUrl) return;
 
-  cache.set(personId, { person_id: personId, school_id: schoolId, photo_url: photoUrl });
+  rememberPhoto(personId, { person_id: personId, school_id: schoolId, photo_url: photoUrl });
 
   if (platformSupabase) {
     const { error } = await platformSupabase.from('person_photos').upsert(

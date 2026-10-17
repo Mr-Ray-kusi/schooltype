@@ -19,12 +19,9 @@ export function getFrontendBaseUrl() {
     .trim()
     .replace(/\/$/, '');
   if (configured) return configured;
-  // Vercel production fallback when FRONTEND_URL was forgotten
+  // Only when this process is the Vercel site itself. Render must set FRONTEND_URL.
   if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
     return `https://${String(process.env.VERCEL_PROJECT_PRODUCTION_URL).replace(/^https?:\/\//, '')}`;
-  }
-  if (process.env.VERCEL_URL) {
-    return `https://${String(process.env.VERCEL_URL).replace(/^https?:\/\//, '')}`;
   }
   return 'http://localhost:3000';
 }

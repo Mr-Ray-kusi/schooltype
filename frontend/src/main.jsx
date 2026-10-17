@@ -9,6 +9,16 @@ import { enqueueMutation, isOfflineMutationUrl, mutationLabel } from './utils/of
 axios.defaults.timeout = 20000;
 axios.defaults.withCredentials = true;
 
+// Production: Vercel site calls the Render API. Local dev leaves this empty and uses the Vite proxy.
+const apiBase = String(import.meta.env.VITE_API_URL || '').trim().replace(/\/$/, '');
+if (apiBase) {
+  axios.defaults.baseURL = apiBase;
+} else if (import.meta.env.PROD) {
+  console.error(
+    'VITE_API_URL is missing. In the Vercel project set it to the Render API URL (https://….onrender.com) and redeploy.'
+  );
+}
+
 const KEEP_ALIVE_MS = 4 * 60 * 1000;
 const pingApi = () => {
   if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;

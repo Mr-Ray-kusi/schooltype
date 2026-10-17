@@ -1,0 +1,58 @@
+# Render web service for the Schooltype API.
+# Frontend stays on Vercel. Database stays on Supabase.
+# In the Render dashboard, set the secret env vars marked sync: false.
+services:
+  - type: web
+    name: schootype-api
+    runtime: node
+    plan: starter
+    region: frankfurt
+    buildCommand: npm install --prefix backend
+    startCommand: npm start --prefix backend
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"
+      - key: FRONTEND_URL
+        value: https://schootype.vercel.app
+      - key: WALLET_STORE
+        value: supabase
+      - key: SMS_STORE
+        value: supabase
+      - key: AUTH_STORE
+        value: supabase
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_JWT_SECRET
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: CRON_SECRET
+        sync: false
+      - key: PAYSTACK_SECRET_KEY
+        sync: false
+      - key: PAYSTACK_PUBLIC_KEY
+        sync: false
+      - key: PAYSTACK_CURRENCY
+        value: GHS
+      - key: EMAIL_USER
+        sync: false
+      - key: EMAIL_PASSWORD
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_FROM_NUMBER
+        sync: false
+      - key: CORS_ORIGINS
+        value: https://schootype.vercel.app,http://localhost:3000

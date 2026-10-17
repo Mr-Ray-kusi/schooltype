@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto';
 import { openLocalDb } from './localDb.js';
 import { getDataDir } from './dataPaths.js';
 import { supabase } from './supabaseClient.js';
+import { preferSupabase } from './runtime.js';
 
 const DATA_DIR = getDataDir();
 const DB_PATH = path.join(DATA_DIR, 'school-extras.db');
@@ -14,9 +15,9 @@ const DEFAULT_UNIT_PRICE_MINOR = 5;
 
 let dbPromise = null;
 
-/** Prefer Supabase on Vercel (or when SMS_STORE=supabase). */
+/** SMS balances live in Supabase. SMS_STORE=local is only for offline development. */
 function useCloudSms() {
-  return Boolean(process.env.VERCEL) || String(process.env.SMS_STORE || '').toLowerCase() === 'supabase';
+  return preferSupabase('SMS_STORE');
 }
 
 async function getDb() {
@@ -122,7 +123,7 @@ export async function initPlatformSmsStore() {
   if (useCloudSms()) {
     if (!supabase) {
       throw new Error(
-        'Supabase is required for SMS billing on Vercel. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.'
+        'Supabase is required for SMS billing. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY on Render.'
       );
     }
     await ensureCloudSettingsRow();
