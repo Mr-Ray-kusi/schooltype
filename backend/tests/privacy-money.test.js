@@ -32,7 +32,7 @@ test('a public ID without a live check hides class, photo, and contacts', () => 
   assert.equal(locked.locked, true);
 });
 
-test('a gate scan with a short-lived code unlocks name, photo, class, and school', () => {
+test('a gate scan with a short-lived code unlocks name, class, and school', () => {
   const barcode = 'school-a-STU-1';
   const code = makeIdGateCode(barcode);
   assert.equal(isValidIdGateCode(barcode, code), true);
@@ -49,7 +49,7 @@ test('a gate scan with a short-lived code unlocks name, photo, class, and school
     { unlocked: true }
   );
   assert.equal(open.class, 'JHS 2');
-  assert.equal(open.photo_url, 'photo');
+  assert.equal(open.photo_url, null);
 });
 
 test('repeated public ID guesses are rate limited', () => {

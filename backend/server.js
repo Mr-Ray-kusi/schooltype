@@ -49,11 +49,9 @@ import {
 } from './schoolPlanStore.js';
 import {
   initStudentPhotoStore,
-  setStudentPhoto,
   deleteStudentPhoto,
   mergeStudentPhoto,
   mergeStudentPhotos,
-  setPersonPhoto,
   deletePersonPhoto,
   mergePersonPhoto,
   mergePersonPhotos,
@@ -327,7 +325,8 @@ const selectSchoolById = async (id, columns) => {
 };
 
 const queryPagedRows = async (table, { schoolId, from, to, q, orFilter, columns, includePhotos, eqFilters, isNullFilters }) => {
-  const selectColumns = includePhotos ? `${columns}, photo_url` : columns;
+  void includePhotos;
+  const selectColumns = columns;
   const applyFilters = (query, skipNulls = false) => {
     let next = query.eq('school_id', schoolId).order('created_at', { ascending: false }).range(from, to);
     if (eqFilters) {
@@ -3334,10 +3333,7 @@ app.post('/api/students', authenticateToken, enforcePlanApproval, async (req, re
       return res.status(400).json({ error: 'Parent phone number is required for SMS' });
     }
 
-    const photoError = validateImage(photo);
-    if (photoError) {
-      return res.status(400).json({ error: photoError });
-    }
+    void photo;
 
     const barcode = `${req.user.schoolId}-STU-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
 
@@ -3358,39 +3354,12 @@ app.post('/api/students', authenticateToken, enforcePlanApproval, async (req, re
       created_at: new Date(),
     };
 
-    if (photo) {
-      record.photo_url = photo;
-    }
-
     const { data: student, error } = await insertStudentRecord(record);
 
     if (error) throw error;
 
-    let saved = student;
-    // If photo_url column was missing on insert, force-save so the ID card keeps the image.
-    if (photo && student?.id && !student.photo_url) {
-      const repaired = await updateStudentRecord(student.id, req.user.schoolId, { photo_url: photo });
-      if (!repaired.error && repaired.data) saved = repaired.data;
-    }
-
-    if (photo && saved?.id) {
-      setStudentPhoto(saved.id, req.user.schoolId, photo).catch(() => {});
-    }
-
     bumpSchoolCaches(req.user.schoolId);
-
-    if (photo && saved && !saved.photo_url) {
-      console.warn(
-        'Student photo could not be stored in Supabase photo_url. Run backend/migrations/add_parent_teacher_portal.sql (or add_student_photo.sql).'
-      );
-      return res.status(201).json({
-        ...mergeStudentPhoto(saved),
-        warning:
-          'Photo saved temporarily only. Run the student photo SQL migration in Supabase so photos survive restarts.',
-      });
-    }
-
-    res.json(mergeStudentPhoto(saved));
+    res.status(201).json(mergeStudentPhoto(student));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -3434,8 +3403,6 @@ app.put('/api/students/:id', authenticateToken, enforcePlanApproval, async (req,
       rollNumber,
       roll_number,
       skills,
-      photo,
-      photo_url: photoUrl,
     } = req.body;
 
     const updates = {};
@@ -3460,26 +3427,9 @@ app.put('/api/students/:id', authenticateToken, enforcePlanApproval, async (req,
     if (nextRoll !== undefined) updates.roll_number = nextRoll;
     if (skills !== undefined) updates.skills = skills?.trim?.() ? skills.trim() : skills || null;
 
-    const nextPhoto = photo !== undefined ? photo : photoUrl;
-    if (nextPhoto !== undefined) {
-      const photoError = validateImage(nextPhoto);
-      if (photoError) {
-        return res.status(400).json({ error: photoError });
-      }
-      updates.photo_url = nextPhoto || null;
-    }
-
     const { data: student, error } = await updateStudentRecord(id, req.user.schoolId, updates);
 
     if (error) throw error;
-
-    if (nextPhoto !== undefined) {
-      if (nextPhoto) {
-        await setStudentPhoto(id, req.user.schoolId, nextPhoto);
-      } else {
-        await deleteStudentPhoto(id);
-      }
-    }
 
     bumpSchoolCaches(req.user.schoolId);
     res.json(mergeStudentPhoto(student));
@@ -3719,18 +3669,13 @@ app.get('/api/staff', authenticateToken, enforcePlanApproval, async (req, res) =
 
 app.post('/api/staff', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
-    const { name, role, secretCode, subjects, classNames, class_names, photo, salary } = req.body;
+    const { name, role, secretCode, subjects, classNames, class_names, salary } = req.body;
 
     if (!name?.trim()) {
       return res.status(400).json({ error: 'Staff name is required' });
     }
     if (!role?.trim()) {
       return res.status(400).json({ error: 'Staff role is required' });
-    }
-
-    const photoError = validateImage(photo);
-    if (photoError) {
-      return res.status(400).json({ error: photoError });
     }
 
     const barcode = `${req.user.schoolId}-STAFF-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
@@ -3755,11 +3700,7 @@ app.post('/api/staff', authenticateToken, enforcePlanApproval, async (req, res) 
     if (error) throw error;
 
     const saved = staff;
-    if (photo && saved?.id) {
-      setPersonPhoto(saved.id, req.user.schoolId, photo).catch(() => {});
-    }
-
-    const response = normalizeStaffRecord({ ...saved, photo_url: saved?.photo_url || photo || null });
+    const response = normalizeStaffRecord({ ...saved, photo_url: null });
     if (!response.secretCode) response.secretCode = accessCode;
 
     bumpSchoolCaches(req.user.schoolId);
@@ -3779,8 +3720,6 @@ app.put('/api/staff/:id', authenticateToken, enforcePlanApproval, async (req, re
       subjects,
       classNames,
       class_names,
-      photo,
-      photo_url: photoUrl,
       salary,
     } = req.body;
 
@@ -3793,14 +3732,6 @@ app.put('/api/staff/:id', authenticateToken, enforcePlanApproval, async (req, re
 
     if (fetchError || !currentStaff) {
       return res.status(404).json({ error: 'Staff member not found' });
-    }
-
-    const nextPhoto = photo !== undefined ? photo : photoUrl;
-    if (nextPhoto !== undefined) {
-      const photoError = validateImage(nextPhoto);
-      if (photoError) {
-        return res.status(400).json({ error: photoError });
-      }
     }
 
     const generateSecretCode = () => generateStrongPassword(16);
@@ -3819,20 +3750,8 @@ app.put('/api/staff/:id', authenticateToken, enforcePlanApproval, async (req, re
       updates.secret_code = generateSecretCode();
     }
 
-    if (nextPhoto !== undefined) {
-      updates.photo_url = nextPhoto || null;
-    }
-
     const { data: staff, error } = await updateStaffRecord(id, req.user.schoolId, updates);
     if (error) throw error;
-
-    if (nextPhoto !== undefined) {
-      if (nextPhoto) {
-        await setPersonPhoto(id, req.user.schoolId, nextPhoto);
-      } else {
-        await deletePersonPhoto(id);
-      }
-    }
 
     bumpSchoolCaches(req.user.schoolId);
     res.json(mergePersonPhoto(normalizeStaffRecord(staff)));
@@ -3903,15 +3822,10 @@ app.get('/api/non-staff', authenticateToken, enforcePlanApproval, async (req, re
 
 app.post('/api/non-staff', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
-    const { name, role, photo, salary } = req.body;
+    const { name, role, salary } = req.body;
 
     if (!name?.trim()) {
       return res.status(400).json({ error: 'Name is required' });
-    }
-
-    const photoError = validateImage(photo);
-    if (photoError) {
-      return res.status(400).json({ error: photoError });
     }
 
     const barcode = `${req.user.schoolId}-NONSTAFF-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
@@ -3951,13 +3865,8 @@ app.post('/api/non-staff', authenticateToken, enforcePlanApproval, async (req, r
 
     if (error || !nonStaff) throw error || new Error('Failed to create non-staff record');
 
-    const saved = nonStaff;
-    if (photo && saved?.id) {
-      setPersonPhoto(saved.id, req.user.schoolId, photo).catch(() => {});
-    }
-
     bumpSchoolCaches(req.user.schoolId);
-    res.json(mergePersonPhoto({ ...saved, photo_url: saved?.photo_url || photo || null }));
+    res.json(mergePersonPhoto(nonStaff));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -3982,21 +3891,12 @@ app.get('/api/non-staff/:id', authenticateToken, enforcePlanApproval, async (req
 app.put('/api/non-staff/:id', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, role, photo, photo_url: photoUrl, salary } = req.body;
+    const { name, role, salary } = req.body;
 
     const updates = {};
     if (name !== undefined) updates.name = name;
     if (role !== undefined) updates.role = role;
     if (salary !== undefined) updates.salary = parseSalary(salary);
-
-    const nextPhoto = photo !== undefined ? photo : photoUrl;
-    if (nextPhoto !== undefined) {
-      const photoError = validateImage(nextPhoto);
-      if (photoError) {
-        return res.status(400).json({ error: photoError });
-      }
-      updates.photo_url = nextPhoto || null;
-    }
 
     const optionalColumns = ['photo_url', 'salary'];
     let nonStaff = null;
@@ -4026,14 +3926,6 @@ app.put('/api/non-staff/:id', authenticateToken, enforcePlanApproval, async (req
     }
 
     if (error || !nonStaff) throw error || new Error('Failed to update non-staff');
-
-    if (nextPhoto !== undefined) {
-      if (nextPhoto) {
-        await setPersonPhoto(id, req.user.schoolId, nextPhoto);
-      } else {
-        await deletePersonPhoto(id);
-      }
-    }
 
     bumpSchoolCaches(req.user.schoolId);
     res.json(mergePersonPhoto(nonStaff));

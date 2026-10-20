@@ -12,7 +12,6 @@ import {
   ArrowLeft,
   Trophy,
 } from 'lucide-react';
-import PhotoCaptureInput from '../components/PhotoCaptureInput';
 import toast from 'react-hot-toast';
 import { invalidateCache } from '../utils/requestCache';
 
@@ -22,8 +21,6 @@ const fieldClass =
 const AddStudent = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
-  const [photo, setPhoto] = useState(null);
-  const [photoPreview, setPhotoPreview] = useState(null);
   const [schoolClasses, setSchoolClasses] = useState([]);
   const [formData, setFormData] = useState({
     name: '',
@@ -51,7 +48,7 @@ const AddStudent = () => {
     setLoading(true);
 
     try {
-      const { data } = await axios.post('/api/students', { ...formData, photo });
+      const { data } = await axios.post('/api/students', formData);
       invalidateCache('students');
       invalidateCache('dashboard');
       if (data?.warning) {
@@ -117,27 +114,6 @@ const AddStudent = () => {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          <section className="rounded-3xl border border-slate-700/80 bg-slate-900/50 p-6 md:p-8">
-            <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-              Photo
-            </h2>
-            <div className="mt-5">
-              <PhotoCaptureInput
-                theme="dark"
-                label="Student photo"
-                preview={photoPreview}
-                onChange={(dataUrl) => {
-                  setPhoto(dataUrl);
-                  setPhotoPreview(dataUrl);
-                }}
-                onClear={() => {
-                  setPhoto(null);
-                  setPhotoPreview(null);
-                }}
-              />
-            </div>
-          </section>
-
           <section className="rounded-3xl border border-slate-700/80 bg-slate-900/50 p-6 md:p-8">
             <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
               Student details

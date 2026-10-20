@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import PhotoCaptureInput from '../components/PhotoCaptureInput';
 import PersonRecordTable from '../components/PersonRecordTable';
 import PersonDetailModal from '../components/PersonDetailModal';
 import PaginationBar from '../components/PaginationBar';
@@ -22,8 +21,6 @@ const NonStaff = ({ hideHeader = false }) => {
   const [showModal, setShowModal] = useState(false);
   const [viewingPerson, setViewingPerson] = useState(null);
   const [editingNonStaff, setEditingNonStaff] = useState(null);
-  const [photo, setPhoto] = useState(null);
-  const [photoPreview, setPhotoPreview] = useState(null);
   const [formData, setFormData] = useState({
     name: '',
     role: '',
@@ -76,15 +73,13 @@ const NonStaff = ({ hideHeader = false }) => {
 
   const resetForm = () => {
     setFormData({ name: '', role: '' });
-    setPhoto(null);
-    setPhotoPreview(null);
     setEditingNonStaff(null);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const payload = { ...formData, photo };
+      const payload = { ...formData };
 
       if (editingNonStaff) {
         await axios.put(`/api/non-staff/${editingNonStaff.id}`, payload);
@@ -142,8 +137,6 @@ const NonStaff = ({ hideHeader = false }) => {
       name: person.name,
       role: person.role || '',
     });
-    setPhoto(null);
-    setPhotoPreview(person.photo_url || null);
     setShowModal(true);
   };
 
@@ -262,19 +255,6 @@ const NonStaff = ({ hideHeader = false }) => {
                 {editingNonStaff ? 'Edit Non-Staff' : 'Add New Non-Staff'}
               </h2>
               <form onSubmit={handleSubmit} className="space-y-4">
-                <PhotoCaptureInput
-                  preview={photoPreview}
-                  onChange={(dataUrl) => {
-                    setPhoto(dataUrl);
-                    setPhotoPreview(dataUrl);
-                  }}
-                  onClear={() => {
-                    setPhoto(null);
-                    setPhotoPreview(null);
-                  }}
-                  label="Profile Photo"
-                />
-
                 <div>
                   <label className="block text-sm font-medium text-slate-200 mb-2">Full Name *</label>
                   <input

@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import PhotoCaptureInput from '../components/PhotoCaptureInput';
 import PersonRecordTable from '../components/PersonRecordTable';
 import PersonDetailModal from '../components/PersonDetailModal';
 import PaginationBar from '../components/PaginationBar';
@@ -71,8 +70,6 @@ const Staff = () => {
   const [viewingPerson, setViewingPerson] = useState(null);
   const [editingStaff, setEditingStaff] = useState(null);
   const [editingNonStaff, setEditingNonStaff] = useState(null);
-  const [photo, setPhoto] = useState(null);
-  const [photoPreview, setPhotoPreview] = useState(null);
   const [portalToken, setPortalToken] = useState(null);
   const [portalPath, setPortalPath] = useState('');
   const [portalLoading, setPortalLoading] = useState(true);
@@ -229,15 +226,11 @@ const Staff = () => {
       classNames: [],
       salary: '',
     });
-    setPhoto(null);
-    setPhotoPreview(null);
     setEditingStaff(null);
   };
 
   const resetNonStaffForm = () => {
     setNonStaffForm({ name: '', role: '', salary: '' });
-    setPhoto(null);
-    setPhotoPreview(null);
     setEditingNonStaff(null);
   };
 
@@ -249,7 +242,6 @@ const Staff = () => {
         subjects: staffForm.subjects.join(', '),
         classNames: staffForm.classNames.join(', '),
         secretCode: staffForm.secretCode || generateSecretCode(),
-        photo,
       };
 
       if (editingStaff) {
@@ -285,7 +277,7 @@ const Staff = () => {
   const handleNonStaffSubmit = async (e) => {
     e.preventDefault();
     try {
-      const payload = { ...nonStaffForm, photo };
+      const payload = { ...nonStaffForm };
       if (editingNonStaff) {
         await axios.put(`/api/non-staff/${editingNonStaff.id}`, payload);
         toast.success('Non-staff updated');
@@ -351,8 +343,6 @@ const Staff = () => {
 
   const handleEdit = (person) => {
     setViewingPerson(null);
-    setPhoto(null);
-    setPhotoPreview(person.photo_url || null);
     if (person.kind === 'staff') {
       fetchSetupOptions();
       setEditingStaff(person);
@@ -646,19 +636,6 @@ const Staff = () => {
                 {editingStaff ? 'Edit Staff' : 'Add New Staff'}
               </h2>
               <form onSubmit={handleStaffSubmit} className="space-y-4">
-                <PhotoCaptureInput
-                  preview={photoPreview}
-                  onChange={(dataUrl) => {
-                    setPhoto(dataUrl);
-                    setPhotoPreview(dataUrl);
-                  }}
-                  onClear={() => {
-                    setPhoto(null);
-                    setPhotoPreview(null);
-                  }}
-                  label="Staff Photo"
-                />
-
                 <div>
                   <label className="block text-sm font-medium text-slate-200 mb-2">Full Name *</label>
                   <input
@@ -780,19 +757,6 @@ const Staff = () => {
                 {editingNonStaff ? 'Edit Non-staff' : 'Add Non-staff'}
               </h2>
               <form onSubmit={handleNonStaffSubmit} className="space-y-4">
-                <PhotoCaptureInput
-                  preview={photoPreview}
-                  onChange={(dataUrl) => {
-                    setPhoto(dataUrl);
-                    setPhotoPreview(dataUrl);
-                  }}
-                  onClear={() => {
-                    setPhoto(null);
-                    setPhotoPreview(null);
-                  }}
-                  label="Profile Photo"
-                />
-
                 <div>
                   <label className="block text-sm font-medium text-slate-200 mb-2">Full Name *</label>
                   <input

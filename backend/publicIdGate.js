@@ -68,7 +68,7 @@ export function gateProfile(full, { unlocked }) {
   return {
     ...base,
     class: full.class || null,
-    photo_url: full.photo_url || null,
+    photo_url: null,
     role: full.role || null,
     school_logo_url: full.school_logo_url || null,
   };

@@ -51,10 +51,43 @@ async function getDb() {
   return dbPromise;
 }
 
-export async function initPersonPhotoStore() {
-  // Do not load every ID photo into RAM. List screens use students.photo_url.
-  // person_photos in Supabase is the durable copy written on save.
+export async function purgePersonPhotos() {
   cache.clear();
+
+  if (platformSupabase) {
+    const { error: deleteError } = await platformSupabase.from('person_photos').delete().neq('person_id', '');
+    if (deleteError && deleteError.code !== '42P01') {
+      console.warn('Could not empty person_photos:', deleteError.message);
+    }
+
+    for (const table of ['students', 'staffs', 'nonstaffs']) {
+      const { error } = await platformSupabase.from(table).update({ photo_url: null }).not('photo_url', 'is', null);
+      if (error && error.code !== '42P01' && !String(error.message || '').includes('photo_url')) {
+        console.warn(`Could not clear ${table} photos:`, error.message);
+      }
+    }
+  }
+
+  const db = await getDb();
+  if (db) {
+    try {
+      await db.run('DELETE FROM person_photos');
+    } catch {
+      // local table may not exist
+    }
+    try {
+      await db.run('DELETE FROM student_photos');
+    } catch {
+      // older local table may not exist
+    }
+  }
+
+  console.log('Removed student, staff, and non-staff photos. School logos were kept.');
+}
+
+export async function initPersonPhotoStore() {
+  cache.clear();
+  await purgePersonPhotos();
 }
 
 export const initStudentPhotoStore = initPersonPhotoStore;
@@ -65,37 +98,8 @@ export function getPersonPhotoSync(personId) {
 
 export const getStudentPhotoSync = getPersonPhotoSync;
 
-export async function setPersonPhoto(personId, schoolId, photoUrl) {
-  if (!personId || !schoolId || !photoUrl) return;
-
-  rememberPhoto(personId, { person_id: personId, school_id: schoolId, photo_url: photoUrl });
-
-  if (platformSupabase) {
-    const { error } = await platformSupabase.from('person_photos').upsert(
-      {
-        person_id: personId,
-        school_id: schoolId,
-        photo_url: photoUrl,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'person_id' }
-    );
-    if (error && error.code !== '42P01') {
-      console.warn('Failed to persist person photo:', error.message);
-    }
-  }
-
-  const db = await getDb();
-  if (!db) return;
-
-  await db.run(
-    `INSERT INTO person_photos (person_id, school_id, photo_url)
-     VALUES (?, ?, ?)
-     ON CONFLICT(person_id) DO UPDATE SET
-       school_id = excluded.school_id,
-       photo_url = excluded.photo_url`,
-    [personId, schoolId, photoUrl]
-  );
+export async function setPersonPhoto(personId) {
+  if (personId) await deletePersonPhoto(personId);
 }
 
 export const setStudentPhoto = setPersonPhoto;
@@ -116,13 +120,11 @@ export async function deletePersonPhoto(personId) {
 export const deleteStudentPhoto = deletePersonPhoto;
 
 export function mergePersonPhoto(record) {
-  if (!record?.id) return record;
-
-  // Prefer durable Supabase photo_url; local/memory cache is only a fallback.
-  const localPhoto = getPersonPhotoSync(record.id);
-  const photoUrl = record.photo_url || localPhoto || null;
-  if (photoUrl === record.photo_url) return record;
-  return { ...record, photo_url: photoUrl };
+  if (!record || typeof record !== 'object') return record;
+  if (!('photo_url' in record) && !record.photoUrl) return record;
+  const next = { ...record, photo_url: null };
+  if ('photoUrl' in next) next.photoUrl = null;
+  return next;
 }
 
 export const mergeStudentPhoto = mergePersonPhoto;
