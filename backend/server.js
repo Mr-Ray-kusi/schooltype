@@ -2302,6 +2302,54 @@ const schoolLocalDate = (date = new Date()) => {
   return date.toISOString().split('T')[0];
 };
 
+const addCalendarDays = (ymd, days) => {
+  const cursor = new Date(`${ymd}T12:00:00.000Z`);
+  cursor.setUTCDate(cursor.getUTCDate() + Number(days || 0));
+  return cursor.toISOString().slice(0, 10);
+};
+
+const enrollmentLocalDate = (createdAt) => {
+  if (!createdAt) return null;
+  const parsed = createdAt instanceof Date ? createdAt : new Date(createdAt);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return schoolLocalDate(parsed);
+};
+
+const firstAttendanceDate = (createdAt) => {
+  const enrolledOn = enrollmentLocalDate(createdAt);
+  return enrolledOn ? addCalendarDays(enrolledOn, 1) : null;
+};
+
+const canHaveAttendanceOn = (createdAt, ymd) => {
+  const start = firstAttendanceDate(createdAt);
+  if (!start || !/^\d{4}-\d{2}-\d{2}$/.test(String(ymd || ''))) return true;
+  return String(ymd).slice(0, 10) >= start;
+};
+
+const pruneAttendanceBeforeEnrollment = async (schoolId, rows, people) => {
+  const startByKey = new Map();
+  for (const person of people || []) {
+    const start = firstAttendanceDate(person.created_at);
+    if (start) startByKey.set(`${person.user_type}:${person.id}`, start);
+  }
+  const keep = [];
+  const dropIds = [];
+  for (const row of rows || []) {
+    const start = startByKey.get(`${normalizeAttendanceUserType(row.user_type)}:${row.user_id}`);
+    const ymd = String(row.date || '').slice(0, 10);
+    if (start && ymd && ymd < start) {
+      if (row.id) dropIds.push(row.id);
+      continue;
+    }
+    keep.push(row);
+  }
+  for (let i = 0; i < dropIds.length; i += 80) {
+    await supabase.from('attendance').delete().eq('school_id', schoolId).in('id', dropIds.slice(i, i + 80));
+  }
+  if (dropIds.length) bumpSchoolCaches(schoolId);
+  return keep;
+};
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const selectPersonForScan = async (table, schoolId, field, attendanceCode, columnSets) => {
@@ -2314,7 +2362,7 @@ const selectPersonForScan = async (table, schoolId, field, attendanceCode, colum
       .maybeSingle();
 
     if (error) {
-      const missingOptional = ['photo_url', 'parent_phone', 'parent_name'].some(
+      const missingOptional = ['photo_url', 'parent_phone', 'parent_name', 'created_at'].some(
         (column) => columns.includes(column) && isMissingColumnError(error, column)
       );
       if (missingOptional) continue;
@@ -2336,20 +2384,20 @@ const findPersonByAttendanceCode = async (schoolId, attendanceCode) => {
       table: 'students',
       type: 'student',
       columnSets: [
-        'id, name, class, photo_url, parent_phone, parent_name',
-        'id, name, class, photo_url',
+        'id, name, class, photo_url, parent_phone, parent_name, created_at',
+        'id, name, class, created_at',
         'id, name, class',
       ],
     },
     {
       table: 'staffs',
       type: 'staff',
-      columnSets: ['id, name, role, photo_url', 'id, name, role'],
+      columnSets: ['id, name, role, created_at', 'id, name, role'],
     },
     {
       table: 'nonstaffs',
       type: 'non-staff',
-      columnSets: ['id, name, role, photo_url', 'id, name, role'],
+      columnSets: ['id, name, role, created_at', 'id, name, role'],
     },
   ];
 
@@ -2373,6 +2421,7 @@ const findPersonByAttendanceCode = async (schoolId, attendanceCode) => {
         photoUrl: withPhoto.photo_url || null,
         parentPhone: withPhoto.parent_phone || null,
         parentName: withPhoto.parent_name || null,
+        createdAt: withPhoto.created_at || null,
       };
     }
   }
@@ -2494,36 +2543,49 @@ const normalizeAttendanceUserType = (value) => {
 const loadEnrolledStudents = async (schoolId) => {
   let { data, error } = await supabase
     .from('students')
-    .select('id, name, class, alumni_year')
+    .select('id, name, class, alumni_year, created_at')
     .eq('school_id', schoolId);
   if (error && (isMissingColumnError(error, 'alumni_year') || String(error.message || '').includes('alumni_year'))) {
-    const retry = await supabase.from('students').select('id, name, class').eq('school_id', schoolId);
+    const retry = await supabase.from('students').select('id, name, class, created_at').eq('school_id', schoolId);
+    data = retry.data;
+    error = retry.error;
+  }
+  if (error && isMissingColumnError(error, 'created_at')) {
+    const retry = await supabase.from('students').select('id, name, class, alumni_year').eq('school_id', schoolId);
     data = retry.data;
     error = retry.error;
   }
   if (error || !data?.length) return [];
   return data
     .filter((row) => row.alumni_year == null || Number(row.alumni_year) <= 0)
-    .map((row) => ({ id: row.id, name: row.name, label: row.class, user_type: 'student' }));
+    .map((row) => ({
+      id: row.id,
+      name: row.name,
+      label: row.class,
+      user_type: 'student',
+      created_at: row.created_at || null,
+    }));
 };
 
 const loadSchoolPeopleForAttendance = async (schoolId) => {
   const [students, staffRes, nonStaffRes] = await Promise.all([
     loadEnrolledStudents(schoolId),
-    supabase.from('staffs').select('id, name, role').eq('school_id', schoolId),
-    supabase.from('nonstaffs').select('id, name, role').eq('school_id', schoolId),
+    supabase.from('staffs').select('id, name, role, created_at').eq('school_id', schoolId),
+    supabase.from('nonstaffs').select('id, name, role, created_at').eq('school_id', schoolId),
   ]);
   const staff = (staffRes.data || []).map((row) => ({
     id: row.id,
     name: row.name,
     label: row.role,
     user_type: 'staff',
+    created_at: row.created_at || null,
   }));
   const nonStaff = (nonStaffRes.data || []).map((row) => ({
     id: row.id,
     name: row.name,
     label: row.role,
     user_type: 'non-staff',
+    created_at: row.created_at || null,
   }));
   return [...students, ...staff, ...nonStaff];
 };
@@ -2547,7 +2609,12 @@ const ensureUnscannedStudentsMarkedLate = async (schoolId, ymd) => {
   const marked = new Set(
     (markedRes.data || []).map((row) => `${normalizeAttendanceUserType(row.user_type)}:${row.user_id}`)
   );
-  const missing = people.filter((row) => row.id && !marked.has(`${row.user_type}:${row.id}`));
+  const missing = people.filter(
+    (row) =>
+      row.id &&
+      !marked.has(`${row.user_type}:${row.id}`) &&
+      canHaveAttendanceOn(row.created_at, date)
+  );
   if (!missing.length) return 0;
 
   const stamp = `${date}T${lateAfterTime}:00.000Z`;
@@ -2617,7 +2684,10 @@ const fillPersonTermLateDays = async (schoolId, userId, userType, from, to) => {
 
   const personRows = await loadSchoolPeopleForAttendance(schoolId);
   const person = personRows.find((row) => row.id === userId && row.user_type === userType);
-  const rows = missingDays.map((day) => ({
+  const startOn = firstAttendanceDate(person?.created_at);
+  const eligibleDays = missingDays.filter((day) => !startOn || day >= startOn);
+  if (!eligibleDays.length) return 0;
+  const rows = eligibleDays.map((day) => ({
     school_id: schoolId,
     user_type: userType,
     user_id: userId,
@@ -4293,6 +4363,12 @@ const markAttendanceForSchool = async (schoolId, attendanceCode) => {
   const schoolName = await getSchoolNameById(schoolId);
   const now = new Date();
   const today = schoolLocalDate(now);
+  if (!canHaveAttendanceOn(person.createdAt, today)) {
+    const err = new Error('Attendance starts the day after enrollment');
+    err.status = 400;
+    err.user = buildScanIdentity(person, schoolName, null);
+    throw err;
+  }
   const lateAfterTime = await getSchoolLateAfterTime(schoolId);
   const punctuality = getAttendancePunctuality(now, lateAfterTime);
   const identity = buildScanIdentity(person, schoolName, punctuality);
@@ -5366,8 +5442,11 @@ app.get('/api/attendance', authenticateToken, enforcePlanApproval, async (req, r
 
     if (error) throw error;
 
+    const people = await loadSchoolPeopleForAttendance(req.user.schoolId);
+    const visibleAttendance = await pruneAttendanceBeforeEnrollment(req.user.schoolId, attendance, people);
+
     const lateAfterTime = await getSchoolLateAfterTime(req.user.schoolId);
-    const enrichedAttendance = await enrichAttendanceRows(attendance, lateAfterTime);
+    const enrichedAttendance = await enrichAttendanceRows(visibleAttendance, lateAfterTime);
 
     res.json(enrichedAttendance);
   } catch (error) {
@@ -5391,7 +5470,22 @@ app.get('/api/attendance/person/:userId', authenticateToken, enforcePlanApproval
       : today;
     const to = endCap < today ? endCap : today;
 
-    await fillPersonTermLateDays(req.user.schoolId, userId, userType, from, to);
+    const people = await loadSchoolPeopleForAttendance(req.user.schoolId);
+    const person = people.find((row) => row.id === userId && row.user_type === userType);
+    const startOn = firstAttendanceDate(person?.created_at);
+    const rangeFrom = startOn && startOn > from ? startOn : from;
+
+    if (startOn) {
+      await supabase
+        .from('attendance')
+        .delete()
+        .eq('school_id', req.user.schoolId)
+        .eq('user_id', userId)
+        .eq('user_type', userType)
+        .lt('date', startOn);
+    }
+
+    await fillPersonTermLateDays(req.user.schoolId, userId, userType, rangeFrom, to);
 
     const { data, error } = await supabase
       .from('attendance')
@@ -5399,7 +5493,7 @@ app.get('/api/attendance/person/:userId', authenticateToken, enforcePlanApproval
       .eq('school_id', req.user.schoolId)
       .eq('user_id', userId)
       .eq('user_type', userType)
-      .gte('date', from)
+      .gte('date', rangeFrom)
       .lte('date', to)
       .order('date', { ascending: true })
       .order('timestamp', { ascending: true });
