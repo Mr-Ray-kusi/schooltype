@@ -36,6 +36,33 @@ const isAuthRoute = (url = '') =>
   url.includes('/api/auth/complete-signup') ||
   url.includes('/api/auth/signup-charge');
 
+const ACCESS_TOKEN_KEY = 'st_access';
+
+const readAccessToken = () => {
+  try {
+    return sessionStorage.getItem(ACCESS_TOKEN_KEY) || '';
+  } catch {
+    return '';
+  }
+};
+
+const writeAccessToken = (value) => {
+  try {
+    if (value && value !== 'session') sessionStorage.setItem(ACCESS_TOKEN_KEY, value);
+    else sessionStorage.removeItem(ACCESS_TOKEN_KEY);
+  } catch {
+    // private mode
+  }
+};
+
+const applyAccessToken = (value) => {
+  if (value && value !== 'session') {
+    axios.defaults.headers.common.Authorization = `Bearer ${value}`;
+    return;
+  }
+  delete axios.defaults.headers.common.Authorization;
+};
+
 const readCachedSchool = () => {
   try {
     const raw = localStorage.getItem('school');
@@ -140,28 +167,30 @@ export const AuthProvider = ({ children }) => {
     setToken(null);
     setSchool(null);
     schoolRef.current = null;
+    writeAccessToken('');
+    applyAccessToken('');
     localStorage.removeItem('token');
     localStorage.removeItem('school');
     localStorage.removeItem('tokenExpiresAt');
-    delete axios.defaults.headers.common['Authorization'];
   }, []);
 
   const storeSession = useCallback((newToken, schoolData, expiresInSec) => {
     persistSchool(schoolData);
-    // Prefer the httpOnly cookie. Keep a memory flag so routes know we are signed in.
+    writeAccessToken(newToken);
+    applyAccessToken(newToken);
     setToken(newToken || 'session');
     localStorage.removeItem('token');
     localStorage.removeItem('tokenExpiresAt');
-    delete axios.defaults.headers.common['Authorization'];
     void expiresInSec;
   }, [persistSchool]);
 
   useEffect(() => {
     const validateToken = async () => {
       const cachedSchool = readCachedSchool();
+      const savedToken = readAccessToken();
       localStorage.removeItem('token');
       localStorage.removeItem('tokenExpiresAt');
-      delete axios.defaults.headers.common['Authorization'];
+      applyAccessToken(savedToken);
 
       if (cachedSchool) {
         schoolRef.current = cachedSchool;
@@ -192,7 +221,8 @@ export const AuthProvider = ({ children }) => {
   }, [clearSession, persistSchool]);
 
   useEffect(() => {
-    delete axios.defaults.headers.common['Authorization'];
+    const saved = readAccessToken();
+    if (saved) applyAccessToken(saved);
   }, [token]);
 
   useEffect(() => {

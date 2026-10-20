@@ -87,7 +87,8 @@ export async function trimSchoolAdminSessions(schoolId, keepToken, limit = SCHOO
     return new Date(b[1].created_at || 0).getTime() - new Date(a[1].created_at || 0).getTime();
   });
 
-  const extra = ranked.slice(limit);
+  const keepCount = keepHash && byHash.has(keepHash) ? 1 : 0;
+  const extra = ranked.filter(([hash]) => hash !== keepHash).slice(Math.max(0, limit - keepCount));
   const revokedAt = new Date().toISOString();
   for (const [hash, row] of extra) {
     memory.set(hash, { ...row, revoked_at: revokedAt });
