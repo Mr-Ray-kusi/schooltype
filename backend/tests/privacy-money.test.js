@@ -12,44 +12,31 @@ const { signTenantJwt } = await import('../tenantContext.js');
 const { checkLoginAllowed, recordLoginFailure } = await import('../authSecurity.js');
 const { schoolHasPaidPlan } = await import('../schoolPlanStore.js');
 
-test('a public ID without a live check hides class, photo, and contacts', () => {
-  const locked = gateProfile(
-    {
-      type: 'student',
-      name: 'Ama Mensah',
-      class: 'JHS 2',
-      photo_url: 'data:image/png;base64,xxx',
-      school_name: 'Sunrise School',
-      school_logo_url: 'logo',
-      role: null,
-    },
-    { unlocked: false }
-  );
-  assert.equal(locked.name, 'Ama Mensah');
-  assert.equal(locked.school_name, 'Sunrise School');
-  assert.equal(locked.class, null);
-  assert.equal(locked.photo_url, null);
-  assert.equal(locked.locked, true);
+test('a public ID shows name, school, class, and parent contact for return of the card', () => {
+  const open = gateProfile({
+    type: 'student',
+    name: 'Ama Mensah',
+    class: 'JHS 2',
+    photo_url: 'data:image/png;base64,xxx',
+    school_name: 'Sunrise School',
+    school_logo_url: 'logo',
+    parent_name: 'Kwame Mensah',
+    parent_phone: '0244000000',
+    role: null,
+  });
+  assert.equal(open.name, 'Ama Mensah');
+  assert.equal(open.school_name, 'Sunrise School');
+  assert.equal(open.class, 'JHS 2');
+  assert.equal(open.parent_phone, '0244000000');
+  assert.equal(open.parent_name, 'Kwame Mensah');
+  assert.equal(open.photo_url, null);
 });
 
-test('a gate scan with a short-lived code unlocks name, class, and school', () => {
+test('a gate code still validates for school desk use', () => {
   const barcode = 'school-a-STU-1';
   const code = makeIdGateCode(barcode);
   assert.equal(isValidIdGateCode(barcode, code), true);
   assert.equal(isValidIdGateCode(barcode, 'not-a-real-gate'), false);
-  const open = gateProfile(
-    {
-      type: 'student',
-      name: 'Ama Mensah',
-      class: 'JHS 2',
-      photo_url: 'photo',
-      school_name: 'Sunrise School',
-      school_logo_url: 'logo',
-    },
-    { unlocked: true }
-  );
-  assert.equal(open.class, 'JHS 2');
-  assert.equal(open.photo_url, null);
 });
 
 test('repeated public ID guesses are rate limited', () => {

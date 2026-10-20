@@ -17,7 +17,6 @@ import {
 import { logPlatformAction } from './auditLog.js';
 import {
   makeIdGateCode,
-  isValidIdGateCode,
   publicIdRateLimited,
   recordPublicIdFailure,
   gateProfile,
@@ -3332,13 +3331,9 @@ app.get('/api/public/id/:barcode', async (req, res) => {
       return res.status(400).json({ error: 'Invalid ID code' });
     }
 
-    const unlocked =
-      isValidIdGateCode(barcode, req.query.g) ||
-      Boolean(req.query.s && (await getSchoolIdByScannerToken(String(req.query.s))));
-
     const { data: student, error: studentError } = await supabase
       .from('students')
-      .select('id, school_id, name, class, barcode, photo_url')
+      .select('id, school_id, name, class, barcode, parent_name, parent_phone')
       .eq('barcode', barcode)
       .maybeSingle();
     if (studentError) throw studentError;
@@ -3349,20 +3344,16 @@ app.get('/api/public/id/:barcode', async (req, res) => {
         .select('name, logo_url')
         .eq('id', student.school_id)
         .maybeSingle();
-      const withPhoto = mergeStudentPhoto(student);
-      if (!unlocked) recordPublicIdFailure(ip);
       return res.json(
-        gateProfile(
-          {
-            type: 'student',
-            name: withPhoto.name,
-            class: withPhoto.class,
-            photo_url: withPhoto.photo_url || null,
-            school_name: school?.name || 'School',
-            school_logo_url: school?.logo_url || null,
-          },
-          { unlocked }
-        )
+        gateProfile({
+          type: 'student',
+          name: student.name,
+          class: student.class,
+          parent_name: student.parent_name || null,
+          parent_phone: student.parent_phone || null,
+          school_name: school?.name || 'School',
+          school_logo_url: school?.logo_url || null,
+        })
       );
     }
 
@@ -3378,20 +3369,14 @@ app.get('/api/public/id/:barcode', async (req, res) => {
         .select('name, logo_url')
         .eq('id', staff.school_id)
         .maybeSingle();
-      const withPhoto = mergePersonPhoto(staff);
-      if (!unlocked) recordPublicIdFailure(ip);
       return res.json(
-        gateProfile(
-          {
-            type: 'staff',
-            name: withPhoto.name,
-            role: withPhoto.role || 'Staff',
-            photo_url: withPhoto.photo_url || null,
-            school_name: school?.name || 'School',
-            school_logo_url: school?.logo_url || null,
-          },
-          { unlocked }
-        )
+        gateProfile({
+          type: 'staff',
+          name: staff.name,
+          role: staff.role || 'Staff',
+          school_name: school?.name || 'School',
+          school_logo_url: school?.logo_url || null,
+        })
       );
     }
 
@@ -3407,20 +3392,14 @@ app.get('/api/public/id/:barcode', async (req, res) => {
         .select('name, logo_url')
         .eq('id', nonStaff.school_id)
         .maybeSingle();
-      const withPhoto = mergePersonPhoto(nonStaff);
-      if (!unlocked) recordPublicIdFailure(ip);
       return res.json(
-        gateProfile(
-          {
-            type: 'non-staff',
-            name: withPhoto.name,
-            role: withPhoto.role || 'Non-staff',
-            photo_url: withPhoto.photo_url || null,
-            school_name: school?.name || 'School',
-            school_logo_url: school?.logo_url || null,
-          },
-          { unlocked }
-        )
+        gateProfile({
+          type: 'non-staff',
+          name: nonStaff.name,
+          role: nonStaff.role || 'Non-staff',
+          school_name: school?.name || 'School',
+          school_logo_url: school?.logo_url || null,
+        })
       );
     }
 

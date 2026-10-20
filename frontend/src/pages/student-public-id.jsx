@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
-import { GraduationCap, User, Hash, Briefcase, Trophy } from 'lucide-react';
+import { GraduationCap, User, Phone, Briefcase } from 'lucide-react';
 
 const StudentPublicId = () => {
   const { barcode } = useParams();
@@ -60,15 +60,16 @@ const StudentPublicId = () => {
     ? data.class
     : data.role || (data.type === 'staff' ? 'Staff' : data.type === 'non-staff' ? 'Non-staff' : null);
 
+  const parentContact = [data.parent_name, data.parent_phone].filter(Boolean).join(' · ');
   const detailRows = [
-    isStudent && data.roll_number
-      ? { Icon: Hash, label: 'Student ID', value: data.roll_number }
+    isStudent && data.class
+      ? { Icon: GraduationCap, label: 'Class', value: data.class }
+      : null,
+    isStudent && parentContact
+      ? { Icon: Phone, label: 'Parent contact', value: parentContact }
       : null,
     !isStudent && data.role
       ? { Icon: Briefcase, label: 'Role', value: data.role }
-      : null,
-    data.skills
-      ? { Icon: Trophy, label: 'Skills', value: data.skills }
       : null,
   ].filter(Boolean);
 
@@ -140,14 +141,12 @@ const StudentPublicId = () => {
           ) : null}
         </div>
 
-        {data.locked ? (
-          <p className="mt-6 text-center text-sm text-slate-400">
-            {data.hint || 'Ask the school desk to scan this card. Contact numbers and fees stay behind login.'}
-          </p>
-        ) : null}
+        <p className="mt-6 text-center text-sm text-slate-400">
+          If you found this ID, please return it to {data.school_name || 'the school'}.
+        </p>
 
         <p className="mt-auto pt-8 text-center text-xs text-slate-600">
-          If you found this card, please return it to the school · SCHOOLTYPE
+          Camera scan shows ID details only · Attendance is marked from the school scanner link · SCHOOLTYPE
         </p>
       </div>
     </div>

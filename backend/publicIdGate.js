@@ -48,28 +48,17 @@ export function recordPublicIdFailure(ip) {
   row.count += 1;
 }
 
-export function gateProfile(full, { unlocked }) {
-  const base = {
+export function gateProfile(full) {
+  return {
     type: full.type,
     name: full.name,
     school_name: full.school_name,
-    locked: !unlocked,
-  };
-  if (!unlocked) {
-    return {
-      ...base,
-      class: null,
-      photo_url: null,
-      role: null,
-      error: undefined,
-      hint: 'This ID needs a live school check. Ask the school desk to scan it.',
-    };
-  }
-  return {
-    ...base,
-    class: full.class || null,
-    photo_url: null,
-    role: full.role || null,
     school_logo_url: full.school_logo_url || null,
+    class: full.class || null,
+    role: full.role || null,
+    parent_name: full.parent_name || null,
+    parent_phone: full.parent_phone || null,
+    photo_url: null,
+    locked: false,
   };
 }
