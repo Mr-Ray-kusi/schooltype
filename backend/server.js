@@ -13,6 +13,12 @@ import {
   revokeAuthSession,
   revokeSchoolSessions,
   sessionTtlSeconds,
+  trimSchoolAdminSessions,
+  setStaffSession,
+  isStaffSessionActive,
+  claimScannerSlot,
+  touchScannerSlot,
+  releaseScannerSlot,
 } from './sessionStore.js';
 import { logPlatformAction } from './auditLog.js';
 import {
@@ -936,12 +942,15 @@ const authTokenPayload = (remember = false) => ({
 async function issueSchoolSession(res, school, { remember = false } = {}) {
   const ttlSec = sessionTtlSeconds(remember);
   const token = signAuthToken(school, { remember, expiresIn: ttlSec });
-  void createAuthSession({
+  await createAuthSession({
     schoolId: school.id,
     token,
     remember,
     expiresAt: Date.now() + ttlSec * 1000,
   });
+  if (getSchoolRole(school) !== 'super_admin') {
+    await trimSchoolAdminSessions(school.id, token);
+  }
   setSessionCookie(res, token, ttlSec);
   return { token, expiresIn: ttlSec, school: formatSchool(school, { light: true }) };
 }
@@ -4624,6 +4633,11 @@ const authenticateStaffPortal = (req, res, next) => {
     if (err || payload?.purpose !== 'staff_portal') {
       return res.status(401).json({ error: 'Invalid or expired staff portal session' });
     }
+    if (!isStaffSessionActive(payload.staffId, token)) {
+      return res.status(401).json({
+        error: 'This staff login is already used on another device. Sign in here to continue.',
+      });
+    }
     req.staffPortal = payload;
     next();
   });
@@ -4826,6 +4840,7 @@ async function issueStaffPortalSession(req, res, resolved) {
     JWT_SECRET,
     { expiresIn: '12h' }
   );
+  setStaffSession(staff.id, sessionToken);
 
   recordPlatformEvent({
     eventType: 'staff_login',
@@ -5427,6 +5442,19 @@ app.delete('/api/report-cards/scores', authenticateToken, enforcePlanApproval, a
   }
 });
 
+const readScannerDeviceId = (req) =>
+  String(req.headers['x-device-id'] || req.body?.deviceId || req.query.deviceId || '').trim();
+
+const assertScannerDevice = (schoolId, req, res) => {
+  const deviceId = readScannerDeviceId(req);
+  const slot = claimScannerSlot(schoolId, deviceId);
+  if (!slot.allowed) {
+    res.status(409).json({ error: slot.error });
+    return null;
+  }
+  return slot;
+};
+
 // Public mobile scanner endpoints (token-based, no login)
 app.get('/api/scanner/school/:token', async (req, res) => {
   try {
@@ -5434,6 +5462,8 @@ app.get('/api/scanner/school/:token', async (req, res) => {
     if (!resolved) {
       return res.status(404).json({ error: 'Invalid or inactive scanner link' });
     }
+
+    if (!assertScannerDevice(resolved.schoolId, req, res)) return;
 
     const lateAfterTime = await getSchoolLateAfterTime(resolved.schoolId);
     const window = describeScannerWindow(lateAfterTime);
@@ -5451,6 +5481,16 @@ app.get('/api/scanner/school/:token', async (req, res) => {
   }
 });
 
+app.post('/api/scanner/release/:token', async (req, res) => {
+  try {
+    const resolved = await resolveScannerSchool(req.params.token);
+    if (resolved) releaseScannerSlot(resolved.schoolId, readScannerDeviceId(req));
+    res.json({ ok: true });
+  } catch {
+    res.json({ ok: true });
+  }
+});
+
 app.post('/api/scanner/mark/:token', async (req, res) => {
   try {
     const attendanceCode = getAttendanceCode(req.body);
@@ -5462,6 +5502,9 @@ app.post('/api/scanner/mark/:token', async (req, res) => {
     if (!resolved) {
       return res.status(404).json({ error: 'Invalid or inactive scanner link' });
     }
+
+    if (!assertScannerDevice(resolved.schoolId, req, res)) return;
+    touchScannerSlot(resolved.schoolId, readScannerDeviceId(req));
 
     const result = await markAttendanceForSchool(resolved.schoolId, attendanceCode);
     res.json(result);

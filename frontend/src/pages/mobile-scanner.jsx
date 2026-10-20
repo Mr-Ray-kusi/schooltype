@@ -10,6 +10,24 @@ import ScanIdentityCard from '../components/ScanIdentityCard';
 
 const SCAN_COOLDOWN_MS = 1600;
 const IDENTITY_HOLD_MS = 12000;
+const SCANNER_DEVICE_KEY = 'schootype-scanner-device';
+
+function getScannerDeviceId() {
+  try {
+    let id = localStorage.getItem(SCANNER_DEVICE_KEY);
+    if (!id) {
+      id = crypto.randomUUID ? crypto.randomUUID() : `scan-${Date.now()}-${Math.random()}`;
+      localStorage.setItem(SCANNER_DEVICE_KEY, id);
+    }
+    return id;
+  } catch {
+    return `scan-${Date.now()}`;
+  }
+}
+
+function scannerDeviceHeaders() {
+  return { 'X-Device-Id': getScannerDeviceId() };
+}
 
 const buildQrHints = () => {
   const hints = new Map();
@@ -110,6 +128,7 @@ const MobileScanner = () => {
   const [feedback, setFeedback] = useState(null);
   const [scannerOpen, setScannerOpen] = useState(true);
   const [scannerMessage, setScannerMessage] = useState('');
+  const [deviceLimit, setDeviceLimit] = useState('');
 
   const stopScanner = useCallback(() => {
     if (resumeTimerRef.current) {
@@ -239,7 +258,11 @@ const MobileScanner = () => {
 
       let holdMs = SCAN_COOLDOWN_MS;
       try {
-        const response = await axios.post(`/api/scanner/mark/${token}`, { qrCode: attendanceCode });
+        const response = await axios.post(
+          `/api/scanner/mark/${token}`,
+          { qrCode: attendanceCode },
+          { headers: scannerDeviceHeaders() }
+        );
         invalidateCache('dashboard');
         invalidateCache('attendance');
         if (!mountedRef.current) return;
@@ -290,15 +313,23 @@ const MobileScanner = () => {
 
     const loadSchool = async (first = false) => {
       try {
-        const response = await axios.get(`/api/scanner/school/${token}`);
+        const response = await axios.get(`/api/scanner/school/${token}`, {
+          headers: scannerDeviceHeaders(),
+        });
         if (!mountedRef.current) return;
         setSchoolName(response.data.schoolName);
         setScannerOpen(response.data.scannerOpen !== false);
         setScannerMessage(response.data.scannerMessage || '');
+        setDeviceLimit('');
         setInvalidLink(false);
-      } catch {
+      } catch (err) {
         if (!mountedRef.current) return;
-        if (first) setInvalidLink(true);
+        if (err.response?.status === 409) {
+          setDeviceLimit(err.response?.data?.error || 'Scanner is already open on two devices.');
+          setInvalidLink(false);
+        } else if (first) {
+          setInvalidLink(true);
+        }
       } finally {
         if (mountedRef.current && first) setLoading(false);
       }
@@ -306,10 +337,26 @@ const MobileScanner = () => {
 
     loadSchool(true);
     const timer = window.setInterval(() => loadSchool(false), 30000);
+    const release = () => {
+      const headers = { 'Content-Type': 'application/json', ...scannerDeviceHeaders() };
+      try {
+        fetch(`${axios.defaults.baseURL || ''}/api/scanner/release/${token}`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ deviceId: getScannerDeviceId() }),
+          keepalive: true,
+        }).catch(() => {});
+      } catch {
+        // ignore
+      }
+    };
+    window.addEventListener('pagehide', release);
 
     return () => {
       mountedRef.current = false;
       window.clearInterval(timer);
+      window.removeEventListener('pagehide', release);
+      release();
       stopScanner();
     };
   }, [token, stopScanner]);
@@ -336,6 +383,16 @@ const MobileScanner = () => {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center text-slate-200">
         <Loader2 className="w-8 h-8 animate-spin" />
+      </div>
+    );
+  }
+
+  if (deviceLimit) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6 text-center">
+        <XCircle className="w-16 h-16 text-amber-400 mb-4" />
+        <h1 className="text-xl font-semibold text-white mb-2">Scanner already in use</h1>
+        <p className="text-slate-300 max-w-sm">{deviceLimit}</p>
       </div>
     );
   }
