@@ -181,7 +181,7 @@ const Layout = ({ children }) => {
         .filter((section) => section.items.length > 0);
 
   return (
-    <div className={`min-h-screen ${liteMode ? 'bg-slate-100 text-slate-900' : 'bg-slate-900 text-slate-50'}`}>
+    <div className={`min-h-screen ${liteMode ? 'lite-shell bg-slate-100 text-slate-900' : 'bg-slate-900 text-slate-50'}`}>
       <div className="lg:hidden fixed top-4 left-4 z-50">
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}

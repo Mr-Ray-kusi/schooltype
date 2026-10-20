@@ -406,8 +406,13 @@ html.lite .bg-slate-600 {
 
 html.lite .bg-\[\#141416\],
 html.lite [class*='bg-zinc-950'],
-html.lite [class*='bg-zinc-900'] {
+html.lite [class*='bg-zinc-900'],
+html.lite [class*='bg-zinc-800'] {
   background-color: #ffffff !important;
+}
+
+html.lite [class*='bg-white/'] {
+  background-color: #f8fafc !important;
 }
 
 html.lite .text-white,
@@ -430,9 +435,10 @@ html.lite .text-slate-500 {
   color: #64748b !important;
 }
 html.lite .text-slate-600,
+html.lite .text-zinc-100,
 html.lite .text-zinc-200,
 html.lite .text-zinc-300 {
-  color: #475569 !important;
+  color: #334155 !important;
 }
 html.lite .text-zinc-400,
 html.lite .text-zinc-500 {
@@ -449,8 +455,13 @@ html.lite [class*='border-white/'] {
 html.lite header [class*='border-white/'] {
   border-color: rgba(255, 255, 255, 0.2) !important;
 }
-html.lite .divide-slate-700 > :not([hidden]) ~ :not([hidden]) {
+html.lite .divide-slate-700 > :not([hidden]) ~ :not([hidden]),
+html.lite .divide-slate-600 > :not([hidden]) ~ :not([hidden]) {
   border-color: #e2e8f0 !important;
+}
+
+html.lite .hover\:bg-slate-700\/60:hover {
+  background-color: #f1f5f9 !important;
 }
 
 html.lite .btn-secondary {
@@ -480,5 +491,32 @@ html.lite [class*='bg-green-'][class*='text-white'],
 html.lite [class*='bg-blue-'][class*='text-white'],
 html.lite [class*='bg-indigo-'][class*='text-white'],
 html.lite [class*='bg-amber-'][class*='text-white'] {
+  color: #ffffff !important;
+}
+
+/* Super-admin pages share the same Lite Mode shell */
+.lite-shell .bg-\[\#141416\],
+.lite-shell [class*='bg-zinc-950'],
+.lite-shell [class*='bg-zinc-900'],
+.lite-shell [class*='bg-zinc-800'],
+.lite-shell [class*='bg-slate-800'] {
+  background-color: #ffffff !important;
+}
+
+.lite-shell .text-white,
+.lite-shell .text-slate-50,
+.lite-shell .text-slate-100,
+.lite-shell .text-zinc-100 {
+  color: #0f172a !important;
+}
+
+.lite-shell [class*='bg-sky-'][class*='text-white'],
+.lite-shell [class*='bg-primary-'][class*='text-white'],
+.lite-shell [class*='bg-emerald-'][class*='text-white'],
+.lite-shell .bg-sky-500,
+.lite-shell .bg-sky-600,
+.lite-shell .bg-primary-500,
+.lite-shell .bg-primary-600,
+.lite-shell .bg-emerald-500 {
   color: #ffffff !important;
 }
