@@ -22,13 +22,20 @@ export async function createAuthSession({ schoolId, token, remember, expiresAt }
     last_seen_at: new Date().toISOString(),
     revoked_at: null,
   };
-  if (useCloud()) {
-    const { error } = await platformSupabase.from('auth_sessions').insert([row]);
-    if (error && error.code !== '42P01') {
-      console.warn('Failed to persist auth session:', error.message);
-    }
-  }
   memory.set(row.token_hash, row);
+  if (useCloud()) {
+    platformSupabase
+      .from('auth_sessions')
+      .insert([row])
+      .then(({ error }) => {
+        if (error && error.code !== '42P01') {
+          console.warn('Failed to persist auth session:', error.message);
+        }
+      })
+      .catch((error) => {
+        console.warn('Failed to persist auth session:', error.message);
+      });
+  }
   return row;
 }
 

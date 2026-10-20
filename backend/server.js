@@ -937,14 +937,14 @@ const authTokenPayload = (remember = false) => ({
 async function issueSchoolSession(res, school, { remember = false } = {}) {
   const ttlSec = sessionTtlSeconds(remember);
   const token = signAuthToken(school, { remember, expiresIn: ttlSec });
-  await createAuthSession({
+  void createAuthSession({
     schoolId: school.id,
     token,
     remember,
     expiresAt: Date.now() + ttlSec * 1000,
   });
   setSessionCookie(res, token, ttlSec);
-  return { token, expiresIn: ttlSec, school: formatSchool(school) };
+  return { token, expiresIn: ttlSec, school: formatSchool(school, { light: true }) };
 }
 
 // Email transporter configuration - uses Gmail SMTP or custom SMTP
@@ -1234,7 +1234,11 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    const hitCheck = await checkAuthHitAllowed('login', clientIp);
+    const [hitCheck, loginCheck, exactSchool] = await Promise.all([
+      checkAuthHitAllowed('login', clientIp),
+      checkLoginAllowed(email, clientIp),
+      schoolMaster().from('schools').select('*').eq('email', email).maybeSingle(),
+    ]);
     if (!hitCheck.allowed) {
       recordPlatformEvent({
         eventType: 'login_failed',
@@ -1244,9 +1248,6 @@ app.post('/api/auth/login', async (req, res) => {
       }).catch(() => {});
       return sendAuthRateLimited(res, hitCheck);
     }
-    await recordAuthHit('login', clientIp, email);
-
-    const loginCheck = await checkLoginAllowed(email, clientIp);
     if (!loginCheck.allowed) {
       recordPlatformEvent({
         eventType: 'login_failed',
@@ -1256,13 +1257,10 @@ app.post('/api/auth/login', async (req, res) => {
       }).catch(() => {});
       return sendAuthRateLimited(res, loginCheck);
     }
+    recordAuthHit('login', clientIp, email).catch(() => {});
 
-    // Prefer exact match; fall back to case-insensitive if needed
-    let { data: school, error: schoolError } = await schoolMaster()
-      .from('schools')
-      .select('*')
-      .eq('email', email)
-      .maybeSingle();
+    let school = exactSchool.data;
+    let schoolError = exactSchool.error;
 
     if (!school && !schoolError) {
       const fallback = await schoolMaster()
@@ -1344,9 +1342,11 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
 
-    await clearLoginFailures(email);
+    clearLoginFailures(email).catch(() => {});
 
-    school = await syncPaidPlanFromLedger(school);
+    if (!schoolHasPaidPlan(school) || school.plan_status !== 'approved') {
+      school = await syncPaidPlanFromLedger(school);
+    }
     const session = await issueSchoolSession(res, school, { remember: Boolean(remember) });
     if (getSchoolRole(school) !== 'super_admin') {
       recordPlatformEvent({

@@ -91,6 +91,7 @@ const Login = () => {
   const loginAttemptRef = useRef(0);
 
   useEffect(() => {
+    import('../pages/Dashboard').catch(() => {});
     return () => {
       loginAttemptRef.current += 1;
     };
@@ -144,8 +145,8 @@ const Login = () => {
       } catch {
         // ignore
       }
+      navigate(getPostAuthPath(data.school), { replace: true });
       toast.success('Login successful!');
-      navigate(getPostAuthPath(data.school));
     } catch (error) {
       if (error?.aborted || signal.aborted) return;
       const data = error.response?.data;

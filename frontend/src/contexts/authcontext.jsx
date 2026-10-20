@@ -241,7 +241,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   const login = async (email, password, { remember = false } = {}) => {
-    const response = await axios.post('/api/auth/login', { email, password, remember });
+    const response = await axios.post('/api/auth/login', { email, password, remember }, { timeout: 12000 });
     const { token: newToken, school: schoolData, expiresIn } = response.data || {};
     if (!newToken || !schoolData) {
       const err = new Error('Login response was invalid. The API may still be starting or misconfigured.');
