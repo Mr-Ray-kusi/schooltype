@@ -2476,6 +2476,88 @@ const normalizeLateAfterTime = (value) => {
   return '08:00';
 };
 
+const SCANNER_OPEN_BEFORE_MINUTES = 4 * 60;
+const SCANNER_CLOSE_AFTER_MINUTES = 30;
+
+const clockToMinutes = (hhmm) => {
+  const [hour, minute] = normalizeLateAfterTime(hhmm).split(':').map(Number);
+  return hour * 60 + minute;
+};
+
+const minutesToClock = (total) => {
+  const wrapped = ((Number(total) % 1440) + 1440) % 1440;
+  const hour = Math.floor(wrapped / 60);
+  const minute = wrapped % 60;
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+};
+
+const formatSchoolClock = (hhmm) => {
+  const [hour, minute] = normalizeLateAfterTime(hhmm).split(':').map(Number);
+  const suffix = hour >= 12 ? 'PM' : 'AM';
+  const hour12 = ((hour + 11) % 12) + 1;
+  return `${hour12}:${String(minute).padStart(2, '0')} ${suffix}`;
+};
+
+const schoolLocalHms = (date = new Date()) => {
+  try {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: ATTENDANCE_TIMEZONE,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    }).formatToParts(date);
+    return {
+      hour: Number(parts.find((part) => part.type === 'hour')?.value || 0),
+      minute: Number(parts.find((part) => part.type === 'minute')?.value || 0),
+      second: Number(parts.find((part) => part.type === 'second')?.value || 0),
+    };
+  } catch {
+    return { hour: date.getUTCHours(), minute: date.getUTCMinutes(), second: date.getUTCSeconds() };
+  }
+};
+
+const describeScannerWindow = (lateAfterTime, now = new Date()) => {
+  const late = normalizeLateAfterTime(lateAfterTime);
+  const lateMinutes = clockToMinutes(late);
+  const opensAt = minutesToClock(lateMinutes - SCANNER_OPEN_BEFORE_MINUTES);
+  const closesAt = minutesToClock(lateMinutes + SCANNER_CLOSE_AFTER_MINUTES);
+  const clock = schoolLocalHms(now);
+  const nowSeconds = clock.hour * 3600 + clock.minute * 60 + clock.second;
+  const openMinutes = lateMinutes - SCANNER_OPEN_BEFORE_MINUTES;
+  const closeMinutes = lateMinutes + SCANNER_CLOSE_AFTER_MINUTES;
+  const openSeconds = openMinutes * 60;
+  const closeSeconds = closeMinutes * 60;
+  const daySeconds = 24 * 3600;
+  let open = false;
+  if (openSeconds >= 0 && closeSeconds < daySeconds) {
+    open = nowSeconds >= openSeconds && nowSeconds <= closeSeconds;
+  } else if (openSeconds < 0) {
+    open = nowSeconds >= openSeconds + daySeconds || nowSeconds <= closeSeconds;
+  } else {
+    open = nowSeconds >= openSeconds || nowSeconds <= closeSeconds - daySeconds;
+  }
+  return {
+    lateAfterTime: late,
+    opensAt,
+    closesAt,
+    open,
+    timezone: ATTENDANCE_TIMEZONE,
+    message: open
+      ? `Scanner is open until ${formatSchoolClock(closesAt)}.`
+      : `Scanner is closed. It takes attendance from ${formatSchoolClock(opensAt)} to ${formatSchoolClock(closesAt)}.`,
+  };
+};
+
+const assertScannerOpen = (lateAfterTime, now = new Date()) => {
+  const window = describeScannerWindow(lateAfterTime, now);
+  if (window.open) return window;
+  const err = new Error(window.message);
+  err.status = 403;
+  err.code = 'SCANNER_CLOSED';
+  throw err;
+};
+
 const getAttendancePunctuality = (timestamp, lateAfterTime = '08:00') => {
   const when = timestamp ? new Date(timestamp) : new Date();
   if (Number.isNaN(when.getTime())) return 'early';
@@ -4373,6 +4455,7 @@ const markAttendanceForSchool = async (schoolId, attendanceCode) => {
     throw err;
   }
   const lateAfterTime = await getSchoolLateAfterTime(schoolId);
+  assertScannerOpen(lateAfterTime, now);
   const punctuality = getAttendancePunctuality(now, lateAfterTime);
   const identity = buildScanIdentity(person, schoolName, punctuality);
 
@@ -5373,7 +5456,17 @@ app.get('/api/scanner/school/:token', async (req, res) => {
       return res.status(404).json({ error: 'Invalid or inactive scanner link' });
     }
 
-    res.json({ schoolName: resolved.schoolName });
+    const lateAfterTime = await getSchoolLateAfterTime(resolved.schoolId);
+    const window = describeScannerWindow(lateAfterTime);
+    res.json({
+      schoolName: resolved.schoolName,
+      lateAfterTime: window.lateAfterTime,
+      scannerOpensAt: window.opensAt,
+      scannerClosesAt: window.closesAt,
+      scannerOpen: window.open,
+      scannerMessage: window.message,
+      timezone: window.timezone,
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -5531,7 +5624,15 @@ app.get('/api/attendance/person/:userId', authenticateToken, enforcePlanApproval
 app.get('/api/attendance/settings', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
     const lateAfterTime = await getSchoolLateAfterTime(req.user.schoolId);
-    res.json({ lateAfterTime, timezone: ATTENDANCE_TIMEZONE });
+    const window = describeScannerWindow(lateAfterTime);
+    res.json({
+      lateAfterTime,
+      timezone: ATTENDANCE_TIMEZONE,
+      scannerOpensAt: window.opensAt,
+      scannerClosesAt: window.closesAt,
+      scannerOpen: window.open,
+      scannerMessage: window.message,
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -5541,7 +5642,15 @@ app.put('/api/attendance/settings', authenticateToken, enforcePlanApproval, asyn
   try {
     const lateAfterTime = normalizeLateAfterTime(req.body.lateAfterTime || req.body.late_after_time);
     await upsertSchoolExtras(req.user.schoolId, { late_after_time: lateAfterTime }, { requirePersist: true });
-    res.json({ lateAfterTime, timezone: ATTENDANCE_TIMEZONE });
+    const window = describeScannerWindow(lateAfterTime);
+    res.json({
+      lateAfterTime,
+      timezone: ATTENDANCE_TIMEZONE,
+      scannerOpensAt: window.opensAt,
+      scannerClosesAt: window.closesAt,
+      scannerOpen: window.open,
+      scannerMessage: window.message,
+    });
   } catch (error) {
     console.error('Attendance settings error:', error);
     res.status(500).json({ error: error.message || 'Failed to save late time setting' });

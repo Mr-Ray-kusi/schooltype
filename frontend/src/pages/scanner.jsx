@@ -16,6 +16,8 @@ const Scanner = () => {
   const [error, setError] = useState(null);
   const [scannerToken, setScannerToken] = useState(null);
   const [linkLoading, setLinkLoading] = useState(true);
+  const [scannerOpen, setScannerOpen] = useState(true);
+  const [scannerMessage, setScannerMessage] = useState('');
   const inputRef = useRef(null);
   const scanTimeoutRef = useRef(null);
 
@@ -42,10 +44,29 @@ const Scanner = () => {
     fetchScannerLink();
   }, []);
 
+  useEffect(() => {
+    const loadWindow = async () => {
+      try {
+        const { data } = await axios.get('/api/attendance/settings');
+        setScannerOpen(data.scannerOpen !== false);
+        setScannerMessage(data.scannerMessage || '');
+      } catch {
+        // Keep the last known window if settings fail.
+      }
+    };
+    loadWindow();
+    const timer = window.setInterval(loadWindow, 30000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   const handleSubmit = async (codeValue = null) => {
     const raw = codeValue || scanCode;
     const valueToSubmit = extractAttendanceCode(raw);
     if (!valueToSubmit) return;
+    if (!scannerOpen) {
+      setError(scannerMessage || 'Scanner is closed until the next attendance window.');
+      return;
+    }
 
     setLoading(true);
     setResult(null);
@@ -121,7 +142,13 @@ const Scanner = () => {
     <div className="mx-auto w-full max-w-3xl space-y-5">
       <div>
         <h1 className="text-2xl font-bold text-white sm:text-3xl">Attendance Scanner</h1>
-        <p className="mt-1 text-sm text-slate-400">Open the phone link at the gate, or type/scan a code here.</p>
+        <p className="mt-1 text-sm text-slate-400">
+          Open the phone link at the gate, or type/scan a code here. The scanner only works from 4 hours before the late
+          time until 30 minutes after it.
+        </p>
+        {scannerMessage ? (
+          <p className={`mt-2 text-sm ${scannerOpen ? 'text-emerald-300' : 'text-amber-300'}`}>{scannerMessage}</p>
+        ) : null}
       </div>
 
       <div className="rounded-2xl border border-sky-500/30 bg-gradient-to-br from-sky-500/15 to-slate-900 p-4 sm:p-6">
@@ -217,14 +244,15 @@ const Scanner = () => {
                   handleSubmit();
                 }
               }}
-              placeholder="Scan or paste QR code value"
-              className="min-h-[48px] w-full flex-1 rounded-xl border border-slate-600 px-4 py-3 text-base"
+              placeholder={scannerOpen ? 'Scan or paste QR code value' : 'Scanner is closed'}
+              disabled={!scannerOpen}
+              className="min-h-[48px] w-full flex-1 rounded-xl border border-slate-600 px-4 py-3 text-base disabled:opacity-50"
               autoComplete="off"
             />
             <button
               type="button"
               onClick={() => handleSubmit()}
-              disabled={loading || !scanCode}
+              disabled={loading || !scanCode || !scannerOpen}
               className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-xl bg-sky-600 px-5 py-3 font-medium text-white hover:bg-sky-500 disabled:opacity-50 sm:w-auto"
             >
               <Scan className="h-5 w-5" />

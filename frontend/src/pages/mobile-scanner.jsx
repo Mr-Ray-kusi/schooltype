@@ -108,6 +108,8 @@ const MobileScanner = () => {
   const [cameraError, setCameraError] = useState(null);
   const [cameraReady, setCameraReady] = useState(false);
   const [feedback, setFeedback] = useState(null);
+  const [scannerOpen, setScannerOpen] = useState(true);
+  const [scannerMessage, setScannerMessage] = useState('');
 
   const stopScanner = useCallback(() => {
     if (resumeTimerRef.current) {
@@ -224,6 +226,7 @@ const MobileScanner = () => {
     async (rawCode) => {
       const attendanceCode = extractAttendanceCode(rawCode);
       if (!attendanceCode) return;
+      if (!scannerOpen) return;
       if (scanLockRef.current) return;
 
       // Keep the camera stream warm — full stop/restart made the next scan feel slow.
@@ -276,7 +279,7 @@ const MobileScanner = () => {
         setFeedback(null);
       }, holdMs);
     },
-    [token]
+    [token, scannerOpen]
   );
 
   markAttendanceRef.current = markAttendance;
@@ -285,31 +288,35 @@ const MobileScanner = () => {
   useEffect(() => {
     mountedRef.current = true;
 
-    const init = async () => {
+    const loadSchool = async (first = false) => {
       try {
         const response = await axios.get(`/api/scanner/school/${token}`);
         if (!mountedRef.current) return;
         setSchoolName(response.data.schoolName);
+        setScannerOpen(response.data.scannerOpen !== false);
+        setScannerMessage(response.data.scannerMessage || '');
         setInvalidLink(false);
       } catch {
         if (!mountedRef.current) return;
-        setInvalidLink(true);
+        if (first) setInvalidLink(true);
       } finally {
-        if (mountedRef.current) setLoading(false);
+        if (mountedRef.current && first) setLoading(false);
       }
     };
 
-    init();
+    loadSchool(true);
+    const timer = window.setInterval(() => loadSchool(false), 30000);
 
     return () => {
       mountedRef.current = false;
+      window.clearInterval(timer);
       stopScanner();
     };
   }, [token, stopScanner]);
 
   // Start camera/decoder once, after the video element exists.
   useEffect(() => {
-    if (loading || invalidLink || !schoolName) return undefined;
+    if (loading || invalidLink || !schoolName || !scannerOpen) return undefined;
 
     let cancelled = false;
     const timer = window.setTimeout(() => {
@@ -319,10 +326,11 @@ const MobileScanner = () => {
     return () => {
       cancelled = true;
       clearTimeout(timer);
+      stopScanner();
     };
     // Intentionally only re-run when the page becomes ready — not when startScanner identity changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, invalidLink, schoolName]);
+  }, [loading, invalidLink, schoolName, scannerOpen]);
 
   if (loading) {
     return (
@@ -347,8 +355,20 @@ const MobileScanner = () => {
       <header className="px-4 py-5 text-center border-b border-slate-700">
         <p className="text-xs uppercase tracking-wider text-slate-400 mb-1">Attendance Scanner</p>
         <h1 className="text-lg font-semibold">{schoolName}</h1>
+        {scannerMessage ? (
+          <p className={`mt-2 text-sm ${scannerOpen ? 'text-emerald-300' : 'text-amber-300'}`}>{scannerMessage}</p>
+        ) : null}
       </header>
 
+      {!scannerOpen ? (
+        <div className="flex flex-1 flex-col items-center justify-center p-6 text-center">
+          <XCircle className="mb-4 h-16 w-16 text-amber-400" />
+          <h2 className="text-xl font-semibold text-white">Scanner is closed</h2>
+          <p className="mt-2 max-w-sm text-sm text-slate-300">
+            {scannerMessage || 'Attendance can only be taken from 4 hours before the late time until 30 minutes after it.'}
+          </p>
+        </div>
+      ) : (
       <div className="flex-1 flex flex-col items-center justify-center p-4 relative">
         <div className="relative w-full max-w-md min-h-[55vh] aspect-[3/4] max-h-[72vh] rounded-2xl overflow-hidden bg-black border-2 border-slate-600">
           <video
@@ -460,6 +480,7 @@ const MobileScanner = () => {
           </div>
         )}
       </div>
+      )}
 
       <footer className="px-4 py-4 text-center text-xs text-slate-400 border-t border-slate-700">
         Records appear on the school admin dashboard only
