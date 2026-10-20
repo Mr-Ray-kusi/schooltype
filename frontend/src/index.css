@@ -416,33 +416,67 @@ html.lite [class*='bg-white/'] {
 }
 
 html.lite .text-white,
+html.lite [class*='text-white/'],
 html.lite .text-slate-50,
 html.lite .text-slate-100,
 html.lite .text-slate-200 {
   color: #0f172a !important;
 }
 
-html.lite header .text-white,
-html.lite header .text-white\/80,
-html.lite header .text-slate-100 {
-  color: #ffffff !important;
-}
-html.lite .text-slate-300 {
-  color: #334155 !important;
-}
+html.lite .text-slate-300,
 html.lite .text-slate-400,
-html.lite .text-slate-500 {
-  color: #64748b !important;
-}
+html.lite .text-slate-500,
 html.lite .text-slate-600,
 html.lite .text-zinc-100,
 html.lite .text-zinc-200,
-html.lite .text-zinc-300 {
-  color: #334155 !important;
-}
+html.lite .text-zinc-300,
 html.lite .text-zinc-400,
 html.lite .text-zinc-500 {
-  color: #64748b !important;
+  color: #334155 !important;
+}
+
+html.lite .text-sky-200,
+html.lite .text-sky-300,
+html.lite .text-sky-300\/80,
+html.lite .text-sky-300\/90,
+html.lite [class*='text-sky-2'],
+html.lite [class*='text-sky-3'] {
+  color: #0369a1 !important;
+}
+html.lite .text-emerald-200,
+html.lite .text-emerald-300,
+html.lite [class*='text-emerald-2'],
+html.lite [class*='text-emerald-3'] {
+  color: #047857 !important;
+}
+html.lite .text-green-200,
+html.lite .text-green-300,
+html.lite [class*='text-green-2'],
+html.lite [class*='text-green-3'] {
+  color: #15803d !important;
+}
+html.lite .text-amber-200,
+html.lite .text-amber-200\/90,
+html.lite .text-amber-300,
+html.lite [class*='text-amber-2'],
+html.lite [class*='text-amber-3'] {
+  color: #b45309 !important;
+}
+html.lite .text-rose-300,
+html.lite .text-red-300,
+html.lite [class*='text-rose-2'],
+html.lite [class*='text-rose-3'],
+html.lite [class*='text-red-2'],
+html.lite [class*='text-red-3'] {
+  color: #b91c1c !important;
+}
+
+html.lite .dashboard-hero [class*='text-white'],
+html.lite .dashboard-hero .text-slate-100 {
+  color: #ffffff !important;
+}
+html.lite .dashboard-hero .text-sky-300 {
+  color: #7dd3fc !important;
 }
 
 html.lite [class*='border-slate-7'],
@@ -452,7 +486,7 @@ html.lite [class*='border-white/'] {
   border-color: #e2e8f0 !important;
 }
 
-html.lite header [class*='border-white/'] {
+html.lite .dashboard-hero [class*='border-white/'] {
   border-color: rgba(255, 255, 255, 0.2) !important;
 }
 html.lite .divide-slate-700 > :not([hidden]) ~ :not([hidden]),
@@ -504,10 +538,26 @@ html.lite [class*='bg-amber-'][class*='text-white'] {
 }
 
 .lite-shell .text-white,
+.lite-shell [class*='text-white/'],
 .lite-shell .text-slate-50,
 .lite-shell .text-slate-100,
-.lite-shell .text-zinc-100 {
+.lite-shell .text-slate-200,
+.lite-shell .text-slate-300,
+.lite-shell .text-zinc-100,
+.lite-shell .text-zinc-200,
+.lite-shell .text-zinc-300 {
   color: #0f172a !important;
+}
+
+.lite-shell .text-slate-400,
+.lite-shell .text-slate-500,
+.lite-shell .text-zinc-400,
+.lite-shell .text-zinc-500 {
+  color: #334155 !important;
+}
+
+.lite-shell .dashboard-hero [class*='text-white'] {
+  color: #ffffff !important;
 }
 
 .lite-shell [class*='bg-sky-'][class*='text-white'],

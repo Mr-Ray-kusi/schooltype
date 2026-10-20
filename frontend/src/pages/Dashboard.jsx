@@ -217,7 +217,7 @@ const Dashboard = () => {
         <PlanPendingBanner />
         <SubscriptionBanner />
 
-        <header className="relative mt-8 mb-10 overflow-hidden rounded-[2rem] md:mt-10 md:mb-14">
+        <header className="dashboard-hero relative mt-8 mb-10 overflow-hidden rounded-[2rem] md:mt-10 md:mb-14">
           <img
             src={school?.logo_url || '/landing-security.jpg'}
             alt={school?.name ? `${school.name} dashboard` : 'Dashboard'}
