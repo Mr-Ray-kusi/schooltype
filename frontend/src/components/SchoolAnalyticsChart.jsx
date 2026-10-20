@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import axios from 'axios';
 import {
   CalendarCheck,
+  ChevronDown,
   CreditCard,
   DollarSign,
   MessageSquare,
@@ -43,6 +44,7 @@ const SchoolAnalyticsChart = () => {
   const [data, setData] = useState(null);
   const [range, setRange] = useState('1w');
   const [selectedPanel, setSelectedPanel] = useState('attendance');
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const fetchData = useCallback(
@@ -176,7 +178,10 @@ const SchoolAnalyticsChart = () => {
                 <button
                   key={item.id}
                   type="button"
-                  onClick={() => setRange(item.id)}
+                  onClick={() => {
+                    setRange(item.id);
+                    setDetailsOpen(false);
+                  }}
                   className={`min-h-8 rounded-lg px-1.5 text-[11px] font-semibold transition md:min-h-0 md:rounded-full md:px-3 md:py-1.5 md:text-xs ${
                     active
                       ? 'bg-gradient-to-r from-sky-500 to-violet-500 text-white'
@@ -198,7 +203,10 @@ const SchoolAnalyticsChart = () => {
               <button
                 key={panel.id}
                 type="button"
-                onClick={() => setSelectedPanel(panel.id)}
+                onClick={() => {
+                  setSelectedPanel(panel.id);
+                  setDetailsOpen(false);
+                }}
                 className={`inline-flex min-h-9 items-center justify-center gap-1 rounded-lg border px-2 py-1.5 text-left text-[11px] font-medium leading-tight transition md:min-h-0 md:justify-start md:rounded-full md:px-2.5 md:py-1 md:text-xs ${
                   active
                     ? 'border-transparent bg-gradient-to-r from-sky-500 to-violet-500 text-white'
@@ -220,24 +228,38 @@ const SchoolAnalyticsChart = () => {
           )}
         </div>
 
-        <div className="mt-4 border-t border-white/10 pt-4 md:mt-6 md:pt-5">
-          {preview.length === 0 ? (
-            <p className="py-4 text-center text-sm text-zinc-500">
-              No {selected.title.toLowerCase()} records in this range.
-            </p>
-          ) : (
-            <ul className="divide-y divide-white/5">
-              {preview.map((row) => (
-                <li key={row.id} className="flex items-start justify-between gap-3 py-3">
-                  <div className="min-w-0">
-                    <p className="truncate font-medium text-white">{row.title || row.name || 'Record'}</p>
-                    <p className="text-sm text-amber-200/90">{row.description || '—'}</p>
-                  </div>
-                  <span className="shrink-0 text-xs text-zinc-500">{formatTime(row.createdAt)}</span>
-                </li>
-              ))}
-            </ul>
-          )}
+        <div className="mt-4 border-t border-white/10 pt-3 md:mt-6 md:pt-4">
+          <button
+            type="button"
+            onClick={() => setDetailsOpen((open) => !open)}
+            className="flex w-full items-center justify-between rounded-xl border border-white/10 bg-zinc-950/60 px-3 py-2.5 text-left text-sm text-zinc-200 hover:bg-zinc-900/80"
+            aria-expanded={detailsOpen}
+          >
+            <span>
+              {detailsOpen ? 'Hide' : 'View'} {selected.title.toLowerCase()} records
+              <span className="ml-1.5 text-xs text-zinc-500">({preview.length})</span>
+            </span>
+            <ChevronDown className={`h-4 w-4 shrink-0 text-zinc-400 transition ${detailsOpen ? 'rotate-180' : ''}`} />
+          </button>
+          {detailsOpen ? (
+            preview.length === 0 ? (
+              <p className="py-4 text-center text-sm text-zinc-500">
+                No {selected.title.toLowerCase()} records in this range.
+              </p>
+            ) : (
+              <ul className="mt-2 divide-y divide-white/5 rounded-xl border border-white/5 px-3">
+                {preview.map((row) => (
+                  <li key={row.id} className="flex items-start justify-between gap-3 py-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-white">{row.title || row.name || 'Record'}</p>
+                      <p className="text-sm text-amber-200/90">{row.description || '—'}</p>
+                    </div>
+                    <span className="shrink-0 text-xs text-zinc-500">{formatTime(row.createdAt)}</span>
+                  </li>
+                ))}
+              </ul>
+            )
+          ) : null}
         </div>
       </div>
     </section>
