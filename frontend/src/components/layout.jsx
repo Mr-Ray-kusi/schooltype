@@ -53,6 +53,10 @@ const Layout = ({ children }) => {
   const location = useLocation();
   usePlatformTelemetry();
 
+  useEffect(() => {
+    document.documentElement.classList.toggle('lite', liteMode);
+  }, [liteMode]);
+
   const refreshUnread = useCallback(async () => {
     if (!token) return;
     try {
@@ -177,11 +181,11 @@ const Layout = ({ children }) => {
         .filter((section) => section.items.length > 0);
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-50">
+    <div className={`min-h-screen ${liteMode ? 'bg-slate-100 text-slate-900' : 'bg-slate-900 text-slate-50'}`}>
       <div className="lg:hidden fixed top-4 left-4 z-50">
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
-          className="p-2 bg-slate-800 text-slate-50 rounded-lg shadow-md"
+          className={`p-2 rounded-lg shadow-md ${liteMode ? 'bg-white text-slate-800' : 'bg-slate-800 text-slate-50'}`}
           aria-label={sidebarOpen ? 'Close menu' : 'Open menu'}
         >
           {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
@@ -191,7 +195,9 @@ const Layout = ({ children }) => {
       <div className="fixed top-4 right-4 z-50">
         <Link
           to={isSuperAdmin ? '/super-admin/notifications' : '/notifications'}
-          className="relative flex h-10 w-10 items-center justify-center rounded-lg bg-slate-800 text-slate-50 shadow-md hover:bg-slate-700"
+          className={`relative flex h-10 w-10 items-center justify-center rounded-lg shadow-md ${
+            liteMode ? 'bg-white text-slate-800 hover:bg-slate-50' : 'bg-slate-800 text-slate-50 hover:bg-slate-700'
+          }`}
           aria-label={unread ? `${unread} unread notifications` : 'Notifications'}
         >
           <Bell className="h-5 w-5" />
@@ -213,11 +219,11 @@ const Layout = ({ children }) => {
       )}
 
       <div
-        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col bg-slate-800 shadow-xl transform transition-transform duration-300 ease-in-out ${
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        } lg:translate-x-0`}
+        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col shadow-xl transform transition-transform duration-300 ease-in-out ${
+          liteMode ? 'bg-white border-r border-slate-200' : 'bg-slate-800'
+        } ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0`}
       >
-        <div className="flex items-center gap-2 p-6 border-b border-slate-600 shrink-0">
+        <div className={`flex items-center gap-2 p-6 border-b shrink-0 ${liteMode ? 'border-slate-200' : 'border-slate-600'}`}>
           {school?.logo_url ? (
             <img
               src={school.logo_url}
@@ -229,10 +235,10 @@ const Layout = ({ children }) => {
             <School className="w-8 h-8 text-primary-400" />
           )}
           <div className="min-w-0">
-            <h1 className="text-xl font-bold text-white truncate">
+            <h1 className={`text-xl font-bold truncate ${liteMode ? 'text-slate-900' : 'text-white'}`}>
               {isSuperAdmin ? 'SCHOOLTYPE' : (school?.name || 'SCHOOLTYPE')}
             </h1>
-            <p className="text-xs text-slate-300 truncate">
+            <p className={`text-xs truncate ${liteMode ? 'text-slate-500' : 'text-slate-300'}`}>
               {isSuperAdmin
                 ? 'The central connection point for all your school academic activities'
                 : `${school?.plan_name || 'No plan'} · ${!isPlanApproved ? 'Payment required' : 'Admin'}`}
@@ -243,7 +249,7 @@ const Layout = ({ children }) => {
         <nav className="flex-1 p-4 space-y-6 overflow-y-auto">
           {navigationSections.map((section) => (
             <div key={section.title}>
-              <h2 className="px-4 text-xs font-semibold uppercase tracking-wide text-slate-300">
+              <h2 className={`px-4 text-xs font-semibold uppercase tracking-wide ${liteMode ? 'text-slate-500' : 'text-slate-300'}`}>
                 {section.title}
               </h2>
               <div className="mt-2 space-y-1">
@@ -261,8 +267,12 @@ const Layout = ({ children }) => {
                     isLocked
                       ? 'text-slate-400 cursor-not-allowed opacity-60'
                       : active
-                        ? 'bg-sky-500/15 text-white'
-                        : 'text-slate-100 hover:bg-slate-700'
+                        ? liteMode
+                          ? 'bg-sky-100 text-sky-800'
+                          : 'bg-sky-500/15 text-white'
+                        : liteMode
+                          ? 'text-slate-700 hover:bg-slate-100'
+                          : 'text-slate-100 hover:bg-slate-700'
                   }`;
 
                   if (isLocked) {
@@ -306,11 +316,13 @@ const Layout = ({ children }) => {
           ))}
         </nav>
 
-        <div className="shrink-0 border-t border-slate-600 p-4">
+        <div className={`shrink-0 border-t p-4 ${liteMode ? 'border-slate-200' : 'border-slate-600'}`}>
           <button
             type="button"
             onClick={toggleLiteMode}
-            className="mb-2 flex w-full items-center justify-between rounded-lg px-4 py-2 text-left text-sm text-slate-200 hover:bg-slate-700"
+            className={`mb-2 flex w-full items-center justify-between rounded-lg px-4 py-2 text-left text-sm ${
+              liteMode ? 'text-slate-700 hover:bg-slate-100' : 'text-slate-200 hover:bg-slate-700'
+            }`}
           >
             <span>Lite Mode</span>
             <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${liteMode ? 'bg-sky-500 text-white' : 'bg-slate-600 text-slate-300'}`}>

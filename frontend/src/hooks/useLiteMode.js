@@ -10,9 +10,13 @@ export function readLiteMode() {
   }
 }
 
-function applyLiteClass(on) {
+export function applyLiteClass(on) {
   if (typeof document === 'undefined') return;
   document.documentElement.classList.toggle('lite', Boolean(on));
+}
+
+if (typeof document !== 'undefined') {
+  applyLiteClass(readLiteMode());
 }
 
 export default function useLiteMode() {
@@ -38,7 +42,6 @@ export default function useLiteMode() {
       } catch {
         // ignore
       }
-      applyLiteClass(next);
       return next;
     });
   }, []);
