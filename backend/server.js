@@ -2223,7 +2223,7 @@ const enrichAttendanceRows = async (attendance, lateAfterTime = '08:00') => {
   for (const record of rows) {
     const type =
       record.user_type === 'nonstaff' || record.user_type === 'non_staff' ? 'non-staff' : record.user_type;
-    if (!record.user_name && record.user_id && byType[type]) {
+    if (record.user_id && byType[type]) {
       byType[type].add(record.user_id);
     }
   }
@@ -2242,7 +2242,7 @@ const enrichAttendanceRows = async (attendance, lateAfterTime = '08:00') => {
   };
 
   const [students, staff, nonStaff] = await Promise.all([
-    loadMap('students', byType.student, 'id, name, class'),
+    loadMap('students', byType.student, 'id, name, class, roll_number, barcode'),
     loadMap('staffs', byType.staff, 'id, name, role'),
     loadMap('nonstaffs', byType['non-staff'], 'id, name, role'),
   ]);
@@ -2254,10 +2254,13 @@ const enrichAttendanceRows = async (attendance, lateAfterTime = '08:00') => {
         : record.user_type;
     let user = null;
     if (record.user_name) {
+      const extra = userType === 'student' ? students.get(record.user_id) : null;
       user = {
         name: record.user_name,
         role: userType === 'student' ? null : record.user_label || null,
-        class: userType === 'student' ? record.user_label || null : null,
+        class: userType === 'student' ? record.user_label || extra?.class || null : null,
+        roll_number: extra?.roll_number || null,
+        barcode: extra?.barcode || null,
       };
     } else if (userType === 'student') {
       user = students.get(record.user_id) || null;

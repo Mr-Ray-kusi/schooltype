@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { AlertTriangle, ChevronDown, ChevronRight, Clock, Download, Printer, RefreshCw } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronRight, Clock, Download, Printer, RefreshCw, Search } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { cachedGet, invalidateCache, peekCache, staleGet } from '../utils/requestCache';
@@ -34,6 +34,21 @@ const getPersonLabel = (record) => {
 };
 
 const getPersonName = (record) => record.user?.name || record.user_name || 'Unknown';
+
+const recordMatchesSearch = (record, query) => {
+  const q = String(query || '').trim().toLowerCase();
+  if (!q) return true;
+  const name = getPersonName(record).toLowerCase();
+  if (name.includes(q)) return true;
+  const ids = [
+    record.user_id,
+    record.user?.id,
+    record.user?.roll_number,
+    record.user?.barcode,
+    record.barcode,
+  ];
+  return ids.some((value) => String(value || '').trim().toLowerCase().includes(q));
+};
 
 const getPunctuality = (record) =>
   record.punctuality ||
@@ -126,6 +141,7 @@ const Attendance = () => {
   const [selectedDate, setSelectedDate] = useState(schoolLocalDate());
   const [selectedType, setSelectedType] = useState('all');
   const [selectedClass, setSelectedClass] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState(null);
   const [lateAfterTime, setLateAfterTime] = useState('08:00');
@@ -263,9 +279,10 @@ const Attendance = () => {
           if (getPersonLabel(record) !== selectedClass) return false;
         }
       }
+      if (!recordMatchesSearch(record, searchQuery)) return false;
       return true;
     });
-  }, [attendanceRecords, selectedType, selectedClass]);
+  }, [attendanceRecords, selectedType, selectedClass, searchQuery]);
 
   const lateCount = useMemo(
     () => filteredRecords.filter((record) => getPunctuality(record) === 'late').length,
@@ -375,8 +392,8 @@ const Attendance = () => {
         </div>
       )}
 
-      <div className="flex flex-wrap items-end gap-2 rounded-xl border border-slate-700 bg-slate-800 p-3 print:hidden">
-        <label className="min-w-[8.5rem] flex-1 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+      <div className="flex flex-nowrap items-end gap-2 overflow-x-auto rounded-xl border border-slate-700 bg-slate-800 p-3 print:hidden">
+        <label className="w-[8.5rem] shrink-0 text-[11px] font-medium uppercase tracking-wide text-slate-400">
           Type
           <select
             value={selectedType}
@@ -389,7 +406,7 @@ const Attendance = () => {
             <option value="non-staff">Non-staff</option>
           </select>
         </label>
-        <label className="min-w-[8.5rem] flex-1 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+        <label className="w-[9rem] shrink-0 text-[11px] font-medium uppercase tracking-wide text-slate-400">
           {selectedType === 'staff' || selectedType === 'non-staff' ? 'Role' : 'Class / Roll'}
           <select
             value={selectedClass}
@@ -404,20 +421,33 @@ const Attendance = () => {
             ))}
           </select>
         </label>
-        <label className="min-w-[7.5rem] text-[11px] font-medium uppercase tracking-wide text-slate-400">
+        <label className="min-w-[12rem] flex-1 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+          Search
+          <div className="relative mt-1">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Name or ID"
+              className={`${fieldClass} pl-8`}
+            />
+          </div>
+        </label>
+        <label className="w-[7.5rem] shrink-0 text-[11px] font-medium uppercase tracking-wide text-slate-400">
           Late after
           <input
             type="time"
             value={lateAfterTime}
             onChange={(e) => setLateAfterTime(e.target.value)}
-            className={`${fieldClass} mt-1 w-[7.5rem]`}
+            className={`${fieldClass} mt-1`}
           />
         </label>
         <button
           type="button"
           onClick={saveLateSettings}
           disabled={savingLateTime}
-          className="h-9 rounded-lg bg-slate-700 px-3 text-sm font-medium text-white hover:bg-slate-600 disabled:opacity-50"
+          className="h-9 shrink-0 rounded-lg bg-slate-700 px-3 text-sm font-medium text-white hover:bg-slate-600 disabled:opacity-50"
         >
           {savingLateTime ? 'Saving…' : 'Save'}
         </button>
@@ -425,7 +455,9 @@ const Attendance = () => {
 
       {filteredRecords.length === 0 ? (
         <div className="rounded-xl border border-slate-700 bg-slate-800 py-10 text-center text-sm text-slate-400">
-          No attendance records for this date.
+          {searchQuery.trim()
+            ? 'No one matches that name or ID for this date.'
+            : 'No attendance records for this date.'}
         </div>
       ) : liteMode ? (
         <div className="divide-y divide-slate-700 overflow-hidden rounded-xl border border-slate-700 bg-slate-800">
