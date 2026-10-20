@@ -10,8 +10,17 @@ export function readLiteMode() {
   }
 }
 
+function applyLiteClass(on) {
+  if (typeof document === 'undefined') return;
+  document.documentElement.classList.toggle('lite', Boolean(on));
+}
+
 export default function useLiteMode() {
   const [liteMode, setLiteMode] = useState(readLiteMode);
+
+  useEffect(() => {
+    applyLiteClass(liteMode);
+  }, [liteMode]);
 
   useEffect(() => {
     const onStorage = (event) => {
@@ -29,6 +38,7 @@ export default function useLiteMode() {
       } catch {
         // ignore
       }
+      applyLiteClass(next);
       return next;
     });
   }, []);
