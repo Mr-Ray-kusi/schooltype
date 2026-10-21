@@ -273,7 +273,7 @@ const Layout = ({ children }) => {
                         type="button"
                         onClick={() => {
                           setSidebarOpen(false);
-                          toast.error('This feature is locked until your plan is approved by the admin.');
+                          toast.error('This feature is locked until your school plan is paid and active.');
                         }}
                         className={`${itemClasses} w-full text-left`}
                       >

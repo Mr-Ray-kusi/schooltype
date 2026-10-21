@@ -339,7 +339,7 @@ const Messages = () => {
                 <Mail className="h-5 w-5 text-primary-400" />
                 Email broadcasts enabled
               </p>
-              <p className="mt-1 text-xs text-slate-500">SMS is available on Professional and Enterprise plans.</p>
+              <p className="mt-1 text-xs text-slate-500">SMS is included on paid Small, Mid, and Large school plans.</p>
             </div>
           )}
         </section>

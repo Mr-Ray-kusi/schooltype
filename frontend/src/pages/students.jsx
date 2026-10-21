@@ -134,7 +134,6 @@ const Students = () => {
       const all = await fetchAllPages(axios, '/api/students', {
         q: debouncedSearch || undefined,
         class: selectedClass !== 'all' ? selectedClass : undefined,
-        includePhotos: 1,
       });
       if (!all.length) {
         toast.error('No students to download');
@@ -220,7 +219,6 @@ const Students = () => {
           open={Boolean(viewingStudent)}
           name={viewingStudent?.name}
           badge={viewingStudent?.class || 'No class'}
-          photoUrl={viewingStudent?.photo_url}
           accent="sky"
           fields={[
             { group: 'School', label: 'Roll number', value: viewingStudent?.roll_number },

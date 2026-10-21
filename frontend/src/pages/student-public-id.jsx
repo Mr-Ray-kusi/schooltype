@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import axios from 'axios';
-import { GraduationCap, User, Briefcase, Hash, Phone } from 'lucide-react';
+import { GraduationCap, Briefcase, Hash, Phone } from 'lucide-react';
 
 const StudentPublicId = () => {
   const { barcode } = useParams();
@@ -59,8 +59,8 @@ const StudentPublicId = () => {
     : data.role || (data.type === 'staff' ? 'Staff' : data.type === 'non-staff' ? 'Non-staff' : null);
 
   const detailRows = [
-    isStudent && data.roll_number
-      ? { Icon: Hash, label: 'Student ID', value: data.roll_number }
+    isStudent
+      ? { Icon: Hash, label: 'Student ID', value: data.roll_number || '—' }
       : null,
     !isStudent && data.role
       ? { Icon: Briefcase, label: 'Role', value: data.role }
@@ -102,19 +102,7 @@ const StudentPublicId = () => {
           </div>
 
           <div className="flex flex-col items-center px-6 pb-8 pt-8">
-            {data.photo_url ? (
-              <img
-                src={data.photo_url}
-                alt={data.name}
-                className="h-44 w-36 rounded-2xl border-2 border-slate-600 object-cover shadow-lg"
-              />
-            ) : (
-              <div className="flex h-44 w-36 flex-col items-center justify-center rounded-2xl border-2 border-slate-600 bg-slate-800">
-                <User className="h-12 w-12 text-slate-500" />
-              </div>
-            )}
-
-            <h1 className="mt-5 font-display text-2xl font-bold text-white">{data.name}</h1>
+            <h1 className="font-display text-2xl font-bold text-white">{data.name}</h1>
             {subtitle && (
               <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-sky-500/15 px-3 py-1 text-sm text-sky-200">
                 {isStudent ? <GraduationCap className="h-3.5 w-3.5" /> : <Briefcase className="h-3.5 w-3.5" />}

@@ -5,7 +5,7 @@ const Privacy = () => (
     <div className="mx-auto max-w-3xl">
       <p className="font-display text-xl font-extrabold tracking-tight text-white">SCHOOLTYPE</p>
       <h1 className="mt-8 font-display text-4xl font-bold text-white">Privacy notice</h1>
-      <p className="mt-3 text-sm text-slate-500">Last updated: 28 August 2026</p>
+      <p className="mt-3 text-sm text-slate-500">Last updated: 21 October 2026</p>
 
       <div className="mt-10 space-y-8 text-sm leading-relaxed">
         <section>
@@ -23,9 +23,11 @@ const Privacy = () => (
           <p className="mt-2">
             Student, staff, parent, attendance, fee, and message data is entered by the school.
             The school is responsible for that information. Schooltype stores and processes it so
-            the school can run attendance, IDs, messaging, and related tools. Public ID pages show
-            only school-facing identity details (name, photo, class or role, and school). They do
-            not publish parent phone numbers, emails, home addresses, or dates of birth.
+            the school can run attendance, IDs, messaging, and related tools. A public ID page is
+            for returning a found card: it shows name, school, class or role, student ID when
+            stored, and the parent phone so the school can be reached. It does not show a portrait,
+            email, home address, or date of birth. Parents cannot sign in to see results or
+            attendance.
           </p>
         </section>
 

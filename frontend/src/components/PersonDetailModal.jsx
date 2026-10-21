@@ -1,20 +1,14 @@
 import React, { useMemo, useState } from 'react';
-import { Download, Edit2, Trash2, User, X } from 'lucide-react';
+import { Download, Edit2, Trash2, X } from 'lucide-react';
 
 const ACCENTS = {
   sky: {
-    ring: 'ring-sky-500/30',
-    fallback: 'bg-sky-500/15 text-sky-200',
     badge: 'bg-sky-500/15 text-sky-200 ring-1 ring-sky-500/25',
   },
   emerald: {
-    ring: 'ring-emerald-500/30',
-    fallback: 'bg-emerald-500/15 text-emerald-200',
     badge: 'bg-emerald-500/15 text-emerald-200 ring-1 ring-emerald-500/25',
   },
   violet: {
-    ring: 'ring-violet-500/30',
-    fallback: 'bg-violet-500/15 text-violet-200',
     badge: 'bg-violet-500/15 text-violet-200 ring-1 ring-violet-500/25',
   },
 };
@@ -23,7 +17,6 @@ const PersonDetailModal = ({
   open,
   name,
   badge,
-  photoUrl,
   fields = [],
   accent = 'sky',
   onClose,
@@ -78,29 +71,13 @@ const PersonDetailModal = ({
         </div>
 
         <div className="max-h-[calc(90vh-8.5rem)] overflow-y-auto px-5 py-5 sm:px-6">
-          <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
-            {photoUrl ? (
-              <img
-                src={photoUrl}
-                alt={name}
-                className={`h-40 w-32 shrink-0 rounded-2xl object-cover ring-4 ${colors.ring}`}
-              />
-            ) : (
-              <div
-                className={`flex h-40 w-32 shrink-0 flex-col items-center justify-center rounded-2xl ring-4 ${colors.ring} ${colors.fallback}`}
-              >
-                <User className="h-8 w-8 opacity-80" />
-                <span className="mt-2 text-3xl font-bold">{name?.charAt(0)?.toUpperCase() || '?'}</span>
-              </div>
-            )}
-            <div className="min-w-0 pt-1">
-              <h2 className="text-2xl font-bold tracking-tight text-white">{name || 'Details'}</h2>
-              {badge ? (
-                <span className={`mt-3 inline-flex rounded-full px-3 py-1 text-xs font-medium ${colors.badge}`}>
-                  {badge}
-                </span>
-              ) : null}
-            </div>
+          <div className="min-w-0">
+            <h2 className="text-2xl font-bold tracking-tight text-white">{name || 'Details'}</h2>
+            {badge ? (
+              <span className={`mt-3 inline-flex rounded-full px-3 py-1 text-xs font-medium ${colors.badge}`}>
+                {badge}
+              </span>
+            ) : null}
           </div>
 
           <div className="mt-6 space-y-6">

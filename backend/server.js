@@ -3202,11 +3202,20 @@ app.get('/api/public/id/:barcode', async (req, res) => {
       return res.status(400).json({ error: 'Invalid ID code' });
     }
 
-    const { data: student, error: studentError } = await supabase
+    let { data: student, error: studentError } = await supabase
       .from('students')
-      .select('id, school_id, name, class, barcode, parent_name, parent_phone')
+      .select('id, school_id, name, class, roll_number, barcode, parent_name, parent_phone')
       .eq('barcode', barcode)
       .maybeSingle();
+    if (studentError && isMissingColumnError(studentError, 'roll_number')) {
+      const retry = await supabase
+        .from('students')
+        .select('id, school_id, name, class, barcode, parent_name, parent_phone')
+        .eq('barcode', barcode)
+        .maybeSingle();
+      student = retry.data;
+      studentError = retry.error;
+    }
     if (studentError) throw studentError;
 
     if (student) {
@@ -3220,6 +3229,7 @@ app.get('/api/public/id/:barcode', async (req, res) => {
           type: 'student',
           name: student.name,
           class: student.class,
+          roll_number: student.roll_number || null,
           parent_name: student.parent_name || null,
           parent_phone: student.parent_phone || null,
           school_name: school?.name || 'School',
@@ -5040,7 +5050,7 @@ app.post('/api/staff-portal/session/scores', authenticateStaffPortal, async (req
     }
 
     const staff = await loadPortalStaff(req);
-    const { saved, student, subject, className, term } = await upsertStaffPortalScore({
+    const { saved, student, subject, className, term, promotion } = await upsertStaffPortalScore({
       schoolId: req.staffPortal.schoolId,
       staffId: req.staffPortal.staffId,
       staff,
@@ -5068,7 +5078,7 @@ app.post('/api/staff-portal/session/scores', authenticateStaffPortal, async (req
         term,
       },
     }).catch(() => {});
-    res.json(saved);
+    res.json({ ...saved, promotion, student_name: student?.name, class_name: className, term });
   } catch (error) {
     const status = error.status || 500;
     if (status >= 500) console.error('Staff portal score save error:', error);
@@ -5093,6 +5103,7 @@ app.post('/api/staff-portal/session/scores/batch', authenticateStaffPortal, asyn
 
     const saved = [];
     const failed = [];
+    const promotions = { promoted: [], retained: [], pending: [], already: [] };
     for (const entry of entries) {
       try {
         const result = await upsertStaffPortalScore({
@@ -5107,6 +5118,17 @@ app.post('/api/staff-portal/session/scores/batch', authenticateStaffPortal, asyn
           },
         });
         saved.push(result.saved);
+        const promo = result.promotion;
+        const name = result.student?.name || 'Student';
+        if (promo?.action === 'promoted') {
+          promotions.promoted.push({ name, nextClass: promo.nextClass, percent: promo.percent });
+        } else if (promo?.action === 'retained') {
+          promotions.retained.push({ name, percent: promo.percent });
+        } else if (promo?.action === 'pending') {
+          promotions.pending.push({ name });
+        } else if (promo?.action === 'already') {
+          promotions.already.push({ name, percent: promo.percent });
+        }
       } catch (error) {
         failed.push({
           studentId: entry?.studentId,
@@ -5143,14 +5165,22 @@ app.post('/api/staff-portal/session/scores/batch', authenticateStaffPortal, asyn
       },
     }).catch(() => {});
 
+    const promoBits = [
+      promotions.promoted.length ? `${promotions.promoted.length} promoted` : null,
+      promotions.retained.length ? `${promotions.retained.length} retained` : null,
+      promotions.pending.length ? `${promotions.pending.length} still waiting` : null,
+    ].filter(Boolean);
+    const savedLine =
+      failed.length > 0
+        ? `Saved ${saved.length} scores, ${failed.length} failed`
+        : `Saved ${saved.length} scores`;
+
     res.json({
       saved: saved.length,
       failed,
       scores: saved,
-      message:
-        failed.length > 0
-          ? `Saved ${saved.length} scores, ${failed.length} failed`
-          : `Saved ${saved.length} scores`,
+      promotions,
+      message: promoBits.length ? `${savedLine}. ${promoBits.join(', ')}.` : savedLine,
     });
   } catch (error) {
     const status = error.status || 500;
@@ -5722,7 +5752,7 @@ app.post('/api/messages', authenticateToken, enforcePlanApproval, async (req, re
       return res.status(403).json({ error: 'Bulk SMS is not included in your plan' });
     }
     if (channel === 'email' && !hasPlanFeature(planId, 'messages-email')) {
-      return res.status(403).json({ error: 'Bulk email is not included in your plan. Upgrade to Enterprise.' });
+      return res.status(403).json({ error: 'Bulk email is not included in your plan. Choose a paid Small, Mid, or Large school plan.' });
     }
 
     let smsSettlement = null;
@@ -5983,27 +6013,6 @@ app.post('/api/messages', authenticateToken, enforcePlanApproval, async (req, re
           }
         : undefined,
     });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Reply to message
-app.post('/api/messages/:id/reply', authenticateToken, enforcePlanApproval, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { reply } = req.body;
-
-    const { data: message, error } = await supabase
-      .from('messages')
-      .update({ reply, replied_at: new Date() })
-      .eq('id', id)
-      .eq('school_id', req.user.schoolId)
-      .select()
-      .single();
-
-    if (error) throw error;
-    res.json(message);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

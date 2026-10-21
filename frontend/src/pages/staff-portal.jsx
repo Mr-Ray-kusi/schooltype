@@ -44,6 +44,7 @@ const StaffPortal = () => {
   const [draftScores, setDraftScores] = useState({});
   const [loadingPortal, setLoadingPortal] = useState(true);
   const [savingAll, setSavingAll] = useState(false);
+  const [promotionResult, setPromotionResult] = useState(null);
 
   const authHeaders = useMemo(
     () => (sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
@@ -289,6 +290,7 @@ const StaffPortal = () => {
         },
         { headers: authHeaders }
       );
+      setPromotionResult(data?.promotions || null);
       if (data?.failed?.length) {
         toast.error(data.message || `Saved with ${data.failed.length} errors`);
       } else {
@@ -504,6 +506,35 @@ const StaffPortal = () => {
                       {savingAll ? 'Saving…' : 'Save all'}
                     </button>
                   </div>
+                  {promotionResult &&
+                  (promotionResult.promoted?.length ||
+                    promotionResult.retained?.length ||
+                    promotionResult.pending?.length) ? (
+                    <div className="space-y-2 border-b border-slate-800 bg-slate-950/40 px-5 py-4 text-sm">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                        After this term
+                      </p>
+                      {promotionResult.promoted?.length ? (
+                        <p className="text-emerald-200">
+                          Promoted:{' '}
+                          {promotionResult.promoted
+                            .map((row) => `${row.name}${row.nextClass ? ` → ${row.nextClass}` : ''}`)
+                            .join(', ')}
+                        </p>
+                      ) : null}
+                      {promotionResult.retained?.length ? (
+                        <p className="text-amber-200">
+                          Retained: {promotionResult.retained.map((row) => row.name).join(', ')}
+                        </p>
+                      ) : null}
+                      {promotionResult.pending?.length ? (
+                        <p className="text-slate-300">
+                          Still waiting for other subjects:{' '}
+                          {promotionResult.pending.map((row) => row.name).join(', ')}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
                   <div className="divide-y divide-slate-800">
                     {classStudents.length === 0 ? (
                       <p className="px-5 py-8 text-center text-sm text-slate-400">

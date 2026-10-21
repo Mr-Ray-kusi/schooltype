@@ -62,26 +62,6 @@ const buildXlsxBlob = async (rows) =>
     { name: 'xl/worksheets/sheet1.xml', data: sheetXml(rows) },
   ], { includeDirectories: false });
 
-const dataUrlToBlob = async (value) => {
-  if (!value) return null;
-  if (value instanceof Blob) return value;
-  if (typeof value !== 'string') return null;
-  if (value.startsWith('data:')) {
-    const res = await fetch(value);
-    return res.blob();
-  }
-  if (value.startsWith('http')) {
-    try {
-      const res = await fetch(value);
-      if (!res.ok) return null;
-      return res.blob();
-    } catch {
-      return null;
-    }
-  }
-  return null;
-};
-
 const triggerDownload = (blob, filename) => {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -152,11 +132,6 @@ async function personFiles(person) {
     files.push({ name: `${folderName}/qr-code.png`, data: qrBlob });
   }
 
-  const photoBlob = await dataUrlToBlob(person.photoUrl);
-  if (photoBlob) {
-    const ext = photoBlob.type?.includes('png') ? 'png' : 'jpg';
-    files.push({ name: `${folderName}/photo.${ext}`, data: photoBlob });
-  }
   return files;
 }
 
@@ -180,7 +155,6 @@ export function studentPack(student, qrValue) {
   const barcode = student.barcode || student.qr_code || '';
   return {
     name: student.name,
-    photoUrl: student.photo_url,
     barcode,
     qrValue: qrValue || buildPersonIdUrl(barcode) || barcode,
     details: {
@@ -202,7 +176,6 @@ export function staffPack(member, qrValue) {
   const barcode = member.barcode || member.qr_code || '';
   return {
     name: member.name,
-    photoUrl: member.photo_url,
     barcode,
     qrValue: qrValue || buildPersonIdUrl(barcode) || barcode,
     details: {
@@ -220,7 +193,6 @@ export function nonStaffPack(person, qrValue) {
   const barcode = person.barcode || person.qr_code || '';
   return {
     name: person.name,
-    photoUrl: person.photo_url,
     barcode,
     qrValue: qrValue || buildPersonIdUrl(barcode) || barcode,
     details: {

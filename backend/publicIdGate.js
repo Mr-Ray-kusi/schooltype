@@ -32,6 +32,7 @@ export function gateProfile(full) {
     school_logo_url: full.school_logo_url || null,
     class: full.class || null,
     role: full.role || null,
+    roll_number: full.roll_number || null,
     parent_name: full.parent_name || null,
     parent_phone: full.parent_phone || null,
     photo_url: null,

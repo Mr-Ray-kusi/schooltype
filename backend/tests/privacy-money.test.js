@@ -17,6 +17,7 @@ test('a public ID shows name, school, class, and parent contact for return of th
     type: 'student',
     name: 'Ama Mensah',
     class: 'JHS 2',
+    roll_number: 'STU-12',
     photo_url: 'data:image/png;base64,xxx',
     school_name: 'Sunrise School',
     school_logo_url: 'logo',
@@ -27,6 +28,7 @@ test('a public ID shows name, school, class, and parent contact for return of th
   assert.equal(open.name, 'Ama Mensah');
   assert.equal(open.school_name, 'Sunrise School');
   assert.equal(open.class, 'JHS 2');
+  assert.equal(open.roll_number, 'STU-12');
   assert.equal(open.parent_phone, '0244000000');
   assert.equal(open.parent_name, 'Kwame Mensah');
   assert.equal(open.photo_url, null);
@@ -97,4 +99,12 @@ test('a school that already paid at signup is not asked to pay again', () => {
     }),
     true
   );
+});
+
+test('Small, Mid, and Large school plans all include SMS and email', async () => {
+  const { hasPlanFeature } = await import('../plans.js');
+  for (const plan of ['small', 'mid', 'large', 'starter', 'professional', 'enterprise']) {
+    assert.equal(hasPlanFeature(plan, 'messages-sms'), true);
+    assert.equal(hasPlanFeature(plan, 'messages-email'), true);
+  }
 });

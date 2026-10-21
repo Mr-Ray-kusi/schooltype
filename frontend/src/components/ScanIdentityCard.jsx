@@ -1,5 +1,5 @@
 import React from 'react';
-import { GraduationCap, Phone, School, User } from 'lucide-react';
+import { GraduationCap, Phone, School } from 'lucide-react';
 
 const telHref = (phone) => {
   const raw = String(phone || '').trim();
@@ -18,19 +18,7 @@ const ScanIdentityCard = ({ user, message, alreadyMarked = false }) => {
 
   return (
     <div className="flex flex-col items-center text-center">
-      {user.photo_url ? (
-        <img
-          src={user.photo_url}
-          alt={user.name}
-          className="h-40 w-32 rounded-2xl border-2 border-white/30 object-cover shadow-lg"
-        />
-      ) : (
-        <div className="flex h-40 w-32 flex-col items-center justify-center rounded-2xl border-2 border-white/20 bg-black/20">
-          <User className="h-12 w-12 text-white/70" />
-        </div>
-      )}
-
-      <h3 className="mt-4 text-2xl font-bold leading-tight text-white">{user.name}</h3>
+      <h3 className="text-2xl font-bold leading-tight text-white">{user.name}</h3>
 
       {schoolName ? (
         <p className="mt-2 inline-flex items-center gap-1.5 text-sm font-medium text-white/90">

@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { invalidateCache, peekCache, staleGet } from '../utils/requestCache';
-import { fetchAllPages, fetchRecord, parseListResponse, LIST_PAGE_SIZE } from '../utils/listApi.js';
+import { fetchRecord, parseListResponse, LIST_PAGE_SIZE } from '../utils/listApi.js';
 import { downloadPersonPack, downloadPeoplePacks, staffPack, nonStaffPack } from '../utils/personPackExport';
 import { generateStrongPassword } from '../utils/strongPassword';
 import MultiSelectDropdown from '../components/MultiSelectDropdown';
@@ -436,27 +436,7 @@ const Staff = () => {
                       ? staffPack(person, buildPersonIdUrl(person.barcode))
                       : nonStaffPack(person, buildPersonIdUrl(person.barcode))
                   );
-                  const withPhotos = await Promise.all([
-                    canStaff && peopleFilter !== 'non-staff'
-                      ? fetchAllPages(axios, '/api/staff', {
-                          q: debouncedSearch || undefined,
-                          includePhotos: 1,
-                        })
-                      : Promise.resolve([]),
-                    canNonStaff && peopleFilter !== 'staff'
-                      ? fetchAllPages(axios, '/api/non-staff', {
-                          q: debouncedSearch || undefined,
-                          includePhotos: 1,
-                        })
-                      : Promise.resolve([]),
-                  ]);
-                  const photoPacks = [
-                    ...withPhotos[0].map((member) => staffPack(asStaffRow(member), buildPersonIdUrl(member.barcode))),
-                    ...withPhotos[1].map((person) =>
-                      nonStaffPack(asNonStaffRow(person), buildPersonIdUrl(person.barcode))
-                    ),
-                  ];
-                  await downloadPeoplePacks(photoPacks.length ? photoPacks : packs, 'all-staff.zip');
+                  await downloadPeoplePacks(packs, 'all-staff.zip');
                 } catch {
                   toast.error('Failed to download staff packs');
                 } finally {
@@ -540,7 +520,6 @@ const Staff = () => {
           open={Boolean(viewingPerson)}
           name={viewingPerson?.name}
           badge={viewingPerson?.role || (viewingStaff ? 'Staff' : 'Non-staff')}
-          photoUrl={viewingPerson?.photo_url}
           accent={viewingStaff ? 'emerald' : 'violet'}
           fields={
             viewingStaff
