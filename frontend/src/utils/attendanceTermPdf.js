@@ -32,7 +32,7 @@ const statusOf = (row) => {
   return value === 'late' ? 'Late' : 'Early';
 };
 
-export function downloadTermAttendancePdf({
+export function buildTermAttendancePdfBytes({
   schoolName = 'School',
   personName,
   personLabel,
@@ -82,5 +82,53 @@ export function downloadTermAttendancePdf({
     y
   );
 
-  doc.save(`${safeName(personName)}-${safeName(termName)}-attendance.pdf`);
+  return {
+    bytes: new Uint8Array(doc.output('arraybuffer')),
+    fileName: `${safeName(personName)}-${safeName(termName)}-attendance.pdf`,
+    termName,
+  };
+}
+
+export function downloadTermAttendancePdf(options) {
+  const { bytes, fileName } = buildTermAttendancePdfBytes(options);
+  const blob = new Blob([bytes], { type: 'application/pdf' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+export async function downloadAllStudentAttendanceZip({
+  schoolName = 'School',
+  term,
+  students = [],
+}) {
+  const { createZipBlob } = await import('./zipStore');
+  const termName = term?.name || 'Current term';
+  const folder = `${safeName(termName)}-student-attendance`;
+  const used = new Set();
+  const files = students.map((student, index) => {
+    const built = buildTermAttendancePdfBytes({
+      schoolName,
+      personName: student.name,
+      personLabel: student.class || student.label,
+      userType: 'student',
+      term,
+      records: student.records || [],
+      summary: student.summary || {},
+    });
+    let base = `${safeName(student.name)}${student.class ? `-${safeName(student.class)}` : ''}`;
+    if (used.has(base)) base = `${base}-${index + 1}`;
+    used.add(base);
+    return { name: `${folder}/${base}-attendance.pdf`, data: built.bytes };
+  });
+  const blob = await createZipBlob(files);
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${folder}.zip`;
+  link.click();
+  URL.revokeObjectURL(url);
 }

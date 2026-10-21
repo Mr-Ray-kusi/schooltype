@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { AlertTriangle, ChevronDown, ChevronRight, Clock, Download, Printer, RefreshCw, Search } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronRight, Clock, Download, Printer, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { cachedGet, invalidateCache, peekCache, staleGet } from '../utils/requestCache';
@@ -8,7 +8,7 @@ import { schoolLocalDate } from '../utils/schoolDate';
 import useLiteMode from '../hooks/useLiteMode';
 import { useLivePoll } from '../hooks/useLivePoll';
 import { useAuth } from '../contexts/authcontext';
-import { downloadTermAttendancePdf } from '../utils/attendanceTermPdf';
+import { downloadAllStudentAttendanceZip, downloadTermAttendancePdf } from '../utils/attendanceTermPdf';
 
 const fieldClass =
   'h-9 min-h-9 w-full rounded-lg border border-slate-600 bg-slate-900 px-2.5 text-sm text-white outline-none focus:ring-2 focus:ring-primary-500';
@@ -57,7 +57,16 @@ const getPunctuality = (record) =>
 
 const personKey = (record) => `${record.user_type || 'student'}:${record.user_id || record.id}`;
 
-const TermRecords = ({ data, loading, schoolName, personName, personLabel, userType }) => {
+const TermRecords = ({
+  data,
+  loading,
+  schoolName,
+  personName,
+  personLabel,
+  userType,
+  onDelete,
+  deleting,
+}) => {
   if (loading && !data) {
     return <p className="px-3 py-2 text-xs text-slate-400">Loading this term…</p>;
   }
@@ -71,29 +80,45 @@ const TermRecords = ({ data, loading, schoolName, personName, personLabel, userT
             ? ` · ${data.summary.days} days · ${data.summary.early} early · ${data.summary.late} late`
             : ''}
         </p>
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            try {
-              downloadTermAttendancePdf({
-                schoolName,
-                personName,
-                personLabel,
-                userType,
-                term: data?.term,
-                records,
-                summary: data?.summary,
-              });
-            } catch {
-              toast.error('Could not download this attendance record');
-            }
-          }}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-600 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-800"
-        >
-          <Download className="h-3.5 w-3.5" />
-          Download
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              try {
+                downloadTermAttendancePdf({
+                  schoolName,
+                  personName,
+                  personLabel,
+                  userType,
+                  term: data?.term,
+                  records,
+                  summary: data?.summary,
+                });
+              } catch {
+                toast.error('Could not download this attendance record');
+              }
+            }}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-600 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-800"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Download
+          </button>
+          {onDelete ? (
+            <button
+              type="button"
+              disabled={deleting}
+              onClick={(event) => {
+                event.stopPropagation();
+                onDelete();
+              }}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/40 px-2.5 py-1 text-xs text-rose-200 hover:bg-rose-500/10 disabled:opacity-50"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              {deleting ? 'Deleting…' : 'Delete records'}
+            </button>
+          ) : null}
+        </div>
       </div>
       {records.length === 0 ? (
         <p className="text-xs text-slate-500">No records for this term yet.</p>
@@ -147,6 +172,8 @@ const Attendance = () => {
   const [lateAfterTime, setLateAfterTime] = useState('08:00');
   const [savingLateTime, setSavingLateTime] = useState(false);
   const [setupClasses, setSetupClasses] = useState([]);
+  const [deletingKey, setDeletingKey] = useState(null);
+  const [bulkBusy, setBulkBusy] = useState('');
   const { liteMode } = useLiteMode();
 
   const fetchLateSettings = async () => {
@@ -296,6 +323,95 @@ const Attendance = () => {
     fetchSummary({ silent: false });
   };
 
+  const deletePersonRecords = async (record) => {
+    if (!record?.user_id) return;
+    const name = getPersonName(record);
+    if (
+      !window.confirm(
+        `Delete every attendance record for ${name}? This cannot be undone.`
+      )
+    ) {
+      return;
+    }
+    const key = personKey(record);
+    setDeletingKey(key);
+    try {
+      const { data } = await axios.delete(`/api/attendance/person/${record.user_id}`, {
+        params: { userType: record.user_type || 'student' },
+      });
+      toast.success(`Deleted ${data?.deleted ?? 0} attendance record(s) for ${name}.`);
+      setTermCache((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+      setOpenKey(null);
+      refresh();
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Could not delete these records');
+    } finally {
+      setDeletingKey(null);
+    }
+  };
+
+  const deleteAllStudentRecords = async () => {
+    if (
+      !window.confirm(
+        'Delete every student’s attendance records? Staff and non-staff records stay. This cannot be undone.'
+      )
+    ) {
+      return;
+    }
+    setBulkBusy('delete');
+    try {
+      const { data } = await axios.delete('/api/attendance/students');
+      toast.success(`Deleted ${data?.deleted ?? 0} student attendance record(s).`);
+      setTermCache({});
+      setOpenKey(null);
+      refresh();
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Could not delete student attendance');
+    } finally {
+      setBulkBusy('');
+    }
+  };
+
+  const downloadAllStudentPdfs = async () => {
+    setBulkBusy('download');
+    try {
+      const { data } = await axios.get('/api/attendance/export/students');
+      if (!data?.students?.length) {
+        toast.error('No students to export.');
+        return;
+      }
+      await downloadAllStudentAttendanceZip({
+        schoolName: data.school_name || school?.name || 'School',
+        term: data.term,
+        students: data.students,
+      });
+      toast.success(`Prepared ${data.students.length} student PDF(s) in one folder.`);
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Could not download student attendance PDFs');
+    } finally {
+      setBulkBusy('');
+    }
+  };
+
+  const termRecordProps = (record) => {
+    const key = personKey(record);
+    const isStudent = (record.user_type || 'student') === 'student';
+    return {
+      data: termCache[key],
+      loading: termLoading,
+      schoolName: school?.name || 'School',
+      personName: getPersonName(record),
+      personLabel: getPersonLabel(record),
+      userType: record.user_type,
+      onDelete: isStudent ? () => deletePersonRecords(record) : undefined,
+      deleting: deletingKey === key,
+    };
+  };
+
   const togglePerson = async (record) => {
     if (!record?.user_id) return;
     const key = personKey(record);
@@ -367,6 +483,24 @@ const Attendance = () => {
           >
             <Printer className="h-3.5 w-3.5" />
             Print
+          </button>
+          <button
+            type="button"
+            disabled={Boolean(bulkBusy)}
+            onClick={downloadAllStudentPdfs}
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-600 px-3 text-sm font-medium text-slate-100 hover:bg-slate-800 disabled:opacity-50"
+          >
+            <Download className="h-3.5 w-3.5" />
+            {bulkBusy === 'download' ? 'Preparing PDFs…' : 'Student PDFs'}
+          </button>
+          <button
+            type="button"
+            disabled={Boolean(bulkBusy)}
+            onClick={deleteAllStudentRecords}
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-rose-500/40 px-3 text-sm font-medium text-rose-200 hover:bg-rose-500/10 disabled:opacity-50"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            {bulkBusy === 'delete' ? 'Deleting…' : 'Delete all students'}
           </button>
         </div>
       </div>
@@ -492,16 +626,7 @@ const Attendance = () => {
                     </p>
                   </div>
                 </button>
-                {open ? (
-                  <TermRecords
-                    data={termCache[key]}
-                    loading={termLoading}
-                    schoolName={school?.name || 'School'}
-                    personName={getPersonName(record)}
-                    personLabel={getPersonLabel(record)}
-                    userType={record.user_type}
-                  />
-                ) : null}
+                {open ? <TermRecords {...termRecordProps(record)} /> : null}
               </div>
             );
           })}
@@ -563,14 +688,7 @@ const Attendance = () => {
                       {open ? (
                         <tr>
                           <td colSpan={5} className="p-0">
-                            <TermRecords
-                              data={termCache[key]}
-                              loading={termLoading}
-                              schoolName={school?.name || 'School'}
-                              personName={getPersonName(record)}
-                              personLabel={getPersonLabel(record)}
-                              userType={record.user_type}
-                            />
+                            <TermRecords {...termRecordProps(record)} />
                           </td>
                         </tr>
                       ) : null}
@@ -614,14 +732,7 @@ const Attendance = () => {
                     </div>
                   </button>
                   {open ? (
-                    <TermRecords
-                      data={termCache[key]}
-                      loading={termLoading}
-                      schoolName={school?.name || 'School'}
-                      personName={getPersonName(record)}
-                      personLabel={getPersonLabel(record)}
-                      userType={record.user_type}
-                    />
+                    <TermRecords {...termRecordProps(record)} />
                   ) : null}
                 </div>
               );

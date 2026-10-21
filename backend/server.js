@@ -5488,6 +5488,111 @@ app.get('/api/attendance/person/:userId', authenticateToken, enforcePlanApproval
   }
 });
 
+app.delete('/api/attendance/person/:userId', authenticateToken, enforcePlanApproval, async (req, res) => {
+  try {
+    const userId = String(req.params.userId || '').trim();
+    const userType = normalizeAttendanceUserType(req.query.userType || req.query.user_type || 'student');
+    if (!userId) return res.status(400).json({ error: 'Person is required' });
+
+    const { error, count } = await supabase
+      .from('attendance')
+      .delete({ count: 'exact' })
+      .eq('school_id', req.user.schoolId)
+      .eq('user_id', userId)
+      .eq('user_type', userType);
+    if (error) throw error;
+
+    bumpSchoolCaches(req.user.schoolId);
+    res.json({ ok: true, deleted: count || 0, user_id: userId, user_type: userType });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Failed to delete attendance' });
+  }
+});
+
+app.delete('/api/attendance/students', authenticateToken, enforcePlanApproval, async (req, res) => {
+  try {
+    const { error, count } = await supabase
+      .from('attendance')
+      .delete({ count: 'exact' })
+      .eq('school_id', req.user.schoolId)
+      .eq('user_type', 'student');
+    if (error) throw error;
+
+    bumpSchoolCaches(req.user.schoolId);
+    res.json({ ok: true, deleted: count || 0 });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Failed to delete student attendance' });
+  }
+});
+
+app.get('/api/attendance/export/students', authenticateToken, enforcePlanApproval, async (req, res) => {
+  try {
+    const period = await resolveFeePeriod(req.user.schoolId).catch(() => null);
+    const today = schoolLocalDate();
+    const from = /^\d{4}-\d{2}-\d{2}$/.test(String(period?.starts_on || ''))
+      ? String(period.starts_on).slice(0, 10)
+      : `${today.slice(0, 7)}-01`;
+    const endCap = /^\d{4}-\d{2}-\d{2}$/.test(String(period?.ends_on || ''))
+      ? String(period.ends_on).slice(0, 10)
+      : today;
+    const to = endCap < today ? endCap : today;
+
+    const [{ data: school }, students, attendanceRes] = await Promise.all([
+      supabase.from('schools').select('name').eq('id', req.user.schoolId).maybeSingle(),
+      loadEnrolledStudents(req.user.schoolId),
+      supabase
+        .from('attendance')
+        .select('*')
+        .eq('school_id', req.user.schoolId)
+        .eq('user_type', 'student')
+        .gte('date', from)
+        .lte('date', to)
+        .order('date', { ascending: true })
+        .order('timestamp', { ascending: true })
+        .limit(20000),
+    ]);
+    if (attendanceRes.error) throw attendanceRes.error;
+
+    const lateAfterTime = await getSchoolLateAfterTime(req.user.schoolId);
+    const enriched = await enrichAttendanceRows(attendanceRes.data || [], lateAfterTime);
+    const byStudent = new Map();
+    for (const row of enriched) {
+      const list = byStudent.get(row.user_id) || [];
+      list.push(row);
+      byStudent.set(row.user_id, list);
+    }
+
+    const term = {
+      name: period?.name || null,
+      starts_on: from,
+      ends_on: period?.ends_on || to,
+      source: period?.source || null,
+    };
+
+    res.json({
+      school_name: school?.name || null,
+      term,
+      students: students.map((student) => {
+        const records = byStudent.get(student.id) || [];
+        const lateDays = records.filter((row) => row.status === 'late' || row.punctuality === 'late').length;
+        return {
+          id: student.id,
+          name: student.name,
+          class: student.label || null,
+          records,
+          summary: {
+            days: records.length,
+            early: records.length - lateDays,
+            late: lateDays,
+          },
+        };
+      }),
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Failed to export student attendance' });
+  }
+});
+
 app.get('/api/attendance/settings', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
     const lateAfterTime = await getSchoolLateAfterTime(req.user.schoolId);
