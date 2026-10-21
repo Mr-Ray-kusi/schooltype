@@ -141,20 +141,33 @@ const Fees = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-2 md:gap-4">
-        <div className="min-w-0 rounded-2xl border border-slate-700 bg-slate-800 p-2.5 sm:rounded-3xl sm:p-5">
-          <p className="text-[10px] uppercase leading-tight tracking-wide text-slate-300 sm:text-sm">Paid</p>
-          <p className="mt-2 break-words text-lg font-semibold text-white sm:mt-4 sm:text-4xl">{totals.paid || 0}</p>
-        </div>
-        <div className="min-w-0 rounded-2xl border border-slate-700 bg-slate-800 p-2.5 sm:rounded-3xl sm:p-5">
-          <p className="text-[10px] uppercase leading-tight tracking-wide text-slate-300 sm:text-sm">Collected</p>
-          <p className="mt-2 break-words text-sm font-semibold text-white sm:mt-4 sm:text-4xl">
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-4 md:gap-4">
+        <div className="min-w-0 rounded-2xl border border-slate-700 bg-slate-800 p-3 sm:rounded-3xl sm:p-5">
+          <p className="text-[10px] uppercase leading-tight tracking-wide text-slate-300 sm:text-sm">Amount paid</p>
+          <p className="mt-2 break-words text-lg font-semibold text-emerald-300 sm:mt-4 sm:text-3xl">
             {formatGhs(totals.paid_amount)}
           </p>
+          <p className="mt-1 text-xs text-slate-400">{totals.paid || 0} student{(totals.paid || 0) === 1 ? '' : 's'}</p>
         </div>
-        <div className="min-w-0 rounded-2xl border border-slate-700 bg-slate-800 p-2.5 sm:rounded-3xl sm:p-5">
-          <p className="text-[10px] uppercase leading-tight tracking-wide text-slate-300 sm:text-sm">Still unpaid</p>
-          <p className="mt-2 break-words text-lg font-semibold text-white sm:mt-4 sm:text-4xl">{totals.unpaid || 0}</p>
+        <div className="min-w-0 rounded-2xl border border-slate-700 bg-slate-800 p-3 sm:rounded-3xl sm:p-5">
+          <p className="text-[10px] uppercase leading-tight tracking-wide text-slate-300 sm:text-sm">Outstanding</p>
+          <p className="mt-2 break-words text-lg font-semibold text-amber-300 sm:mt-4 sm:text-3xl">
+            {formatGhs(totals.unpaid_amount)}
+          </p>
+          <p className="mt-1 text-xs text-slate-400">{totals.unpaid || 0} student{(totals.unpaid || 0) === 1 ? '' : 's'} owing</p>
+        </div>
+        <div className="min-w-0 rounded-2xl border border-slate-700 bg-slate-800 p-3 sm:rounded-3xl sm:p-5">
+          <p className="text-[10px] uppercase leading-tight tracking-wide text-slate-300 sm:text-sm">Term fee billed</p>
+          <p className="mt-2 break-words text-lg font-semibold text-white sm:mt-4 sm:text-3xl">
+            {formatGhs(Number(totals.paid_amount || 0) + Number(totals.unpaid_amount || 0))}
+          </p>
+          <p className="mt-1 text-xs text-slate-400">{totals.billed || 0} billed student{(totals.billed || 0) === 1 ? '' : 's'}</p>
+        </div>
+        <div className="min-w-0 rounded-2xl border border-slate-700 bg-slate-800 p-3 sm:rounded-3xl sm:p-5">
+          <p className="text-[10px] uppercase leading-tight tracking-wide text-slate-300 sm:text-sm">Collected this year</p>
+          <p className="mt-2 break-words text-lg font-semibold text-white sm:mt-4 sm:text-3xl">
+            {formatGhs(totals.year_collected)}
+          </p>
         </div>
       </div>
 
@@ -202,65 +215,98 @@ const Fees = () => {
               <p className="text-slate-300">No students match your search.</p>
             </div>
           ) : (
-            <div className="overflow-x-auto rounded-3xl border border-slate-700">
-              <table className="w-full min-w-[880px] text-left text-sm">
-                <thead className="bg-slate-800 text-slate-300">
-                  <tr>
-                    <th className="px-4 py-3">Student</th>
-                    <th className="px-4 py-3">Class</th>
-                    <th className="px-4 py-3">Fee</th>
-                    <th className="px-4 py-3">Paid</th>
-                    <th className="px-4 py-3">Outstanding</th>
-                    <th className="px-4 py-3">Recorded by</th>
-                    <th className="px-4 py-3">{tab === 'unpaid' ? 'Pay link' : 'Channel'}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((row) => {
-                    const outstanding = Number(row.outstanding) || 0;
-                    return (
-                      <tr
-                        key={row.id}
-                        onClick={() => setSelectedId(row.id)}
-                        className="cursor-pointer border-t border-slate-700 bg-slate-900 text-slate-100 hover:bg-slate-800/80"
-                      >
-                        <td className="px-4 py-3">{row.name}</td>
-                        <td className="px-4 py-3">{row.class || '—'}</td>
-                        <td className="px-4 py-3">{formatGhs(row.fee_amount)}</td>
-                        <td className="px-4 py-3">{formatGhs(row.paid_amount || row.payment?.amount || 0)}</td>
-                        <td className={`px-4 py-3 font-medium ${outstanding >= 0.01 ? 'text-amber-300' : 'text-emerald-300'}`}>
-                          {outstanding >= 0.01 ? formatGhs(outstanding) : 'None'}
-                        </td>
-                        <td className="px-4 py-3 text-slate-300">{row.recorded_by || '—'}</td>
-                        <td className="px-4 py-3">
-                          {tab === 'unpaid' ? (
-                            row.pay_path ? (
-                              <button
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  copyLink(row.pay_path);
-                                }}
-                                className="inline-flex items-center gap-1 text-sky-400 hover:text-sky-300"
-                              >
-                                <Copy className="h-4 w-4" />
-                                Copy
-                              </button>
+            <>
+              <div className="space-y-2 md:hidden">
+                {filtered.map((row) => {
+                  const outstanding = Number(row.outstanding) || 0;
+                  const paidAmount = Number(row.paid_amount || row.payment?.amount || 0);
+                  return (
+                    <button
+                      key={row.id}
+                      type="button"
+                      onClick={() => setSelectedId(row.id)}
+                      className="w-full rounded-2xl border border-slate-700 bg-slate-900 p-4 text-left text-white"
+                    >
+                      <p className="font-semibold">{row.name}</p>
+                      <p className="mt-0.5 text-xs text-slate-400">{row.class || 'No class'}</p>
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wide text-slate-400">Paid</p>
+                          <p className="mt-1 font-semibold text-emerald-300">{formatGhs(paidAmount)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wide text-slate-400">Outstanding</p>
+                          <p className={`mt-1 font-semibold ${outstanding >= 0.01 ? 'text-amber-300' : 'text-emerald-300'}`}>
+                            {outstanding >= 0.01 ? formatGhs(outstanding) : 'None'}
+                          </p>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="hidden overflow-x-auto rounded-3xl border border-slate-700 md:block">
+                <table className="w-full min-w-[880px] text-left text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="px-4 py-3">Student</th>
+                      <th className="px-4 py-3">Class</th>
+                      <th className="px-4 py-3">Fee</th>
+                      <th className="px-4 py-3">Paid</th>
+                      <th className="px-4 py-3">Outstanding</th>
+                      <th className="px-4 py-3">Recorded by</th>
+                      <th className="px-4 py-3">{tab === 'unpaid' ? 'Pay link' : 'Channel'}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map((row) => {
+                      const outstanding = Number(row.outstanding) || 0;
+                      return (
+                        <tr
+                          key={row.id}
+                          onClick={() => setSelectedId(row.id)}
+                          className="cursor-pointer border-t border-slate-700 bg-slate-900 text-slate-100 hover:bg-slate-800/80"
+                        >
+                          <td className="px-4 py-3">{row.name}</td>
+                          <td className="px-4 py-3">{row.class || '—'}</td>
+                          <td className="px-4 py-3">{formatGhs(row.fee_amount)}</td>
+                          <td className="px-4 py-3 text-emerald-300">
+                            {formatGhs(row.paid_amount || row.payment?.amount || 0)}
+                          </td>
+                          <td className={`px-4 py-3 font-medium ${outstanding >= 0.01 ? 'text-amber-300' : 'text-emerald-300'}`}>
+                            {outstanding >= 0.01 ? formatGhs(outstanding) : 'None'}
+                          </td>
+                          <td className="px-4 py-3 text-slate-300">{row.recorded_by || '—'}</td>
+                          <td className="px-4 py-3">
+                            {tab === 'unpaid' ? (
+                              row.pay_path ? (
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    copyLink(row.pay_path);
+                                  }}
+                                  className="inline-flex items-center gap-1 text-sky-400 hover:text-sky-300"
+                                >
+                                  <Copy className="h-4 w-4" />
+                                  Copy
+                                </button>
+                              ) : (
+                                '—'
+                              )
                             ) : (
-                              '—'
-                            )
-                          ) : (
-                            <span className="capitalize">
-                              {row.payment?.channel || row.payment?.payment_method || 'Paystack'}
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                              <span className="capitalize">
+                                {row.payment?.channel || row.payment?.payment_method || 'Paystack'}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </div>
       )}
