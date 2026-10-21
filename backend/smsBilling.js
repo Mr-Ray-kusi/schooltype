@@ -383,4 +383,62 @@ export async function settleSmsPayment({
   };
 }
 
+export async function quoteSmsForPhones({ schoolId, message, phones }) {
+  const recipientCount = Array.isArray(phones) ? phones.length : 0;
+  if (recipientCount < 1) {
+    const err = new Error(
+      'No owing parents have a valid phone number and student payment link.'
+    );
+    err.status = 400;
+    err.code = 'SMS_NO_RECIPIENTS';
+    throw err;
+  }
+
+  const settings = await getSmsSettings();
+  const quote = buildSmsQuote({
+    message,
+    recipientCount,
+    unitPriceMinor: settings.unit_price_minor,
+  });
+
+  await ensureSchoolSmsBalance(schoolId);
+  const schoolSms = await getSchoolSmsBalance(schoolId);
+  await ensureWallet(schoolId);
+  const wallet = await getWallet(schoolId);
+  const provider = getSmsProviderStatus();
+  const schoolHasUnits = schoolSms.units_available >= quote.units_required;
+  const platformHasUnits = settings.units_available >= quote.units_required;
+
+  return {
+    quote: {
+      ...quote,
+      amount_major: fromMinorUnits(quote.amount_minor),
+      unit_price_major: fromMinorUnits(quote.unit_price_minor),
+    },
+    recipients: recipientCount,
+    school_sms_units: schoolSms.units_available,
+    school_wallet: {
+      available_balance: wallet.available_balance,
+      available_balance_major: fromMinorUnits(wallet.available_balance),
+    },
+    platform: {
+      units_available: settings.units_available,
+    },
+    school_has_units: schoolHasUnits,
+    platform_has_units: platformHasUnits,
+    provider_ready: provider.ready,
+    provider,
+    can_send: schoolHasUnits && platformHasUnits && provider.ready,
+    blockers: [
+      !schoolHasUnits
+        ? `Not enough school SMS units. Need ${quote.units_required}, you have ${schoolSms.units_available}. Convert wallet money to SMS units first.`
+        : null,
+      !platformHasUnits
+        ? `Platform SMS units are low. Need ${quote.units_required}, available ${settings.units_available}. Contact super admin.`
+        : null,
+      !provider.ready ? provider.message : null,
+    ].filter(Boolean),
+  };
+}
+
 export { refundSchoolAndPlatformUnits, resolveSmsRecipients };

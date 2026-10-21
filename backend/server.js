@@ -93,7 +93,7 @@ import { sortClasses } from './classHierarchy.js';
 import { listAcademicTerms, resolveFeePeriod } from './academicTerms.js';
 import { initPlatformSmsStore, claimDemoMoneyReset, getSchoolSmsBalance, resetSmsInventoryToZero } from './platformSmsStore.js';
 import { registerSmsBillingRoutes, settleSmsPayment, refundSchoolAndPlatformUnits, findPlatformSchoolId } from './smsBilling.js';
-import { sendSmsBatch, getSmsProviderStatus, attachFeePayLink, toE164 } from './smsProvider.js';
+import { sendSmsBatch, getSmsProviderStatus } from './smsProvider.js';
 import {
   createEmailVerificationToken,
   hashEmailVerificationToken,
@@ -5640,29 +5640,10 @@ app.post('/api/messages', authenticateToken, enforcePlanApproval, async (req, re
       }
 
       try {
-        let bodiesByPhone;
-        if (String(recipients || '').includes('Parent')) {
-          const { data: parentStudents } = await supabase
-            .from('students')
-            .select('parent_phone, barcode, name')
-            .eq('school_id', req.user.schoolId)
-            .not('parent_phone', 'is', null);
-          const payBase = getFrontendBaseUrl();
-          bodiesByPhone = {};
-          for (const row of parentStudents || []) {
-            const phone = toE164(row.parent_phone);
-            if (!phone || !row.barcode) continue;
-            bodiesByPhone[phone] = attachFeePayLink(
-              message,
-              `${payBase}/pay/${encodeURIComponent(row.barcode)}`
-            );
-          }
-        }
         smsDelivery = await sendSmsBatch({
           phones: smsSettlement.phones,
-          body: attachFeePayLink(message, `${getFrontendBaseUrl()}/fees`),
+          body: message,
           schoolName: schoolAccount.name,
-          bodiesByPhone,
         });
 
         const segments = smsSettlement.quote?.segments || 1;

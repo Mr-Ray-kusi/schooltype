@@ -232,8 +232,11 @@ async function sendOne(to, body) {
  * Does not throw on per-recipient failure — returns a summary.
  */
 export function attachFeePayLink(message, payUrl) {
-  const trimmed = String(message || '').trim();
   const url = String(payUrl || '').trim();
+  const trimmed = String(message || '')
+    .replace(/\s*https?:\/\/[^\s]+\/fees\/?\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
   if (!url) return trimmed;
   if (trimmed.includes(url)) return trimmed;
   if (trimmed.includes('{pay_link}')) return trimmed.split('{pay_link}').join(url);

@@ -22,8 +22,9 @@ const Fees = () => {
   const [showManual, setShowManual] = useState(false);
   const [showReminderModal, setShowReminderModal] = useState(false);
   const [reminderMessage, setReminderMessage] = useState(
-    `Dear Parent, please settle outstanding school fees this term using ${window.location.origin}/fees. You can pay with MoMo, bank transfer, or USSD.`
+    'Dear Parent, please settle outstanding school fees this term. Pay here: {pay_link} You can pay with MoMo, bank transfer, or USSD.'
   );
+  const [smsQuote, setSmsQuote] = useState(null);
   const [sending, setSending] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -56,19 +57,33 @@ const Fees = () => {
   const sendReminder = async () => {
     setSending(true);
     try {
-      await axios.post('/api/messages', {
-        senderName: 'Admin',
-        senderRole: 'Admin',
-        sendMode: 'Group',
-        recipients: 'Parents',
-        individualRole: 'Parent',
-        recipientEmail: '',
-        attachmentName: null,
-        deliveryChannel: 'email',
+      if (!smsQuote) {
+        const { data } = await axios.post('/api/fees/reminder', { message: reminderMessage });
+        setSmsQuote(data);
+        if (!data.can_send && data.blockers?.length) {
+          toast.error(data.blockers.join(' '));
+        }
+        return;
+      }
+      if (!smsQuote.can_send) {
+        toast.error(smsQuote.blockers?.join(' ') || 'Not enough SMS units to send this reminder.');
+        return;
+      }
+      const { data } = await axios.post('/api/fees/reminder', {
         message: reminderMessage,
+        confirmSmsPayment: true,
       });
-      toast.success('Fee reminder sent to parents.');
+      const sent = data?.sms_delivery?.sent;
+      const failed = data?.sms_delivery?.failed;
+      if (data?.sms_delivery?.dryRun) {
+        toast.success(`TEST ONLY — no SMS sent. ${sent || 0} owing parent message(s) logged.`);
+      } else if (failed > 0) {
+        toast.success(`SMS sent to ${sent} owing parent(s); ${failed} failed.`);
+      } else {
+        toast.success(`SMS sent to ${sent ?? smsQuote.recipients} owing parent(s) with each child's pay link.`);
+      }
       setShowReminderModal(false);
+      setSmsQuote(null);
     } catch (error) {
       toast.error(error.response?.data?.error || 'Failed to send fee reminder.');
     } finally {
@@ -254,12 +269,25 @@ const Fees = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-6">
           <div className="w-full max-w-2xl rounded-3xl bg-slate-900 p-8 shadow-2xl">
             <h2 className="text-2xl font-semibold text-white">Fee reminder</h2>
+            <p className="mt-2 text-sm text-slate-400">
+              SMS goes only to parents of students who still owe. {'{pay_link}'} is replaced with that child's payment page.
+            </p>
             <textarea
               value={reminderMessage}
-              onChange={(e) => setReminderMessage(e.target.value)}
+              onChange={(e) => {
+                setReminderMessage(e.target.value);
+                setSmsQuote(null);
+              }}
               rows="6"
               className="mt-6 w-full rounded-3xl border border-slate-600 bg-slate-800 px-4 py-4 text-white"
             />
+            {smsQuote ? (
+              <p className="mt-3 text-sm text-slate-300">
+                {smsQuote.recipients} owing parent{smsQuote.recipients === 1 ? '' : 's'} · {smsQuote.owing_students} student
+                link{smsQuote.owing_students === 1 ? '' : 's'} · {smsQuote.quote?.units_required || 0} SMS unit
+                {(smsQuote.quote?.units_required || 0) === 1 ? '' : 's'}
+              </p>
+            ) : null}
             <div className="mt-4 flex flex-wrap gap-3">
               <button
                 type="button"
@@ -267,7 +295,7 @@ const Fees = () => {
                 disabled={sending}
                 className="rounded-full bg-primary-600 px-6 py-3 text-white hover:bg-primary-700 disabled:opacity-50"
               >
-                {sending ? 'Sending...' : 'Send reminder'}
+                {sending ? 'Sending...' : smsQuote ? 'Confirm SMS' : 'Check cost'}
               </button>
               <button
                 type="button"

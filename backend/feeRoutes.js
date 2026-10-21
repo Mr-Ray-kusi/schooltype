@@ -16,7 +16,9 @@ import {
   momoProviderFromGhanaPhone,
 } from './paystack.js';
 import { getFrontendBaseUrl } from './emailVerification.js';
-import { attachFeePayLink } from './smsProvider.js';
+import { attachFeePayLink, sendSmsBatch } from './smsProvider.js';
+import { settleSmsPayment, refundSchoolAndPlatformUnits, quoteSmsForPhones } from './smsBilling.js';
+import { buildOwingFeeSmsBodies, groupOwingParents } from './feeReminderSms.js';
 import { makeWalletReference } from './schoolWalletStore.js';
 import { supabase } from './supabaseClient.js';
 import {
@@ -600,7 +602,7 @@ export async function getFeeOverviewPayload(schoolId, query = {}) {
   const [{ data: students, error: studentError }, { data: classes }, termPayRes, yearPayRes] = await Promise.all([
     supabase
       .from('students')
-      .select('id, name, class, roll_number, barcode, monthly_fee, fee_status')
+      .select('id, name, class, roll_number, barcode, parent_phone, monthly_fee, fee_status')
       .eq('school_id', schoolId)
       .order('name', { ascending: true }),
     supabase.from('classes').select('id, name, fee_amount').eq('school_id', schoolId),
@@ -708,6 +710,132 @@ export async function getFeeOverviewPayload(schoolId, query = {}) {
     payments: annotatePayments(payments),
     year_ledger: yearLedger,
     pay_error: termPayRes.error?.message || yearPayRes.error?.message || null,
+  };
+}
+
+async function sendOwingFeeReminders({
+  schoolId,
+  schoolName,
+  senderName,
+  senderRole,
+  message,
+  confirmSmsPayment,
+}) {
+  const text = String(message || '').trim();
+  if (!text) {
+    const err = new Error('Enter a reminder message.');
+    err.status = 400;
+    throw err;
+  }
+
+  const overview = await getFeeOverviewPayload(schoolId);
+  const groups = groupOwingParents(overview.unpaid);
+  const phones = groups.map((group) => group.phone);
+  const bodiesByPhone = buildOwingFeeSmsBodies(text, groups);
+  const sample =
+    Object.values(bodiesByPhone).sort((left, right) => right.length - left.length)[0] || text;
+
+  if (!confirmSmsPayment) {
+    const quote = await quoteSmsForPhones({ schoolId, message: sample, phones });
+    return {
+      ...quote,
+      owing_students: groups.reduce((sum, group) => sum + group.links.length, 0),
+      quoted: true,
+    };
+  }
+
+  const smsSettlement = await settleSmsPayment({
+    supabase,
+    schoolId,
+    schoolName,
+    message: sample,
+    phones,
+  });
+
+  let smsDelivery;
+  try {
+    smsDelivery = await sendSmsBatch({
+      phones: smsSettlement.phones,
+      body: sample,
+      schoolName,
+      bodiesByPhone,
+    });
+  } catch (sendErr) {
+    const refundUnits = smsSettlement.quote?.units_required || 0;
+    if (refundUnits > 0) {
+      try {
+        await refundSchoolAndPlatformUnits({
+          schoolId,
+          schoolName,
+          units: refundUnits,
+          reference: smsSettlement.reference,
+          reason: 'Refund after fee reminder SMS failed to send',
+        });
+      } catch (refundErr) {
+        console.error('Fee reminder SMS refund failed:', refundErr.message || refundErr);
+      }
+    }
+    throw sendErr;
+  }
+
+  const segments = smsSettlement.quote?.segments || 1;
+  const failedUnits = (smsDelivery.failed || 0) * segments;
+  if (failedUnits > 0) {
+    try {
+      const refund = await refundSchoolAndPlatformUnits({
+        schoolId,
+        schoolName,
+        units: failedUnits,
+        reference: smsSettlement.reference,
+        reason: `Refund for ${smsDelivery.failed} failed fee reminder SMS`,
+      });
+      smsSettlement.school_sms_units = refund.school_balance.units_available;
+      smsSettlement.refunded_units = refund.refunded_units;
+    } catch (refundErr) {
+      console.error('Fee reminder SMS refund failed:', refundErr.message || refundErr);
+    }
+  }
+
+  if (smsDelivery.sent === 0 && smsDelivery.failed > 0) {
+    const err = new Error(
+      'SMS provider could not deliver to any owing parent. Units were refunded where possible.'
+    );
+    err.status = 502;
+    err.code = 'SMS_DELIVERY_FAILED';
+    err.sms_billing = smsSettlement;
+    err.sms_delivery = smsDelivery;
+    throw err;
+  }
+
+  const stored = attachFeePayLink(
+    text,
+    groups[0]?.links?.length === 1
+      ? groups[0].links[0].url
+      : '{each owing student payment link}'
+  );
+  await supabase.from('messages').insert([
+    {
+      school_id: schoolId,
+      sender_name: senderName,
+      sender_role: senderRole,
+      send_mode: 'Group',
+      recipients: 'Parents (owing fees)',
+      message: stored,
+      delivery_channel: 'sms',
+      created_at: new Date(),
+    },
+  ]);
+
+  return {
+    ok: true,
+    owing_students: groups.reduce((sum, group) => sum + group.links.length, 0),
+    sms_billing: smsSettlement,
+    sms_delivery: {
+      sent: smsDelivery.sent,
+      failed: smsDelivery.failed,
+      total: smsDelivery.total,
+      dryRun: smsDelivery.dryRun,
+    },
   };
 }
 
@@ -1363,6 +1491,36 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
     }
   });
 
+  app.post('/api/fees/reminder', authenticateToken, enforcePlanApproval, async (req, res) => {
+    try {
+      const { data: school } = await supabase
+        .from('schools')
+        .select('id, name')
+        .eq('id', req.user.schoolId)
+        .maybeSingle();
+      const result = await sendOwingFeeReminders({
+        schoolId: req.user.schoolId,
+        schoolName: school?.name || 'School',
+        senderName: req.user.email || 'Admin',
+        senderRole: 'Admin',
+        message: req.body?.message,
+        confirmSmsPayment: Boolean(req.body?.confirmSmsPayment),
+      });
+      res.json(result);
+    } catch (err) {
+      if (err.status) {
+        return res.status(err.status).json({
+          error: err.message,
+          code: err.code || undefined,
+          sms_billing: err.sms_billing,
+          sms_delivery: err.sms_delivery,
+        });
+      }
+      console.error('Fee reminder SMS error:', err);
+      res.status(500).json({ error: err.message || 'Failed to send fee reminders' });
+    }
+  });
+
   app.post('/api/fees/manual', authenticateToken, enforcePlanApproval, async (req, res) => {
     try {
       const result = await recordManualSchoolFee({
@@ -1608,28 +1766,31 @@ export function registerStaffFeeRoutes(app, { authenticateStaffPortal }) {
     requireAccountant,
     async (req, res) => {
       try {
-        const message = attachFeePayLink(
-          String(req.body?.message || '').trim(),
-          `${getFrontendBaseUrl()}/fees`
-        );
-        if (!message) return res.status(400).json({ error: 'Enter a reminder message.' });
-        const { error } = await supabase.from('messages').insert([
-          {
-            school_id: req.staffPortal.schoolId,
-            sender_name: req.staffPortal.staffName || 'Accountant',
-            sender_role: 'Accountant',
-            send_mode: 'Group',
-            recipients: 'Parents',
-            message,
-            delivery_channel: 'email',
-            created_at: new Date(),
-          },
-        ]);
-        if (error) throw error;
-        res.json({ ok: true });
+        const { data: school } = await supabase
+          .from('schools')
+          .select('id, name')
+          .eq('id', req.staffPortal.schoolId)
+          .maybeSingle();
+        const result = await sendOwingFeeReminders({
+          schoolId: req.staffPortal.schoolId,
+          schoolName: school?.name || 'School',
+          senderName: req.staffPortal.staffName || 'Accountant',
+          senderRole: 'Accountant',
+          message: req.body?.message,
+          confirmSmsPayment: Boolean(req.body?.confirmSmsPayment),
+        });
+        res.json(result);
       } catch (err) {
+        if (err.status) {
+          return res.status(err.status).json({
+            error: err.message,
+            code: err.code || undefined,
+            sms_billing: err.sms_billing,
+            sms_delivery: err.sms_delivery,
+          });
+        }
         console.error('Accountant fee reminder error:', err);
-        res.status(500).json({ error: err.message || 'Failed to save the reminder' });
+        res.status(500).json({ error: err.message || 'Failed to send fee reminders' });
       }
     }
   );
