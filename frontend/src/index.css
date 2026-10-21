@@ -52,14 +52,20 @@
     min-height: 1.5rem;
   }
 
-  @media (min-width: 768px) {
-    .attendance-page input[type='date'],
-    .attendance-page input[type='time'] {
-      min-height: 2.25rem;
-      height: 2.25rem;
-      width: auto;
-      font-size: 0.875rem;
-    }
+  html.attendance-lock,
+  html.attendance-lock body,
+  html.attendance-lock #root {
+    height: 100dvh;
+    max-height: 100dvh;
+    overflow: hidden;
+  }
+
+  .attendance-page input[type='date'],
+  .attendance-page input[type='time'] {
+    min-height: 2.25rem;
+    height: 2.25rem;
+    width: auto;
+    font-size: 0.875rem;
   }
   input:-webkit-autofill,
   input:-webkit-autofill:hover,

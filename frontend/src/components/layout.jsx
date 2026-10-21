@@ -171,8 +171,15 @@ const Layout = ({ children }) => {
         }))
         .filter((section) => section.items.length > 0);
 
+  const lockViewport = location.pathname === '/attendance';
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('attendance-lock', lockViewport);
+    return () => document.documentElement.classList.remove('attendance-lock');
+  }, [lockViewport]);
+
   return (
-    <div className={`min-h-screen ${liteMode ? 'lite-shell bg-slate-100 text-slate-900' : 'bg-slate-900 text-slate-50'}`}>
+    <div className={`${lockViewport ? 'h-dvh overflow-hidden' : 'min-h-screen'} ${liteMode ? 'lite-shell bg-slate-100 text-slate-900' : 'bg-slate-900 text-slate-50'}`}>
       <div className="lg:hidden fixed top-4 left-4 z-50">
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -337,10 +344,18 @@ const Layout = ({ children }) => {
         </div>
       </div>
 
-      <div className="min-w-0 lg:ml-64">
-        <main className="w-full min-w-0 max-w-full overflow-x-clip p-4 pt-16 sm:p-6 lg:pt-6">
+      <div className={`min-w-0 lg:ml-64 ${lockViewport ? 'h-dvh overflow-hidden' : ''}`}>
+        <main
+          className={`w-full min-w-0 max-w-full overflow-x-clip ${
+            lockViewport
+              ? 'flex h-full flex-col overflow-hidden p-3 pt-14 sm:p-4 lg:pt-4'
+              : 'p-4 pt-16 sm:p-6 lg:pt-6'
+          }`}
+        >
           <OfflineBanner />
-          {children ?? <Outlet />}
+          <div className={lockViewport ? 'min-h-0 flex-1 overflow-hidden' : undefined}>
+            {children ?? <Outlet />}
+          </div>
         </main>
       </div>
     </div>

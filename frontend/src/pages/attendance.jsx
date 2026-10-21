@@ -1,16 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { AlertTriangle, ChevronDown, ChevronRight, Clock, Download, Printer, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { AlertTriangle, Clock, Download, Printer, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { cachedGet, invalidateCache, peekCache, staleGet } from '../utils/requestCache';
 import { schoolLocalDate } from '../utils/schoolDate';
-import useLiteMode from '../hooks/useLiteMode';
 import { useLivePoll } from '../hooks/useLivePoll';
 import { useAuth } from '../contexts/authcontext';
 import { downloadAllStudentAttendanceZip, downloadTermAttendancePdf } from '../utils/attendanceTermPdf';
 import PaginationBar from '../components/PaginationBar';
-import { LIST_PAGE_SIZE } from '../utils/listApi';
+
+const ATTENDANCE_PAGE_SIZE = 5;
+const TERM_DAY_PAGE_SIZE = 4;
 
 const fieldClass =
   'h-9 min-h-9 w-full rounded-lg border border-slate-600 bg-slate-900 px-2.5 text-sm text-white outline-none focus:ring-2 focus:ring-primary-500';
@@ -68,21 +69,33 @@ const TermRecords = ({
   userType,
   onDelete,
   deleting,
+  onClose,
 }) => {
+  const [dayPage, setDayPage] = useState(1);
+  const records = data?.records || [];
+  const dayPages = Math.max(1, Math.ceil(records.length / TERM_DAY_PAGE_SIZE));
+  const safeDayPage = Math.min(dayPage, dayPages);
+  const pagedDays = records.slice(
+    (safeDayPage - 1) * TERM_DAY_PAGE_SIZE,
+    safeDayPage * TERM_DAY_PAGE_SIZE
+  );
+
   if (loading && !data) {
     return <p className="px-3 py-2 text-xs text-slate-400">Loading this term…</p>;
   }
-  const records = data?.records || [];
+
   return (
-    <div className="space-y-2 border-t border-slate-700 bg-slate-900/60 px-3 py-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs text-slate-400">
-          {data?.term?.name || 'Current term'}
+    <div className="flex h-full min-h-0 flex-col bg-slate-900 px-3 py-3">
+      <div className="flex shrink-0 items-center justify-between gap-2">
+        <p className="truncate text-xs text-slate-400">
+          {personName}
+          {personLabel ? ` · ${personLabel}` : ''}
+          {data?.term?.name ? ` · ${data.term.name}` : ''}
           {data?.summary
             ? ` · ${data.summary.days} days · ${data.summary.early} early · ${data.summary.late} late`
             : ''}
         </p>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex shrink-0 gap-2">
           <button
             type="button"
             onClick={(event) => {
@@ -117,25 +130,37 @@ const TermRecords = ({
               className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/40 px-2.5 py-1 text-xs text-rose-200 hover:bg-rose-500/10 disabled:opacity-50"
             >
               <Trash2 className="h-3.5 w-3.5" />
-              {deleting ? 'Deleting…' : 'Delete records'}
+              {deleting ? 'Deleting…' : 'Delete'}
+            </button>
+          ) : null}
+          {onClose ? (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onClose();
+              }}
+              className="rounded-lg border border-slate-600 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-800"
+            >
+              Close
             </button>
           ) : null}
         </div>
       </div>
       {records.length === 0 ? (
-        <p className="text-xs text-slate-500">No records for this term yet.</p>
+        <p className="mt-3 text-xs text-slate-500">No records for this term yet.</p>
       ) : (
-        <div className="max-h-56 overflow-y-auto rounded-lg border border-slate-800">
-          <table className="w-full text-left text-xs">
-            <thead className="sticky top-0 bg-slate-900 text-slate-400">
+        <>
+          <table className="mt-3 w-full text-left text-xs">
+            <thead className="text-slate-400">
               <tr>
-                <th className="px-2 py-1.5 font-medium">Date</th>
-                <th className="px-2 py-1.5 font-medium">Time</th>
-                <th className="px-2 py-1.5 font-medium">Status</th>
+                <th className="px-2 py-1 font-medium">Date</th>
+                <th className="px-2 py-1 font-medium">Time</th>
+                <th className="px-2 py-1 font-medium">Status</th>
               </tr>
             </thead>
             <tbody>
-              {records.map((row) => {
+              {pagedDays.map((row) => {
                 const late = getPunctuality(row) === 'late';
                 return (
                   <tr key={row.id || row.date} className="border-t border-slate-800">
@@ -153,7 +178,17 @@ const TermRecords = ({
               })}
             </tbody>
           </table>
-        </div>
+          {records.length > TERM_DAY_PAGE_SIZE ? (
+            <div className="mt-auto shrink-0 pt-2">
+              <PaginationBar
+                page={safeDayPage}
+                total={records.length}
+                limit={TERM_DAY_PAGE_SIZE}
+                onPageChange={setDayPage}
+              />
+            </div>
+          ) : null}
+        </>
       )}
     </div>
   );
@@ -177,7 +212,6 @@ const Attendance = () => {
   const [deletingKey, setDeletingKey] = useState(null);
   const [bulkBusy, setBulkBusy] = useState('');
   const [page, setPage] = useState(1);
-  const { liteMode } = useLiteMode();
 
   const fetchLateSettings = async () => {
     try {
@@ -323,10 +357,10 @@ const Attendance = () => {
     setPage(1);
   }, [selectedType, selectedClass, searchQuery, selectedDate]);
 
-  const pageCount = Math.max(1, Math.ceil(filteredRecords.length / LIST_PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(filteredRecords.length / ATTENDANCE_PAGE_SIZE));
   const safePage = Math.min(page, pageCount);
   const pagedRecords = useMemo(
-    () => filteredRecords.slice((safePage - 1) * LIST_PAGE_SIZE, safePage * LIST_PAGE_SIZE),
+    () => filteredRecords.slice((safePage - 1) * ATTENDANCE_PAGE_SIZE, safePage * ATTENDANCE_PAGE_SIZE),
     [filteredRecords, safePage]
   );
 
@@ -456,8 +490,14 @@ const Attendance = () => {
       userType: record.user_type,
       onDelete: isStudent ? () => deletePersonRecords(record) : undefined,
       deleting: deletingKey === key,
+      onClose: () => setOpenKey(null),
     };
   };
+
+  const openRecord = openKey
+    ? pagedRecords.find((record) => personKey(record) === openKey) ||
+      filteredRecords.find((record) => personKey(record) === openKey)
+    : null;
 
   const togglePerson = async (record) => {
     if (!record?.user_id) return;
@@ -490,25 +530,31 @@ const Attendance = () => {
     : [];
 
   if (loading && attendanceRecords.length === 0) {
-    return <div className="py-10 text-center text-sm text-slate-400">Loading attendance…</div>;
+    return (
+      <div className="flex h-full items-center justify-center text-sm text-slate-400">
+        Loading attendance…
+      </div>
+    );
   }
 
   return (
-    <div className="attendance-page space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3 print:block">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Attendance</h1>
-          <p className="mt-0.5 text-sm text-slate-400">
+    <div className="attendance-page flex h-full min-h-0 flex-col gap-2 overflow-hidden">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
+          <h1 className="text-lg font-bold text-white">Attendance</h1>
+          <p className="truncate text-xs text-slate-400">
             {format(new Date(`${selectedDate}T12:00:00`), 'EEE d MMM yyyy')}
             {' · '}
             {filteredRecords.length} marked
             {lateCount > 0 ? ` · ${lateCount} late` : ''}
-          </p>
-          <p className="mt-0.5 text-xs text-slate-500">
-            From the term start date, students, staff, and non-staff not scanned by the late time are marked late.
+            {summaryItems.length
+              ? ` · ${summaryItems
+                  .map((item) => `${item.label} ${item.data.present}/${item.data.total}`)
+                  .join(' · ')}`
+              : ''}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2 print:hidden">
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5 print:hidden">
           <input
             type="date"
             value={selectedDate}
@@ -560,25 +606,7 @@ const Attendance = () => {
         </div>
       </div>
 
-      {summaryItems.length > 0 && (
-        <div className="grid grid-cols-3 gap-2 print:hidden">
-          {summaryItems.map((item) => (
-            <div
-              key={item.label}
-              className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2.5"
-            >
-              <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">
-                {item.label}
-              </p>
-              <p className="mt-0.5 text-lg font-semibold tabular-nums text-white">
-                {item.data.present}/{item.data.total}
-              </p>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div className="flex flex-nowrap items-end gap-2 overflow-x-auto rounded-xl border border-slate-700 bg-slate-800 p-3 print:hidden">
+      <div className="flex shrink-0 flex-nowrap items-end gap-2 rounded-xl border border-slate-700 bg-slate-800 p-2 print:hidden">
         <label className="min-w-0 flex-1 text-[11px] font-medium uppercase tracking-wide text-slate-400">
           Type
           <select
@@ -639,166 +667,61 @@ const Attendance = () => {
         </button>
       </div>
 
-      {filteredRecords.length === 0 ? (
-        <div className="rounded-xl border border-slate-700 bg-slate-800 py-10 text-center text-sm text-slate-400">
-          {searchQuery.trim()
-            ? 'No one matches that name or ID for this date.'
-            : 'No attendance records for this date.'}
-        </div>
-      ) : liteMode ? (
-        <div className="divide-y divide-slate-700 overflow-hidden rounded-xl border border-slate-700 bg-slate-800">
-          {pagedRecords.map((record) => {
-            const isLate = getPunctuality(record) === 'late';
-            const key = personKey(record);
-            const open = openKey === key;
-            return (
-              <div key={record.id}>
+      <div className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-slate-700 bg-slate-800">
+        {filteredRecords.length === 0 ? (
+          <div className="flex h-full items-center justify-center px-4 text-center text-sm text-slate-400">
+            {searchQuery.trim()
+              ? 'No one matches that name or ID for this date.'
+              : 'No attendance records for this date.'}
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-700">
+            {pagedRecords.map((record) => {
+              const isLate = getPunctuality(record) === 'late';
+              const key = personKey(record);
+              return (
                 <button
+                  key={record.id || key}
                   type="button"
                   onClick={() => togglePerson(record)}
                   className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-slate-700/40"
                 >
-                  {open ? (
-                    <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
-                  ) : (
-                    <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
-                  )}
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-white">{getPersonName(record)}</p>
                     <p className="truncate text-xs text-slate-400">
                       {record.user_type} · {getPersonLabel(record)}
+                      <span className={`ml-2 capitalize ${typeBadge(record.user_type)} rounded-full px-1.5 py-0.5`}>
+                        {record.user_type}
+                      </span>
                     </p>
                   </div>
                   <div className="shrink-0 text-right">
                     <p className="text-xs tabular-nums text-slate-300">
                       {format(new Date(record.timestamp), 'hh:mm a')}
                     </p>
-                    <p className={`text-xs ${isLate ? 'text-amber-400' : 'text-emerald-400'}`}>
+                    <p className={`inline-flex items-center gap-1 text-xs ${isLate ? 'text-amber-400' : 'text-emerald-400'}`}>
+                      {isLate ? <AlertTriangle className="h-3.5 w-3.5" /> : <Clock className="h-3.5 w-3.5" />}
                       {isLate ? 'Late' : 'Early'}
                     </p>
                   </div>
                 </button>
-                {open ? <TermRecords {...termRecordProps(record)} /> : null}
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <>
-          <div className="hidden overflow-hidden rounded-xl border border-slate-700 bg-slate-800 md:block">
-            <table className="min-w-full text-left text-sm">
-              <thead className="bg-slate-900/80 text-[11px] uppercase tracking-wide text-slate-400">
-                <tr>
-                  <th className="px-3 py-2 font-medium">Name</th>
-                  <th className="px-3 py-2 font-medium">Type</th>
-                  <th className="px-3 py-2 font-medium">Class / role</th>
-                  <th className="px-3 py-2 font-medium">Time</th>
-                  <th className="px-3 py-2 font-medium">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-700/80">
-                {pagedRecords.map((record) => {
-                  const isLate = getPunctuality(record) === 'late';
-                  const key = personKey(record);
-                  const open = openKey === key;
-                  return (
-                    <React.Fragment key={record.id}>
-                      <tr
-                        onClick={() => togglePerson(record)}
-                        className="cursor-pointer hover:bg-slate-700/40"
-                      >
-                        <td className="px-3 py-2 font-medium text-white">
-                          <span className="inline-flex items-center gap-2">
-                            {open ? (
-                              <ChevronDown className="h-4 w-4 text-slate-400" />
-                            ) : (
-                              <ChevronRight className="h-4 w-4 text-slate-400" />
-                            )}
-                            {getPersonName(record)}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2">
-                          <span className={`rounded-full px-2 py-0.5 text-[11px] capitalize ${typeBadge(record.user_type)}`}>
-                            {record.user_type}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2 text-slate-300">{getPersonLabel(record)}</td>
-                        <td className="px-3 py-2 tabular-nums text-slate-300">
-                          {format(new Date(record.timestamp), 'hh:mm a')}
-                        </td>
-                        <td className="px-3 py-2">
-                          <span
-                            className={`inline-flex items-center gap-1 text-xs font-medium ${
-                              isLate ? 'text-amber-400' : 'text-emerald-400'
-                            }`}
-                          >
-                            {isLate ? <AlertTriangle className="h-3.5 w-3.5" /> : <Clock className="h-3.5 w-3.5" />}
-                            {isLate ? 'Late' : 'Early'}
-                          </span>
-                        </td>
-                      </tr>
-                      {open ? (
-                        <tr>
-                          <td colSpan={5} className="p-0">
-                            <TermRecords {...termRecordProps(record)} />
-                          </td>
-                        </tr>
-                      ) : null}
-                    </React.Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="divide-y divide-slate-700 overflow-hidden rounded-xl border border-slate-700 bg-slate-800 md:hidden">
-            {pagedRecords.map((record) => {
-              const isLate = getPunctuality(record) === 'late';
-              const key = personKey(record);
-              const open = openKey === key;
-              return (
-                <div key={record.id}>
-                  <button
-                    type="button"
-                    onClick={() => togglePerson(record)}
-                    className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left hover:bg-slate-700/40"
-                  >
-                    {open ? (
-                      <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
-                    ) : (
-                      <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-white">{getPersonName(record)}</p>
-                      <p className="truncate text-xs text-slate-400">
-                        {record.user_type} · {getPersonLabel(record)}
-                      </p>
-                    </div>
-                    <div className="shrink-0 text-right">
-                      <p className="text-xs tabular-nums text-slate-300">
-                        {format(new Date(record.timestamp), 'hh:mm a')}
-                      </p>
-                      <p className={`text-xs font-medium ${isLate ? 'text-amber-400' : 'text-emerald-400'}`}>
-                        {isLate ? 'Late' : 'Early'}
-                      </p>
-                    </div>
-                  </button>
-                  {open ? (
-                    <TermRecords {...termRecordProps(record)} />
-                  ) : null}
-                </div>
               );
             })}
           </div>
-        </>
-      )}
+        )}
+        {openRecord ? (
+          <div className="absolute inset-0 z-10 overflow-hidden rounded-xl border border-slate-700">
+            <TermRecords {...termRecordProps(openRecord)} />
+          </div>
+        ) : null}
+      </div>
 
-      {filteredRecords.length > 0 ? (
-        <div className="print:hidden">
+      {filteredRecords.length > 0 && !openRecord ? (
+        <div className="shrink-0 print:hidden">
           <PaginationBar
             page={safePage}
             total={filteredRecords.length}
-            limit={LIST_PAGE_SIZE}
+            limit={ATTENDANCE_PAGE_SIZE}
             onPageChange={setPage}
           />
         </div>
