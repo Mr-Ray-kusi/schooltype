@@ -90,7 +90,7 @@ import { getFeeOverviewPayload, registerFeeRoutes, registerStaffFeeRoutes } from
 import { registerAlumniRoutes } from './alumniRoutes.js';
 import { applyTermPromotion } from './studentPromotion.js';
 import { sortClasses } from './classHierarchy.js';
-import { listAcademicTerms, resolveFeePeriod } from './academicTerms.js';
+import { listAcademicTerms, resolveFeePeriod, resolveTeacherScoreTerm } from './academicTerms.js';
 import { initPlatformSmsStore, claimDemoMoneyReset, getSchoolSmsBalance, resetSmsInventoryToZero } from './platformSmsStore.js';
 import { registerSmsBillingRoutes, settleSmsPayment, refundSchoolAndPlatformUnits, findPlatformSchoolId } from './smsBilling.js';
 import { sendSmsBatch, getSmsProviderStatus } from './smsProvider.js';
@@ -4821,8 +4821,12 @@ app.get('/api/staff-portal/session/me', authenticateStaffPortal, async (req, res
       .eq('id', req.staffPortal.schoolId)
       .maybeSingle();
 
+    const currentTerm = await resolveTeacherScoreTerm(req.staffPortal.schoolId);
+
     res.json({
       schoolName: school?.name || 'School',
+      currentTerm: currentTerm.name,
+      term: currentTerm,
       staff: {
         id: staff.id,
         name: staff.name,
@@ -4894,17 +4898,18 @@ app.get('/api/staff-portal/session/scores', authenticateStaffPortal, async (req,
 
     const subject = String(req.query.subject || '').trim();
     const className = String(req.query.className || req.query.class || '').trim();
-    const term = String(req.query.term || '').trim();
+    const currentTerm = await resolveTeacherScoreTerm(req.staffPortal.schoolId);
+    const term = currentTerm.name;
 
     let query = supabase
       .from('student_scores')
       .select('*')
       .eq('school_id', req.staffPortal.schoolId)
-      .eq('staff_id', req.staffPortal.staffId);
+      .eq('staff_id', req.staffPortal.staffId)
+      .eq('term', term);
 
     if (subject) query = query.eq('subject', subject);
     if (className) query = query.eq('class_name', className);
-    if (term) query = query.eq('term', term);
 
     const { data, error } = await query.order('updated_at', { ascending: false });
     if (error) {
@@ -4945,7 +4950,8 @@ const upsertStaffPortalScore = async ({ schoolId, staffId, staff, body }) => {
   const subject = String(body.subject || '').trim();
   const studentId = body.studentId;
   const className = String(body.className || body.class || '').trim();
-  const term = String(body.term || 'Term 1').trim() || 'Term 1';
+  const currentTerm = await resolveTeacherScoreTerm(schoolId);
+  const term = currentTerm.name;
   const score = body.score === '' || body.score == null ? null : Number(body.score);
   const maxScore = body.maxScore === '' || body.maxScore == null ? 100 : Number(body.maxScore);
   const remark = body.remark?.trim?.() || null;

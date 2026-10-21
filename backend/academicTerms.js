@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import { supabase } from './supabaseClient.js';
+import { academicPeriodFromDate } from './classHierarchy.js';
 
 function currentFeeMonth() {
   const parts = new Intl.DateTimeFormat('en-GB', {
@@ -108,6 +109,44 @@ export async function replaceAcademicTerms(schoolId, terms) {
   const { data, error } = await supabase.from('academic_terms').insert(cleaned).select('*');
   if (error) throw error;
   return data || cleaned;
+}
+
+/** Current academic term for teacher score entry. Past terms stay stored for admin records. */
+export function pickTeacherScoreTerm(terms = [], onDate = todayAccra()) {
+  const today = String(onDate || todayAccra());
+  const dated = (terms || []).filter((term) => term?.starts_on && term?.ends_on);
+  const current = dated.find((term) => term.starts_on <= today && term.ends_on >= today);
+  if (current?.name) {
+    return {
+      name: String(current.name).trim(),
+      starts_on: current.starts_on,
+      ends_on: current.ends_on,
+      source: 'term',
+    };
+  }
+  const upcoming = dated
+    .filter((term) => term.starts_on > today)
+    .sort((a, b) => String(a.starts_on).localeCompare(String(b.starts_on)))[0];
+  if (upcoming?.name) {
+    return {
+      name: String(upcoming.name).trim(),
+      starts_on: upcoming.starts_on,
+      ends_on: upcoming.ends_on,
+      source: 'upcoming',
+    };
+  }
+  const fromDate = academicPeriodFromDate(today, terms);
+  return {
+    name: String(fromDate?.term || 'Term 1').trim(),
+    starts_on: null,
+    ends_on: null,
+    source: 'calendar',
+  };
+}
+
+export async function resolveTeacherScoreTerm(schoolId, onDate = todayAccra()) {
+  const terms = schoolId ? await listAcademicTerms(schoolId).catch(() => []) : [];
+  return pickTeacherScoreTerm(terms, onDate);
 }
 
 export async function resolveFeePeriod(schoolId, onDate = todayAccra()) {

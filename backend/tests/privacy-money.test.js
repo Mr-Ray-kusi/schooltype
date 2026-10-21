@@ -108,3 +108,14 @@ test('Small, Mid, and Large school plans all include SMS and email', async () =>
     assert.equal(hasPlanFeature(plan, 'messages-email'), true);
   }
 });
+
+test('teachers move to the new academic term and leave past marks stored', async () => {
+  const { pickTeacherScoreTerm } = await import('../academicTerms.js');
+  const terms = [
+    { name: 'First Term', starts_on: '2026-01-10', ends_on: '2026-04-10' },
+    { name: 'Second Term', starts_on: '2026-05-04', ends_on: '2026-08-07' },
+  ];
+  assert.equal(pickTeacherScoreTerm(terms, '2026-03-01').name, 'First Term');
+  assert.equal(pickTeacherScoreTerm(terms, '2026-05-04').name, 'Second Term');
+  assert.equal(pickTeacherScoreTerm(terms, '2026-04-20').name, 'Second Term');
+});

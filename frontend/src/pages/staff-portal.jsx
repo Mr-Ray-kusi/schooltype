@@ -6,7 +6,6 @@ import { BookOpen, GraduationCap, LogOut, Save, Users } from 'lucide-react';
 import AccountantFees from '../components/AccountantFees';
 
 const ROLES = ['Administrator', 'Teacher', 'Accountant'];
-const TERMS = ['Term 1', 'Term 2', 'Term 3'];
 const ATTITUDES = ['Excellent', 'Good', 'Bad', 'Worse'];
 const SESSION_KEY = 'staffPortalSession';
 
@@ -175,6 +174,7 @@ const StaffPortal = () => {
         if (cancelled) return;
         setStaff(data.staff);
         setSchoolName(data.schoolName || schoolName);
+        if (data.currentTerm) setTerm(data.currentTerm);
         const firstSubject = data.staff.subjects?.[0] || '';
         const firstClass = data.staff.classNames?.[0] || '';
         setSelectedSubject((prev) => prev || firstSubject);
@@ -469,18 +469,12 @@ const StaffPortal = () => {
                       </option>
                     ))}
                   </select>
-                  <select
-                    value={term}
-                    onChange={(e) => setTerm(e.target.value)}
-                    className="rounded-xl border border-slate-600 bg-slate-900 px-4 py-3 text-sm"
-                    disabled={savingAll}
-                  >
-                    {TERMS.map((item) => (
-                      <option key={item} value={item}>
-                        {item}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="rounded-xl border border-slate-600 bg-slate-900 px-4 py-3 text-sm text-slate-100">
+                    <p className="font-medium">{term}</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Current term only. Past marks stay on the school record.
+                    </p>
+                  </div>
                 </section>
 
                 <section className="overflow-hidden rounded-3xl border border-slate-700 bg-slate-900/50">
