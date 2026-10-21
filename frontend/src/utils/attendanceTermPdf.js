@@ -109,33 +109,39 @@ export async function downloadAllStudentAttendanceZip({
   schoolName = 'School',
   term,
   students = [],
+  people,
+  userType = 'student',
 }) {
   const { createZipBlob } = await import('./zipStore');
+  const list = people || students;
+  const kind =
+    userType === 'staff' ? 'staff' : userType === 'non-staff' ? 'non-staff' : userType === 'all' ? 'attendance' : 'student';
   const termName = term?.name || 'Current term';
-  const folder = `${safeName(termName)}-student-attendance`;
+  const folder = `${safeName(termName)}-${kind}-attendance`;
   const used = new Set();
   const files = [];
-  students.forEach((student, index) => {
+  list.forEach((person, index) => {
     try {
       const built = buildTermAttendancePdfBytes({
         schoolName,
-        personName: student.name,
-        personLabel: student.class || student.label,
-        userType: 'student',
+        personName: person.name,
+        personLabel: person.class || person.label,
+        userType: person.user_type || userType || 'student',
         term,
-        records: student.records || [],
-        summary: student.summary || {},
+        records: person.records || [],
+        summary: person.summary || {},
       });
-      let base = `${safeName(student.name)}${student.class ? `-${safeName(student.class)}` : ''}`;
+      const label = person.class || person.label;
+      let base = `${safeName(person.name)}${label ? `-${safeName(label)}` : ''}`;
       if (used.has(base)) base = `${base}-${index + 1}`;
       used.add(base);
       files.push({ name: `${folder}/${base}-attendance.pdf`, data: built.bytes });
     } catch (error) {
-      console.warn('Skipped attendance PDF for', student.name, error);
+      console.warn('Skipped attendance PDF for', person.name, error);
     }
   });
   if (!files.length) {
-    throw new Error('No student attendance PDFs to pack.');
+    throw new Error('No attendance PDFs to pack.');
   }
   const blob = await createZipBlob(files);
   saveBlob(blob, `${folder}.zip`);

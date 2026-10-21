@@ -9,6 +9,8 @@ import useLiteMode from '../hooks/useLiteMode';
 import { useLivePoll } from '../hooks/useLivePoll';
 import { useAuth } from '../contexts/authcontext';
 import { downloadAllStudentAttendanceZip, downloadTermAttendancePdf } from '../utils/attendanceTermPdf';
+import PaginationBar from '../components/PaginationBar';
+import { LIST_PAGE_SIZE } from '../utils/listApi';
 
 const fieldClass =
   'h-9 min-h-9 w-full rounded-lg border border-slate-600 bg-slate-900 px-2.5 text-sm text-white outline-none focus:ring-2 focus:ring-primary-500';
@@ -174,6 +176,7 @@ const Attendance = () => {
   const [setupClasses, setSetupClasses] = useState([]);
   const [deletingKey, setDeletingKey] = useState(null);
   const [bulkBusy, setBulkBusy] = useState('');
+  const [page, setPage] = useState(1);
   const { liteMode } = useLiteMode();
 
   const fetchLateSettings = async () => {
@@ -316,6 +319,17 @@ const Attendance = () => {
     [filteredRecords]
   );
 
+  useEffect(() => {
+    setPage(1);
+  }, [selectedType, selectedClass, searchQuery, selectedDate]);
+
+  const pageCount = Math.max(1, Math.ceil(filteredRecords.length / LIST_PAGE_SIZE));
+  const safePage = Math.min(page, pageCount);
+  const pagedRecords = useMemo(
+    () => filteredRecords.slice((safePage - 1) * LIST_PAGE_SIZE, safePage * LIST_PAGE_SIZE),
+    [filteredRecords, safePage]
+  );
+
   const refresh = () => {
     invalidateCache('attendance');
     setLoading(true);
@@ -377,10 +391,10 @@ const Attendance = () => {
   };
 
   const downloadAllStudentPdfs = async () => {
-    if (selectedType === 'staff' || selectedType === 'non-staff') {
-      toast.error('Student PDFs are for students. Choose Students or All, then a class.');
-      return;
-    }
+    const exportType =
+      selectedType === 'staff' || selectedType === 'non-staff' || selectedType === 'all'
+        ? selectedType
+        : 'student';
     const classFilter = selectedClass !== 'all' ? selectedClass : '';
     const search = String(searchQuery || '').trim();
     setBulkBusy('download');
@@ -388,44 +402,42 @@ const Attendance = () => {
       const { data } = await axios.get('/api/attendance/export/students', {
         timeout: 60000,
         params: {
+          type: exportType,
           class: classFilter || undefined,
           q: search || undefined,
         },
       });
       const needle = search.toLowerCase();
-      const students = (data?.students || []).filter((student) => {
-        if (classFilter && String(student.class || '').trim().toLowerCase() !== classFilter.toLowerCase()) {
+      const people = (data?.people || data?.students || []).filter((person) => {
+        if (classFilter && String(person.class || person.label || '').trim().toLowerCase() !== classFilter.toLowerCase()) {
           return false;
         }
         if (needle) {
-          const hay = [student.name, student.id, student.roll_number, student.class]
+          const hay = [person.name, person.id, person.roll_number, person.class, person.label]
             .map((value) => String(value || '').trim().toLowerCase())
             .join(' ');
           if (!hay.includes(needle)) return false;
         }
         return true;
       });
-      if (!students.length) {
+      if (!people.length) {
         toast.error(
           classFilter || search
-            ? 'No students match this class, roll, or search.'
-            : 'No students to export.'
+            ? 'No people match this class, role, or search.'
+            : 'No attendance records to export.'
         );
         return;
       }
       await downloadAllStudentAttendanceZip({
         schoolName: data.school_name || school?.name || 'School',
         term: data.term,
-        students,
+        people,
+        userType: exportType,
       });
-      toast.success(
-        classFilter || search
-          ? `Prepared ${students.length} student PDF(s) for this selection.`
-          : `Prepared ${students.length} student PDF(s) in one folder.`
-      );
+      toast.success(`Prepared ${people.length} PDF(s) for this selection.`);
     } catch (error) {
       toast.error(
-        error.response?.data?.error || error.message || 'Could not download student attendance PDFs'
+        error.response?.data?.error || error.message || 'Could not download attendance PDFs'
       );
     } finally {
       setBulkBusy('');
@@ -526,7 +538,15 @@ const Attendance = () => {
             className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-600 px-3 text-sm font-medium text-slate-100 hover:bg-slate-800 disabled:opacity-50"
           >
             <Download className="h-3.5 w-3.5" />
-            {bulkBusy === 'download' ? 'Preparing PDFs…' : 'Student PDFs'}
+            {bulkBusy === 'download'
+              ? 'Preparing PDFs…'
+              : selectedType === 'staff'
+                ? 'Staff PDFs'
+                : selectedType === 'non-staff'
+                  ? 'Non-staff PDFs'
+                  : selectedType === 'all'
+                    ? 'PDFs'
+                    : 'Student PDFs'}
           </button>
           <button
             type="button"
@@ -627,7 +647,7 @@ const Attendance = () => {
         </div>
       ) : liteMode ? (
         <div className="divide-y divide-slate-700 overflow-hidden rounded-xl border border-slate-700 bg-slate-800">
-          {filteredRecords.map((record) => {
+          {pagedRecords.map((record) => {
             const isLate = getPunctuality(record) === 'late';
             const key = personKey(record);
             const open = openKey === key;
@@ -677,7 +697,7 @@ const Attendance = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-700/80">
-                {filteredRecords.map((record) => {
+                {pagedRecords.map((record) => {
                   const isLate = getPunctuality(record) === 'late';
                   const key = personKey(record);
                   const open = openKey === key;
@@ -732,7 +752,7 @@ const Attendance = () => {
           </div>
 
           <div className="divide-y divide-slate-700 overflow-hidden rounded-xl border border-slate-700 bg-slate-800 md:hidden">
-            {filteredRecords.map((record) => {
+            {pagedRecords.map((record) => {
               const isLate = getPunctuality(record) === 'late';
               const key = personKey(record);
               const open = openKey === key;
@@ -772,6 +792,17 @@ const Attendance = () => {
           </div>
         </>
       )}
+
+      {filteredRecords.length > 0 ? (
+        <div className="print:hidden">
+          <PaginationBar
+            page={safePage}
+            total={filteredRecords.length}
+            limit={LIST_PAGE_SIZE}
+            onPageChange={setPage}
+          />
+        </div>
+      ) : null}
     </div>
   );
 };

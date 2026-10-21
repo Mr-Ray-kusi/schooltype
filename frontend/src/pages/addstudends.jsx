@@ -5,7 +5,6 @@ import {
   UserPlus,
   GraduationCap,
   Mail,
-  Hash,
   Phone,
   MapPin,
   Calendar,
@@ -30,7 +29,6 @@ const AddStudent = () => {
     parentPhone: '',
     houseAddress: '',
     dateOfBirth: '',
-    rollNumber: '',
   });
 
   const handleSubmit = async (e) => {
@@ -52,7 +50,7 @@ const AddStudent = () => {
       if (data?.warning) {
         toast.error(data.warning);
       } else {
-        toast.success('Student added successfully!');
+        toast.success(data?.roll_number ? `Student added. ID ${data.roll_number}` : 'Student added successfully!');
       }
       navigate('/students');
     } catch (error) {
@@ -177,19 +175,11 @@ const AddStudent = () => {
                 </div>
               </div>
 
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-slate-200">Roll number</label>
-                <div className="relative">
-                  <Hash className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-                  <input
-                    type="text"
-                    name="rollNumber"
-                    value={formData.rollNumber}
-                    onChange={handleChange}
-                    className={`${fieldClass} pl-10`}
-                    placeholder="e.g. 2026-001"
-                  />
-                </div>
+              <div className="sm:col-span-2">
+                <p className="text-sm font-medium text-slate-200">Student ID</p>
+                <p className="mt-1 text-sm text-slate-400">
+                  Assigned when you save. It looks like BFA-AS-2026-014: school letters, a unique two-letter code, the enrollment year, then the student’s place in that class at enrollment.
+                </p>
               </div>
 
             </div>

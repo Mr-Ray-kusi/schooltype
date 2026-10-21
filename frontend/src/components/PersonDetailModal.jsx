@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Download, Edit2, Trash2, X } from 'lucide-react';
+import { Copy, Download, Edit2, Trash2, X } from 'lucide-react';
 
 const ACCENTS = {
   sky: {
@@ -26,6 +26,7 @@ const PersonDetailModal = ({
   downloadLabel = 'Download pack',
 }) => {
   const [downloading, setDownloading] = useState(false);
+  const [copiedLabel, setCopiedLabel] = useState('');
   const colors = ACCENTS[accent] || ACCENTS.sky;
 
   const groups = useMemo(() => {
@@ -97,7 +98,31 @@ const PersonDetailModal = ({
                       <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                         {field.label}
                       </dt>
-                      <dd className="mt-1.5 break-words text-sm text-slate-100">{field.value || '—'}</dd>
+                      <dd className="mt-1.5 flex items-start justify-between gap-2 break-words text-sm text-slate-100">
+                        <span className="min-w-0">{field.value || '—'}</span>
+                        {field.copy && field.value ? (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                await navigator.clipboard.writeText(String(field.value));
+                                setCopiedLabel(field.label);
+                                window.setTimeout(() => setCopiedLabel(''), 1500);
+                              } catch {
+                                /* ignore */
+                              }
+                            }}
+                            className="shrink-0 rounded-lg p-1 text-slate-400 hover:bg-slate-800 hover:text-white"
+                            aria-label={`Copy ${field.label}`}
+                            title="Copy"
+                          >
+                            <Copy className="h-4 w-4" />
+                            <span className="sr-only">
+                              {copiedLabel === field.label ? 'Copied' : 'Copy'}
+                            </span>
+                          </button>
+                        ) : null}
+                      </dd>
                     </div>
                   ))}
                 </dl>

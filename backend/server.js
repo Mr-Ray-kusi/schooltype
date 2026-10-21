@@ -26,6 +26,7 @@ import {
   recordPublicIdFailure,
   gateProfile,
 } from './publicIdGate.js';
+import { formatParsedStudentId, parseStudentId, syncStudentIds } from './studentId.js';
 import nodemailer from 'nodemailer';
 import { getPlan, getPlanFeatures, getPlansList, VALID_PLAN_IDS, hasPlanFeature, resolvePlanId } from './plans.js';
 import {
@@ -3304,8 +3305,24 @@ app.get('/api/public/id/:barcode', async (req, res) => {
 // ============ STUDENT ROUTES ============
 
 // Get all students for a school
+const loadSchoolForStudentIds = async (schoolId) => {
+  const { data, error } = await supabase.from('schools').select('id, name').eq('id', schoolId).maybeSingle();
+  if (error) throw error;
+  return data;
+};
+
 app.get('/api/students', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
+    try {
+      const school = await loadSchoolForStudentIds(req.user.schoolId);
+      if (school?.name) {
+        const synced = await syncStudentIds(supabase, school);
+        if (synced.assigned.length) bumpSchoolCaches(req.user.schoolId);
+      }
+    } catch (idError) {
+      console.warn('Student ID fill skipped:', idError.message || idError);
+    }
+
     const { page, limit, from, to } = parsePagination(req);
     const q = String(req.query.q || '').trim();
     const classFilter = String(req.query.class || '').trim();
@@ -3357,8 +3374,13 @@ app.post('/api/students', authenticateToken, enforcePlanApproval, async (req, re
     }
 
     void photo;
+    void rollNumber;
 
     const barcode = `${req.user.schoolId}-STU-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+    const school = await loadSchoolForStudentIds(req.user.schoolId);
+    const studentId = school?.name
+      ? (await syncStudentIds(supabase, school, { className })).nextId
+      : null;
 
     const record = {
       school_id: req.user.schoolId,
@@ -3370,7 +3392,7 @@ app.post('/api/students', authenticateToken, enforcePlanApproval, async (req, re
       parent_phone: parentPhone.trim(),
       house_address: houseAddress?.trim() || null,
       date_of_birth: dateOfBirth || null,
-      roll_number: rollNumber?.trim() || null,
+      roll_number: studentId,
       barcode,
       qr_code: barcode,
       created_at: new Date(),
@@ -3445,7 +3467,8 @@ app.put('/api/students/:id', authenticateToken, enforcePlanApproval, async (req,
     const nextDob = dateOfBirth !== undefined ? dateOfBirth : date_of_birth;
     if (nextDob !== undefined) updates.date_of_birth = nextDob || null;
     const nextRoll = rollNumber !== undefined ? rollNumber : roll_number;
-    if (nextRoll !== undefined) updates.roll_number = nextRoll;
+    const parsedRoll = parseStudentId(nextRoll);
+    if (parsedRoll) updates.roll_number = formatParsedStudentId(parsedRoll);
 
     const { data: student, error } = await updateStudentRecord(id, req.user.schoolId, updates);
 
@@ -5572,6 +5595,15 @@ app.delete('/api/attendance/students', authenticateToken, enforcePlanApproval, a
 
 app.get('/api/attendance/export/students', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
+    const requestedType = String(req.query.type || 'student').trim().toLowerCase();
+    const peopleType =
+      requestedType === 'staff'
+        ? 'staff'
+        : requestedType === 'non-staff' || requestedType === 'nonstaff' || requestedType === 'non_staff'
+          ? 'non-staff'
+          : requestedType === 'all'
+            ? 'all'
+            : 'student';
     const period = await resolveFeePeriod(req.user.schoolId).catch(() => null);
     const today = schoolLocalDate();
     const from = /^\d{4}-\d{2}-\d{2}$/.test(String(period?.starts_on || ''))
@@ -5583,35 +5615,38 @@ app.get('/api/attendance/export/students', authenticateToken, enforcePlanApprova
     const to = endCap < today ? endCap : today;
     const lateAfterTime = await getSchoolLateAfterTime(req.user.schoolId);
 
-    const [schoolRes, students, attendanceRes] = await Promise.all([
+    const people = await loadSchoolPeopleForAttendance(req.user.schoolId);
+    const wanted = people.filter((person) => peopleType === 'all' || person.user_type === peopleType);
+
+    let attendanceQuery = supabase
+      .from('attendance')
+      .select('user_id, user_type, date, timestamp, status')
+      .eq('school_id', req.user.schoolId)
+      .gte('date', from)
+      .lte('date', to)
+      .order('date', { ascending: true })
+      .limit(20000);
+    if (peopleType !== 'all') attendanceQuery = attendanceQuery.eq('user_type', peopleType);
+    const [schoolRes, attendanceRes] = await Promise.all([
       supabase.from('schools').select('name').eq('id', req.user.schoolId).maybeSingle(),
-      loadEnrolledStudents(req.user.schoolId),
-      supabase
-        .from('attendance')
-        .select('user_id, date, timestamp, status')
-        .eq('school_id', req.user.schoolId)
-        .eq('user_type', 'student')
-        .gte('date', from)
-        .lte('date', to)
-        .order('date', { ascending: true })
-        .limit(20000),
+      attendanceQuery,
     ]);
     if (attendanceRes.error) throw attendanceRes.error;
 
-    const byStudent = new Map();
+    const byPerson = new Map();
     for (const row of attendanceRes.data || []) {
       const punctuality =
         row.status === 'early' || row.status === 'late'
           ? row.status
           : getAttendancePunctuality(row.timestamp, lateAfterTime);
-      const list = byStudent.get(row.user_id) || [];
+      const list = byPerson.get(row.user_id) || [];
       list.push({
         date: row.date,
         timestamp: row.timestamp,
         punctuality,
         status: punctuality,
       });
-      byStudent.set(row.user_id, list);
+      byPerson.set(row.user_id, list);
     }
 
     const term = {
@@ -5623,10 +5658,10 @@ app.get('/api/attendance/export/students', authenticateToken, enforcePlanApprova
 
     const classFilter = String(req.query.class || req.query.className || '').trim().toLowerCase();
     const search = String(req.query.q || '').trim().toLowerCase();
-    const filtered = students.filter((student) => {
-      if (classFilter && String(student.label || '').trim().toLowerCase() !== classFilter) return false;
+    const filtered = wanted.filter((person) => {
+      if (classFilter && String(person.label || '').trim().toLowerCase() !== classFilter) return false;
       if (search) {
-        const hay = [student.name, student.id, student.roll_number, student.label]
+        const hay = [person.name, person.id, person.roll_number, person.label]
           .map((value) => String(value || '').trim().toLowerCase())
           .join(' ');
         if (!hay.includes(search)) return false;
@@ -5634,29 +5669,35 @@ app.get('/api/attendance/export/students', authenticateToken, enforcePlanApprova
       return true;
     });
 
+    const mapped = filtered.map((person) => {
+      const records = byPerson.get(person.id) || [];
+      const lateDays = records.filter((row) => row.status === 'late' || row.punctuality === 'late').length;
+      return {
+        id: person.id,
+        name: person.name,
+        class: person.label || null,
+        label: person.label || null,
+        roll_number: person.roll_number || null,
+        user_type: person.user_type,
+        records,
+        summary: {
+          days: records.length,
+          early: records.length - lateDays,
+          late: lateDays,
+        },
+      };
+    });
+
     res.json({
       school_name: schoolRes.data?.name || null,
       term,
-      students: filtered.map((student) => {
-        const records = byStudent.get(student.id) || [];
-        const lateDays = records.filter((row) => row.status === 'late' || row.punctuality === 'late').length;
-        return {
-          id: student.id,
-          name: student.name,
-          class: student.label || null,
-          roll_number: student.roll_number || null,
-          records,
-          summary: {
-            days: records.length,
-            early: records.length - lateDays,
-            late: lateDays,
-          },
-        };
-      }),
+      type: peopleType,
+      people: mapped,
+      students: mapped,
     });
   } catch (error) {
     console.error('Student attendance export error:', error);
-    res.status(500).json({ error: error.message || 'Failed to export student attendance' });
+    res.status(500).json({ error: error.message || 'Failed to export attendance' });
   }
 });
 
