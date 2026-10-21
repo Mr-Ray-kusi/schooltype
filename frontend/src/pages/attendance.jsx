@@ -377,19 +377,52 @@ const Attendance = () => {
   };
 
   const downloadAllStudentPdfs = async () => {
+    if (selectedType === 'staff' || selectedType === 'non-staff') {
+      toast.error('Student PDFs are for students. Choose Students or All, then a class.');
+      return;
+    }
+    const classFilter = selectedClass !== 'all' ? selectedClass : '';
+    const search = String(searchQuery || '').trim();
     setBulkBusy('download');
     try {
-      const { data } = await axios.get('/api/attendance/export/students', { timeout: 60000 });
-      if (!data?.students?.length) {
-        toast.error('No students to export.');
+      const { data } = await axios.get('/api/attendance/export/students', {
+        timeout: 60000,
+        params: {
+          class: classFilter || undefined,
+          q: search || undefined,
+        },
+      });
+      const needle = search.toLowerCase();
+      const students = (data?.students || []).filter((student) => {
+        if (classFilter && String(student.class || '').trim().toLowerCase() !== classFilter.toLowerCase()) {
+          return false;
+        }
+        if (needle) {
+          const hay = [student.name, student.id, student.roll_number, student.class]
+            .map((value) => String(value || '').trim().toLowerCase())
+            .join(' ');
+          if (!hay.includes(needle)) return false;
+        }
+        return true;
+      });
+      if (!students.length) {
+        toast.error(
+          classFilter || search
+            ? 'No students match this class, roll, or search.'
+            : 'No students to export.'
+        );
         return;
       }
       await downloadAllStudentAttendanceZip({
         schoolName: data.school_name || school?.name || 'School',
         term: data.term,
-        students: data.students,
+        students,
       });
-      toast.success(`Prepared ${data.students.length} student PDF(s) in one folder.`);
+      toast.success(
+        classFilter || search
+          ? `Prepared ${students.length} student PDF(s) for this selection.`
+          : `Prepared ${students.length} student PDF(s) in one folder.`
+      );
     } catch (error) {
       toast.error(
         error.response?.data?.error || error.message || 'Could not download student attendance PDFs'

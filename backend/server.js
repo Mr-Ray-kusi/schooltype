@@ -2630,8 +2630,16 @@ const normalizeAttendanceUserType = (value) => {
 const loadEnrolledStudents = async (schoolId) => {
   let { data, error } = await supabase
     .from('students')
-    .select('id, name, class, alumni_year, created_at')
+    .select('id, name, class, roll_number, alumni_year, created_at')
     .eq('school_id', schoolId);
+  if (error && isMissingColumnError(error, 'roll_number')) {
+    const retry = await supabase
+      .from('students')
+      .select('id, name, class, alumni_year, created_at')
+      .eq('school_id', schoolId);
+    data = retry.data;
+    error = retry.error;
+  }
   if (error && (isMissingColumnError(error, 'alumni_year') || String(error.message || '').includes('alumni_year'))) {
     const retry = await supabase.from('students').select('id, name, class, created_at').eq('school_id', schoolId);
     data = retry.data;
@@ -2649,6 +2657,7 @@ const loadEnrolledStudents = async (schoolId) => {
       id: row.id,
       name: row.name,
       label: row.class,
+      roll_number: row.roll_number || null,
       user_type: 'student',
       created_at: row.created_at || null,
     }));
@@ -5606,16 +5615,30 @@ app.get('/api/attendance/export/students', authenticateToken, enforcePlanApprova
       source: period?.source || null,
     };
 
+    const classFilter = String(req.query.class || req.query.className || '').trim().toLowerCase();
+    const search = String(req.query.q || '').trim().toLowerCase();
+    const filtered = students.filter((student) => {
+      if (classFilter && String(student.label || '').trim().toLowerCase() !== classFilter) return false;
+      if (search) {
+        const hay = [student.name, student.id, student.roll_number, student.label]
+          .map((value) => String(value || '').trim().toLowerCase())
+          .join(' ');
+        if (!hay.includes(search)) return false;
+      }
+      return true;
+    });
+
     res.json({
       school_name: schoolRes.data?.name || null,
       term,
-      students: students.map((student) => {
+      students: filtered.map((student) => {
         const records = byStudent.get(student.id) || [];
         const lateDays = records.filter((row) => row.status === 'late' || row.punctuality === 'late').length;
         return {
           id: student.id,
           name: student.name,
           class: student.label || null,
+          roll_number: student.roll_number || null,
           records,
           summary: {
             days: records.length,
