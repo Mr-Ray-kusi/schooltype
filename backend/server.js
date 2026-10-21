@@ -27,6 +27,7 @@ import {
   gateProfile,
 } from './publicIdGate.js';
 import { formatParsedStudentId, parseStudentId, syncStudentIds } from './studentId.js';
+import { purgePersonRelated } from './personPurge.js';
 import nodemailer from 'nodemailer';
 import { getPlan, getPlanFeatures, getPlansList, VALID_PLAN_IDS, hasPlanFeature, resolvePlanId } from './plans.js';
 import {
@@ -3485,6 +3486,11 @@ app.put('/api/students/:id', authenticateToken, enforcePlanApproval, async (req,
 app.delete('/api/students/:id', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
     const { id } = req.params;
+    await purgePersonRelated(supabase, {
+      schoolId: req.user.schoolId,
+      personId: id,
+      kind: 'student',
+    });
 
     const { error } = await supabase
       .from('students')
@@ -3495,7 +3501,7 @@ app.delete('/api/students/:id', authenticateToken, enforcePlanApproval, async (r
     if (error) throw error;
     await deleteStudentPhoto(id);
     bumpSchoolCaches(req.user.schoolId);
-    res.json({ message: 'Student deleted successfully' });
+    res.json({ message: 'Student and related records deleted' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -3811,6 +3817,11 @@ app.get('/api/staff/:id', authenticateToken, enforcePlanApproval, async (req, re
 app.delete('/api/staff/:id', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
     const { id } = req.params;
+    await purgePersonRelated(supabase, {
+      schoolId: req.user.schoolId,
+      personId: id,
+      kind: 'staff',
+    });
 
     const { error } = await supabase
       .from('staffs')
@@ -3821,7 +3832,7 @@ app.delete('/api/staff/:id', authenticateToken, enforcePlanApproval, async (req,
     if (error) throw error;
     await deletePersonPhoto(id);
     bumpSchoolCaches(req.user.schoolId);
-    res.json({ message: 'Staff deleted successfully' });
+    res.json({ message: 'Staff member and related records deleted' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -3967,6 +3978,11 @@ app.put('/api/non-staff/:id', authenticateToken, enforcePlanApproval, async (req
 app.delete('/api/non-staff/:id', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
     const { id } = req.params;
+    await purgePersonRelated(supabase, {
+      schoolId: req.user.schoolId,
+      personId: id,
+      kind: 'non-staff',
+    });
 
     const { error } = await supabase
       .from('nonstaffs')
@@ -3977,7 +3993,7 @@ app.delete('/api/non-staff/:id', authenticateToken, enforcePlanApproval, async (
     if (error) throw error;
     await deletePersonPhoto(id);
     bumpSchoolCaches(req.user.schoolId);
-    res.json({ message: 'Non-staff deleted successfully' });
+    res.json({ message: 'Non-staff member and related records deleted' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

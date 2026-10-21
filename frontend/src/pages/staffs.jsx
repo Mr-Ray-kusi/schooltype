@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import PersonRecordTable from '../components/PersonRecordTable';
 import PersonDetailModal from '../components/PersonDetailModal';
+import ConfirmPersonDeleteModal from '../components/ConfirmPersonDeleteModal';
 import PaginationBar from '../components/PaginationBar';
 import { buildPersonIdUrl } from '../utils/studentIdQr';
 import { useAuth } from '../contexts/authcontext';
@@ -18,6 +19,7 @@ import toast from 'react-hot-toast';
 import { invalidateCache, peekCache, staleGet } from '../utils/requestCache';
 import { fetchRecord, parseListResponse, LIST_PAGE_SIZE } from '../utils/listApi.js';
 import { downloadPersonPack, downloadPeoplePacks, staffPack, nonStaffPack } from '../utils/personPackExport';
+import { buildTermAttendancePdfBytes } from '../utils/attendanceTermPdf';
 import { generateStrongPassword } from '../utils/strongPassword';
 import MultiSelectDropdown from '../components/MultiSelectDropdown';
 
@@ -48,7 +50,7 @@ const asNonStaffRow = (item) => ({
 });
 
 const Staff = () => {
-  const { includesPlanFeature } = useAuth();
+  const { includesPlanFeature, school } = useAuth();
   const canStaff = includesPlanFeature('staff');
   const canNonStaff = includesPlanFeature('non-staff');
   const [people, setPeople] = useState([]);
@@ -61,6 +63,7 @@ const Staff = () => {
   const [showStaffModal, setShowStaffModal] = useState(false);
   const [showNonStaffModal, setShowNonStaffModal] = useState(false);
   const [viewingPerson, setViewingPerson] = useState(null);
+  const [pendingDelete, setPendingDelete] = useState(null);
   const [editingStaff, setEditingStaff] = useState(null);
   const [editingNonStaff, setEditingNonStaff] = useState(null);
   const [portalToken, setPortalToken] = useState(null);
@@ -300,12 +303,35 @@ const Staff = () => {
     }
   };
 
+  const downloadPersonDetails = async (person) => {
+    const isStaff = person.kind === 'staff';
+    const url = isStaff ? `/api/staff/${person.id}` : `/api/non-staff/${person.id}`;
+    const full = await fetchRecord(axios, url, person);
+    const pack = isStaff
+      ? staffPack(asStaffRow(full), buildPersonIdUrl(full.barcode))
+      : nonStaffPack(full, buildPersonIdUrl(full.barcode));
+    try {
+      const { data } = await axios.get(`/api/attendance/person/${person.id}`, {
+        params: { userType: isStaff ? 'staff' : 'non-staff' },
+      });
+      const built = buildTermAttendancePdfBytes({
+        schoolName: school?.name || 'School',
+        personName: full.name || person.name,
+        personLabel: full.role || person.role,
+        userType: isStaff ? 'staff' : 'non-staff',
+        term: data?.term,
+        records: data?.records || [],
+        summary: data?.summary || {},
+      });
+      pack.extraFiles = [{ name: built.fileName, data: built.bytes }];
+    } catch {
+      /* attendance may be empty */
+    }
+    await downloadPersonPack(pack);
+  };
+
   const handleDelete = async (person) => {
     const isStaff = person.kind === 'staff';
-    const confirmed = window.confirm(
-      isStaff ? 'Are you sure you want to delete this staff member?' : 'Are you sure you want to delete this person?'
-    );
-    if (!confirmed) return;
     try {
       if (isStaff) {
         await axios.delete(`/api/staff/${person.id}`);
@@ -316,9 +342,15 @@ const Staff = () => {
         invalidateCache('staff');
       }
       invalidateCache('dashboard');
+      invalidateCache('attendance');
+      toast.success(
+        isStaff ? 'Staff member and related records removed' : 'Non-staff member and related records removed'
+      );
+      setPendingDelete(null);
+      setViewingPerson(null);
       fetchPeople();
     } catch (error) {
-      console.error('Error deleting person:', error);
+      toast.error(error.response?.data?.error || 'Could not delete this person');
     }
   };
 
@@ -546,24 +578,20 @@ const Staff = () => {
           }
           onClose={() => setViewingPerson(null)}
           onEdit={() => handleEdit(viewingPerson)}
-          onDelete={() => {
-            const person = viewingPerson;
-            setViewingPerson(null);
-            handleDelete(person);
-          }}
+          onDelete={() => setPendingDelete(viewingPerson)}
           onDownload={async () => {
             if (!viewingPerson) return;
-            const url =
-              viewingPerson.kind === 'staff'
-                ? `/api/staff/${viewingPerson.id}`
-                : `/api/non-staff/${viewingPerson.id}`;
-            const full = await fetchRecord(axios, url, viewingPerson);
-            if (viewingPerson.kind === 'staff') {
-              downloadPersonPack(staffPack(asStaffRow(full), buildPersonIdUrl(full.barcode)));
-            } else {
-              downloadPersonPack(nonStaffPack(full, buildPersonIdUrl(full.barcode)));
-            }
+            await downloadPersonDetails(viewingPerson);
           }}
+        />
+
+        <ConfirmPersonDeleteModal
+          open={Boolean(pendingDelete)}
+          name={pendingDelete?.name}
+          kind={pendingDelete?.kind === 'staff' ? 'staff' : 'non-staff'}
+          onClose={() => setPendingDelete(null)}
+          onDownload={() => downloadPersonDetails(pendingDelete)}
+          onRemove={() => handleDelete(pendingDelete)}
         />
 
         <div id="list-section">

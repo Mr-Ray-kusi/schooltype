@@ -132,6 +132,14 @@ async function personFiles(person) {
     files.push({ name: `${folderName}/qr-code.png`, data: qrBlob });
   }
 
+  for (const extra of person.extraFiles || []) {
+    if (!extra?.name || !extra?.data) continue;
+    files.push({
+      name: extra.name.includes('/') ? extra.name : `${folderName}/${extra.name}`,
+      data: extra.data,
+    });
+  }
+
   return files;
 }
 

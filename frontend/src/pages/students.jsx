@@ -7,11 +7,15 @@ import { parseListResponse, fetchAllPages, fetchRecord, LIST_PAGE_SIZE } from '.
 import { downloadPersonPack, downloadPeoplePacks, studentPack } from '../utils/personPackExport';
 import PersonRecordTable from '../components/PersonRecordTable';
 import PersonDetailModal from '../components/PersonDetailModal';
+import ConfirmPersonDeleteModal from '../components/ConfirmPersonDeleteModal';
 import PaginationBar from '../components/PaginationBar';
 import { Search, User, Download, UserPlus } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useAuth } from '../contexts/authcontext';
+import { buildTermAttendancePdfBytes } from '../utils/attendanceTermPdf';
 
 const Students = () => {
+  const { school } = useAuth();
   const [students, setStudents] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -22,6 +26,7 @@ const Students = () => {
   const [loading, setLoading] = useState(true);
   const [editingStudent, setEditingStudent] = useState(null);
   const [viewingStudent, setViewingStudent] = useState(null);
+  const [pendingDelete, setPendingDelete] = useState(null);
   const [downloadingAll, setDownloadingAll] = useState(false);
 
   useEffect(() => {
@@ -81,16 +86,41 @@ const Students = () => {
       .catch(() => setClassOptions([]));
   }, []);
 
-  const handleDelete = async (id) => {
-    if (window.confirm('Are you sure you want to delete this student?')) {
-      try {
-        await axios.delete(`/api/students/${id}`);
-        invalidateCache('students');
-        invalidateCache('dashboard');
-        fetchStudents();
-      } catch (error) {
-        console.error('Error deleting student:', error);
-      }
+  const downloadStudentDetails = async (student) => {
+    const full = await fetchRecord(axios, `/api/students/${student.id}`, student);
+    const pack = studentPack(full, buildStudentIdUrl(full.barcode));
+    try {
+      const { data } = await axios.get(`/api/attendance/person/${student.id}`, {
+        params: { userType: 'student' },
+      });
+      const built = buildTermAttendancePdfBytes({
+        schoolName: school?.name || 'School',
+        personName: full.name,
+        personLabel: full.class,
+        userType: 'student',
+        term: data?.term,
+        records: data?.records || [],
+        summary: data?.summary || {},
+      });
+      pack.extraFiles = [{ name: built.fileName, data: built.bytes }];
+    } catch {
+      /* attendance may be empty */
+    }
+    await downloadPersonPack(pack);
+  };
+
+  const handleDelete = async (student) => {
+    try {
+      await axios.delete(`/api/students/${student.id}`);
+      toast.success('Student and related records removed');
+      invalidateCache('students');
+      invalidateCache('dashboard');
+      invalidateCache('attendance');
+      setPendingDelete(null);
+      setViewingStudent(null);
+      fetchStudents();
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Could not delete this student');
     }
   };
 
@@ -237,14 +267,19 @@ const Students = () => {
           ]}
           onClose={() => setViewingStudent(null)}
           onEdit={() => handleEdit(viewingStudent)}
-          onDelete={() => {
-            setViewingStudent(null);
-            handleDelete(viewingStudent.id);
-          }}
+          onDelete={() => setPendingDelete(viewingStudent)}
           onDownload={async () => {
-            const full = await fetchRecord(axios, `/api/students/${viewingStudent.id}`, viewingStudent);
-            downloadPersonPack(studentPack(full, buildStudentIdUrl(full.barcode)));
+            await downloadStudentDetails(viewingStudent);
           }}
+        />
+
+        <ConfirmPersonDeleteModal
+          open={Boolean(pendingDelete)}
+          name={pendingDelete?.name}
+          kind="student"
+          onClose={() => setPendingDelete(null)}
+          onDownload={() => downloadStudentDetails(pendingDelete)}
+          onRemove={() => handleDelete(pendingDelete)}
         />
 
         {editingStudent && (
