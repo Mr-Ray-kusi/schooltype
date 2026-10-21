@@ -89,15 +89,20 @@ export function buildTermAttendancePdfBytes({
   };
 }
 
-export function downloadTermAttendancePdf(options) {
-  const { bytes, fileName } = buildTermAttendancePdfBytes(options);
-  const blob = new Blob([bytes], { type: 'application/pdf' });
+const saveBlob = (blob, fileName) => {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
   link.download = fileName;
+  document.body.appendChild(link);
   link.click();
-  URL.revokeObjectURL(url);
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+};
+
+export function downloadTermAttendancePdf(options) {
+  const { bytes, fileName } = buildTermAttendancePdfBytes(options);
+  saveBlob(new Blob([bytes], { type: 'application/pdf' }), fileName);
 }
 
 export async function downloadAllStudentAttendanceZip({
@@ -109,26 +114,29 @@ export async function downloadAllStudentAttendanceZip({
   const termName = term?.name || 'Current term';
   const folder = `${safeName(termName)}-student-attendance`;
   const used = new Set();
-  const files = students.map((student, index) => {
-    const built = buildTermAttendancePdfBytes({
-      schoolName,
-      personName: student.name,
-      personLabel: student.class || student.label,
-      userType: 'student',
-      term,
-      records: student.records || [],
-      summary: student.summary || {},
-    });
-    let base = `${safeName(student.name)}${student.class ? `-${safeName(student.class)}` : ''}`;
-    if (used.has(base)) base = `${base}-${index + 1}`;
-    used.add(base);
-    return { name: `${folder}/${base}-attendance.pdf`, data: built.bytes };
+  const files = [];
+  students.forEach((student, index) => {
+    try {
+      const built = buildTermAttendancePdfBytes({
+        schoolName,
+        personName: student.name,
+        personLabel: student.class || student.label,
+        userType: 'student',
+        term,
+        records: student.records || [],
+        summary: student.summary || {},
+      });
+      let base = `${safeName(student.name)}${student.class ? `-${safeName(student.class)}` : ''}`;
+      if (used.has(base)) base = `${base}-${index + 1}`;
+      used.add(base);
+      files.push({ name: `${folder}/${base}-attendance.pdf`, data: built.bytes });
+    } catch (error) {
+      console.warn('Skipped attendance PDF for', student.name, error);
+    }
   });
+  if (!files.length) {
+    throw new Error('No student attendance PDFs to pack.');
+  }
   const blob = await createZipBlob(files);
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `${folder}.zip`;
-  link.click();
-  URL.revokeObjectURL(url);
+  saveBlob(blob, `${folder}.zip`);
 }

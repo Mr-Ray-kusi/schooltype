@@ -225,21 +225,6 @@ const PerformanceChart = ({
           <p className="text-[11px] text-zinc-400">{formatChartDate(active.t, unit)}</p>
           <div className="mt-1 flex items-center gap-2">
             <p className="text-sm font-semibold text-white">{formatValue(active.value)}</p>
-            {(() => {
-              const change = percentChange(active.value, layout.mapped[active.index - 1]?.value);
-              if (change == null) return null;
-              const up = change >= 0;
-              return (
-                <span
-                  className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${
-                    up ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300'
-                  }`}
-                >
-                  {up ? '+' : ''}
-                  {change}%
-                </span>
-              );
-            })()}
           </div>
         </div>
       ) : null}

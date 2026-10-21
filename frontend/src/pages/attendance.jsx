@@ -379,7 +379,7 @@ const Attendance = () => {
   const downloadAllStudentPdfs = async () => {
     setBulkBusy('download');
     try {
-      const { data } = await axios.get('/api/attendance/export/students');
+      const { data } = await axios.get('/api/attendance/export/students', { timeout: 60000 });
       if (!data?.students?.length) {
         toast.error('No students to export.');
         return;
@@ -391,7 +391,9 @@ const Attendance = () => {
       });
       toast.success(`Prepared ${data.students.length} student PDF(s) in one folder.`);
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Could not download student attendance PDFs');
+      toast.error(
+        error.response?.data?.error || error.message || 'Could not download student attendance PDFs'
+      );
     } finally {
       setBulkBusy('');
     }
@@ -517,9 +519,6 @@ const Attendance = () => {
               </p>
               <p className="mt-0.5 text-lg font-semibold tabular-nums text-white">
                 {item.data.present}/{item.data.total}
-                <span className="ml-1.5 text-xs font-normal text-slate-400">
-                  {item.data.percentage ?? 0}%
-                </span>
               </p>
             </div>
           ))}

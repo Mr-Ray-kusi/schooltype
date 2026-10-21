@@ -16,7 +16,7 @@ import {
   Users,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import PerformanceChart, { percentChange } from '../components/PerformanceChart';
+import PerformanceChart from '../components/PerformanceChart';
 import { useLivePoll } from '../hooks/useLivePoll';
 
 const RANGES = [
@@ -353,8 +353,6 @@ const SuperAdminAnalytics = () => {
   const selected = panels.find((panel) => panel.id === selectedPanel) || panels[0];
   const series = chart.series?.[selected.id] || [];
   const latest = series[series.length - 1]?.value ?? 0;
-  const previous = series.length > 1 ? series[0]?.value : null;
-  const change = percentChange(latest, previous);
 
   if (loading && !data) {
     return (
@@ -428,16 +426,6 @@ const SuperAdminAnalytics = () => {
             <h2 className="text-xl font-semibold tracking-tight text-white md:text-2xl">{selected.title}</h2>
             <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-zinc-400">
               <span className="text-lg font-semibold text-white">{selected.formatValue(latest)}</span>
-              {change != null ? (
-                <span
-                  className={`rounded-md px-1.5 py-0.5 text-[11px] font-semibold ${
-                    change >= 0 ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300'
-                  }`}
-                >
-                  {change >= 0 ? '+' : ''}
-                  {change}%
-                </span>
-              ) : null}
               <span>· {rangeLabel}</span>
             </div>
           </div>

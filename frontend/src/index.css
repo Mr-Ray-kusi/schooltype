@@ -471,12 +471,22 @@ html.lite [class*='text-red-3'] {
   color: #b91c1c !important;
 }
 
+html.lite .text-sky-100,
+html.lite [class*='text-sky-1'] {
+  color: #0369a1 !important;
+}
+
 html.lite .dashboard-hero [class*='text-white'],
-html.lite .dashboard-hero .text-slate-100 {
+html.lite .dashboard-hero .text-slate-100,
+html.lite .dashboard-hero .text-white\/80 {
   color: #ffffff !important;
 }
 html.lite .dashboard-hero .text-sky-300 {
   color: #7dd3fc !important;
+}
+html.lite .dashboard-hero [class*='bg-slate-950'],
+html.lite .dashboard-hero [class*='bg-slate-900'] {
+  background-color: rgba(15, 23, 42, 0.62) !important;
 }
 
 html.lite [class*='border-slate-7'],
@@ -556,8 +566,18 @@ html.lite [class*='bg-amber-'][class*='text-white'] {
   color: #334155 !important;
 }
 
-.lite-shell .dashboard-hero [class*='text-white'] {
+.lite-shell .text-sky-100,
+.lite-shell [class*='text-sky-1'] {
+  color: #0369a1 !important;
+}
+
+.lite-shell .dashboard-hero [class*='text-white'],
+.lite-shell .dashboard-hero .text-white\/80 {
   color: #ffffff !important;
+}
+.lite-shell .dashboard-hero [class*='bg-slate-950'],
+.lite-shell .dashboard-hero [class*='bg-slate-900'] {
+  background-color: rgba(15, 23, 42, 0.62) !important;
 }
 
 .lite-shell [class*='bg-sky-'][class*='text-white'],

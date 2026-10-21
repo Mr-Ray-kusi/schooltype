@@ -51,8 +51,8 @@ const MultiSelectDropdown = ({
               }
               className={
                 compact
-                  ? 'inline-flex items-center gap-0.5 rounded-full border border-sky-500/40 bg-sky-500/15 px-2 py-0.5 text-[11px] text-sky-100 hover:bg-sky-500/25'
-                  : 'inline-flex items-center gap-1 rounded-full border border-sky-500/40 bg-sky-500/15 px-3 py-1 text-sm text-sky-100 hover:bg-sky-500/25'
+                  ? 'inline-flex items-center gap-0.5 rounded-full border border-sky-500/40 bg-sky-500/15 px-2 py-0.5 text-[11px] text-sky-200 hover:bg-sky-500/25'
+                  : 'inline-flex items-center gap-1 rounded-full border border-sky-500/40 bg-sky-500/15 px-3 py-1 text-sm text-sky-200 hover:bg-sky-500/25'
               }
             >
               {value}

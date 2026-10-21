@@ -10,7 +10,7 @@ import {
   ShieldAlert,
   UserCheck,
 } from 'lucide-react';
-import PerformanceChart, { percentChange } from './PerformanceChart';
+import PerformanceChart from './PerformanceChart';
 import { useLivePoll } from '../hooks/useLivePoll';
 import { cachedGet } from '../utils/requestCache';
 
@@ -141,8 +141,6 @@ const SchoolAnalyticsChart = () => {
   const selected = panels.find((panel) => panel.id === selectedPanel) || panels[0];
   const series = data?.chart?.series?.[selected.id] || [];
   const latest = series[series.length - 1]?.value ?? 0;
-  const previous = series.length > 1 ? series[0]?.value : null;
-  const change = percentChange(latest, previous);
 
   const preview = previews[selected.id] || [];
 
@@ -158,16 +156,6 @@ const SchoolAnalyticsChart = () => {
             <p className="mt-1.5 text-lg font-semibold text-white md:mt-2 md:text-2xl">{selected.title}</p>
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-slate-400 md:mt-2 md:gap-2 md:text-sm">
               <span className="text-base font-semibold text-white md:text-lg">{selected.formatValue(latest)}</span>
-              {change != null ? (
-                <span
-                  className={`rounded-md px-1.5 py-0.5 text-[11px] font-semibold ${
-                    change >= 0 ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300'
-                  }`}
-                >
-                  {change >= 0 ? '+' : ''}
-                  {change}%
-                </span>
-              ) : null}
               <span>· {rangeLabel}</span>
             </div>
           </div>

@@ -105,8 +105,6 @@ const Dashboard = () => {
 
   const todayLabel = schoolLocalDateLabel();
   const locked = !isPlanApproved;
-  const att = stats.attendance || {};
-  const attendancePct = Math.round(Number(att.students?.percentage) || 0);
 
   const peopleCards = [
     {
@@ -172,7 +170,7 @@ const Dashboard = () => {
   const snapshotItems = [
     {
       label: 'Present today',
-      value: locked ? '—' : `${Number(stats.todayAttendance || 0).toLocaleString()}${attendancePct ? ` · ${attendancePct}%` : ''}`,
+      value: locked ? '—' : Number(stats.todayAttendance || 0).toLocaleString(),
       icon: CalendarCheck,
       feature: 'attendance',
     },
@@ -244,7 +242,7 @@ const Dashboard = () => {
               <p className="mt-1 truncate text-sm text-white/80 sm:text-base">{todayLabel}</p>
             </div>
             {school?.plan_name && (
-              <div className="mb-1 w-fit shrink-0 rounded-full border border-white/20 bg-slate-950/55 px-3 py-1 text-xs text-slate-100 backdrop-blur-sm">
+              <div className="mb-1 w-fit shrink-0 rounded-full border border-white/20 bg-slate-950/55 px-3 py-1 text-xs text-white backdrop-blur-sm">
                 Plan · <span className="font-semibold text-white">{school.plan_name}</span>
               </div>
             )}

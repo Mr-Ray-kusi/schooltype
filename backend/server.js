@@ -5536,29 +5536,36 @@ app.get('/api/attendance/export/students', authenticateToken, enforcePlanApprova
       ? String(period.ends_on).slice(0, 10)
       : today;
     const to = endCap < today ? endCap : today;
+    const lateAfterTime = await getSchoolLateAfterTime(req.user.schoolId);
 
-    const [{ data: school }, students, attendanceRes] = await Promise.all([
+    const [schoolRes, students, attendanceRes] = await Promise.all([
       supabase.from('schools').select('name').eq('id', req.user.schoolId).maybeSingle(),
       loadEnrolledStudents(req.user.schoolId),
       supabase
         .from('attendance')
-        .select('*')
+        .select('user_id, date, timestamp, status')
         .eq('school_id', req.user.schoolId)
         .eq('user_type', 'student')
         .gte('date', from)
         .lte('date', to)
         .order('date', { ascending: true })
-        .order('timestamp', { ascending: true })
         .limit(20000),
     ]);
     if (attendanceRes.error) throw attendanceRes.error;
 
-    const lateAfterTime = await getSchoolLateAfterTime(req.user.schoolId);
-    const enriched = await enrichAttendanceRows(attendanceRes.data || [], lateAfterTime);
     const byStudent = new Map();
-    for (const row of enriched) {
+    for (const row of attendanceRes.data || []) {
+      const punctuality =
+        row.status === 'early' || row.status === 'late'
+          ? row.status
+          : getAttendancePunctuality(row.timestamp, lateAfterTime);
       const list = byStudent.get(row.user_id) || [];
-      list.push(row);
+      list.push({
+        date: row.date,
+        timestamp: row.timestamp,
+        punctuality,
+        status: punctuality,
+      });
       byStudent.set(row.user_id, list);
     }
 
@@ -5570,7 +5577,7 @@ app.get('/api/attendance/export/students', authenticateToken, enforcePlanApprova
     };
 
     res.json({
-      school_name: school?.name || null,
+      school_name: schoolRes.data?.name || null,
       term,
       students: students.map((student) => {
         const records = byStudent.get(student.id) || [];
@@ -5589,6 +5596,7 @@ app.get('/api/attendance/export/students', authenticateToken, enforcePlanApprova
       }),
     });
   } catch (error) {
+    console.error('Student attendance export error:', error);
     res.status(500).json({ error: error.message || 'Failed to export student attendance' });
   }
 });
