@@ -221,7 +221,7 @@ const Students = () => {
           badge={viewingStudent?.class || 'No class'}
           accent="sky"
           fields={[
-            { group: 'School', label: 'Roll number', value: viewingStudent?.roll_number },
+            { group: 'School', label: 'Student ID', value: viewingStudent?.roll_number },
             {
               group: 'School',
               label: 'Date of birth',
@@ -323,10 +323,10 @@ const Students = () => {
                 />
                 <input
                   type="text"
-                  value={editingStudent.roll_number || ''}
-                  onChange={(e) => setEditingStudent({ ...editingStudent, roll_number: e.target.value })}
-                  className="w-full px-4 py-2 border border-slate-500 rounded-lg"
-                  placeholder="Roll Number"
+                  value={editingStudent.roll_number || 'Assigned on save'}
+                  readOnly
+                  className="w-full px-4 py-2 border border-slate-500 rounded-lg text-slate-300"
+                  aria-label="Student ID"
                 />
                 <div className="flex gap-2">
                   <button type="submit" className="flex-1 bg-primary-600 text-white py-2 rounded-lg hover:bg-primary-700">
@@ -353,7 +353,7 @@ const Students = () => {
             columns={[
               { key: 'name', header: 'Student' },
               { key: 'class', header: 'Class' },
-              { key: 'roll_number', header: 'Roll' },
+              { key: 'roll_number', header: 'Student ID' },
               { key: 'parent_name', header: 'Parent' },
               { key: 'parent_phone', header: 'Phone' },
             ]}
