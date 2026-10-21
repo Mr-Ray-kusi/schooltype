@@ -4,7 +4,6 @@ import axios from 'axios';
 import { useAuth } from '../contexts/authcontext';
 import {
   Send,
-  Reply,
   Mail,
   MessageSquare,
   Clock,
@@ -32,8 +31,6 @@ const Messages = () => {
 
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [replyingTo, setReplyingTo] = useState(null);
-  const [replyText, setReplyText] = useState('');
   const [showSendModal, setShowSendModal] = useState(false);
   const [newMessage, setNewMessage] = useState({
     senderName: '',
@@ -236,18 +233,6 @@ const Messages = () => {
       setSendError(err.response?.data?.error || 'Failed to buy SMS units');
     } finally {
       setBuyingUnits(false);
-    }
-  };
-
-  const handleReply = async (messageId) => {
-    try {
-      await axios.post(`/api/messages/${messageId}/reply`, { reply: replyText });
-      setReplyingTo(null);
-      setReplyText('');
-      invalidateCache('messages');
-      fetchMessages();
-    } catch (error) {
-      console.error('Error sending reply:', error);
     }
   };
 
@@ -474,49 +459,6 @@ const Messages = () => {
                     </div>
 
                     <p className="mt-4 whitespace-pre-wrap text-slate-200 leading-relaxed">{message.message}</p>
-
-                    {message.reply ? (
-                      <div className="mt-4 rounded-xl border border-primary-500/20 bg-primary-500/10 px-4 py-3">
-                        <p className="text-xs font-medium uppercase tracking-wide text-primary-300">Admin reply</p>
-                        <p className="mt-1.5 text-slate-100">{message.reply}</p>
-                      </div>
-                    ) : replyingTo === message.id ? (
-                      <div className="mt-4 space-y-3">
-                        <textarea
-                          value={replyText}
-                          onChange={(e) => setReplyText(e.target.value)}
-                          placeholder="Type your reply…"
-                          className={fieldClass}
-                          rows={3}
-                        />
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            onClick={() => handleReply(message.id)}
-                            className="inline-flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-500"
-                          >
-                            <Send className="h-4 w-4" />
-                            Send reply
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setReplyingTo(null)}
-                            className="rounded-xl border border-slate-600 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => setReplyingTo(message.id)}
-                        className="mt-4 inline-flex items-center gap-2 text-sm text-primary-400 hover:text-primary-300"
-                      >
-                        <Reply className="h-4 w-4" />
-                        Reply
-                      </button>
-                    )}
                   </article>
                 );
               })}

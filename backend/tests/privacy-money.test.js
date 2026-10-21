@@ -5,7 +5,7 @@ process.env.AUTH_STORE = 'local';
 process.env.JWT_SECRET = 'test-jwt-secret-that-is-at-least-32-chars';
 process.env.SUPABASE_JWT_SECRET = 'test-supabase-jwt-secret-32-chars!!';
 
-const { gateProfile, isValidIdGateCode, makeIdGateCode, publicIdRateLimited, recordPublicIdFailure } =
+const { gateProfile, publicIdRateLimited, recordPublicIdFailure } =
   await import('../publicIdGate.js');
 const { paymentCreatesSchool } = await import('../schoolSignupPayment.js');
 const { signTenantJwt } = await import('../tenantContext.js');
@@ -30,13 +30,6 @@ test('a public ID shows name, school, class, and parent contact for return of th
   assert.equal(open.parent_phone, '0244000000');
   assert.equal(open.parent_name, 'Kwame Mensah');
   assert.equal(open.photo_url, null);
-});
-
-test('a gate code still validates for school desk use', () => {
-  const barcode = 'school-a-STU-1';
-  const code = makeIdGateCode(barcode);
-  assert.equal(isValidIdGateCode(barcode, code), true);
-  assert.equal(isValidIdGateCode(barcode, 'not-a-real-gate'), false);
 });
 
 test('repeated public ID guesses are rate limited', () => {

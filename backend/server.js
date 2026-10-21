@@ -22,7 +22,6 @@ import {
 } from './sessionStore.js';
 import { logPlatformAction } from './auditLog.js';
 import {
-  makeIdGateCode,
   publicIdRateLimited,
   recordPublicIdFailure,
   gateProfile,
@@ -280,10 +279,10 @@ const SCHOOL_AUTH_COLUMNS = [
 ];
 
 const STUDENT_LIST_COLUMNS =
-  'id, school_id, name, class, roll_number, parent_name, parent_phone, parent_email, parent_relationship, house_address, date_of_birth, skills, barcode, qr_code, created_at';
+  'id, school_id, name, class, roll_number, parent_name, parent_phone, parent_email, parent_relationship, house_address, date_of_birth, barcode, qr_code, created_at';
 const STAFF_LIST_COLUMNS =
-  'id, school_id, name, role, salary, barcode, qr_code, secret_code, subjects, class_names, created_at';
-const NONSTAFF_LIST_COLUMNS = 'id, school_id, name, role, salary, barcode, qr_code, created_at';
+  'id, school_id, name, role, barcode, qr_code, secret_code, subjects, class_names, created_at';
+const NONSTAFF_LIST_COLUMNS = 'id, school_id, name, role, barcode, qr_code, created_at';
 
 const wantsPhotos = (req) =>
   ['1', 'true', 'yes'].includes(String(req.query.includePhotos || '').toLowerCase());
@@ -357,9 +356,6 @@ const queryPagedRows = async (table, { schoolId, from, to, q, orFilter, columns,
 
   let rows = result.data || [];
   if (!includePhotos) rows = rows.map(withoutPhotoUrl);
-  rows = rows.map((row) =>
-    row?.barcode ? { ...row, id_gate: makeIdGateCode(row.barcode) } : row
-  );
   return { ...result, data: rows };
 };
 
@@ -834,7 +830,6 @@ const insertStudentRecord = async (record) => {
     'date_of_birth',
     'parent_email',
     'roll_number',
-    'skills',
     'barcode',
     'qr_code',
   ];
@@ -881,7 +876,6 @@ const updateStudentRecord = async (id, schoolId, updates) => {
     'date_of_birth',
     'parent_email',
     'roll_number',
-    'skills',
   ];
 
   for (let attempt = 0; attempt <= optionalColumns.length; attempt++) {
@@ -2810,138 +2804,6 @@ const fillPersonTermLateDays = async (schoolId, userId, userType, from, to) => {
   return inserted;
 };
 
-// Platform-wide monitoring for super admin
-app.get('/api/super-admin/monitor', authenticateToken, requireSuperAdmin, async (req, res) => {
-  try {
-    const { tab = 'students', schoolId, date } = req.query;
-    const allowed = new Set(['students', 'staff', 'non-staff', 'attendance', 'report-cards']);
-    if (!allowed.has(tab)) {
-      return res.status(400).json({ error: 'Invalid tab' });
-    }
-
-    const { data: schoolAccounts, error: schoolsError } = await fetchSchoolAccounts();
-    if (schoolsError) {
-      return res.status(500).json({ error: schoolsError.message || 'Failed to fetch schools' });
-    }
-
-    const schools = schoolAccounts || [];
-    const schoolOptions = schools.map((s) => ({ id: s.id, name: s.name }));
-    const filterId = schoolId && schoolId !== 'all' ? schoolId : null;
-
-    if (filterId && !schools.some((s) => s.id === filterId)) {
-      return res.status(404).json({ error: 'School not found' });
-    }
-
-    const schoolIds = filterId ? [filterId] : schools.map((s) => s.id);
-    if (!schoolIds.length) {
-      return res.json({ tab, schoolId: filterId || 'all', schools: schoolOptions, items: [] });
-    }
-
-    const names = await schoolNameMap(schoolIds);
-
-    if (tab === 'students') {
-      const { data, error } = await supabase
-        .from('students')
-        .select('*')
-        .in('school_id', schoolIds)
-        .order('created_at', { ascending: false })
-        .limit(500);
-      if (error) throw error;
-      const items = mergeStudentPhotos(data || []).map((row) => ({
-        ...row,
-        school_name: names.get(row.school_id) || 'School',
-      }));
-      return res.json({ tab, schoolId: filterId || 'all', schools: schoolOptions, items });
-    }
-
-    if (tab === 'staff') {
-      const { data, error } = await supabase
-        .from('staffs')
-        .select('*')
-        .in('school_id', schoolIds)
-        .order('created_at', { ascending: false })
-        .limit(500);
-      if (error) throw error;
-      const items = (data || []).map((row) => ({
-        ...mergePersonPhoto(normalizeStaffRecord(row)),
-        school_name: names.get(row.school_id) || 'School',
-      }));
-      return res.json({ tab, schoolId: filterId || 'all', schools: schoolOptions, items });
-    }
-
-    if (tab === 'non-staff') {
-      const { data, error } = await supabase
-        .from('nonstaffs')
-        .select('*')
-        .in('school_id', schoolIds)
-        .order('created_at', { ascending: false })
-        .limit(500);
-      if (error) throw error;
-      const items = (data || []).map((row) => ({
-        ...mergePersonPhoto(row),
-        school_name: names.get(row.school_id) || 'School',
-      }));
-      return res.json({ tab, schoolId: filterId || 'all', schools: schoolOptions, items });
-    }
-
-    if (tab === 'attendance') {
-      const today = schoolLocalDate();
-      const selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(String(date || '')) ? date : today;
-      let query = supabase
-        .from('attendance')
-        .select('*')
-        .in('school_id', schoolIds)
-        .eq('date', selectedDate)
-        .order('timestamp', { ascending: false })
-        .limit(500);
-      const { data, error } = await query;
-      if (error) throw error;
-      const enriched = await enrichAttendanceRows(data);
-      const items = enriched.map((row) => ({
-        ...row,
-        school_name: names.get(row.school_id) || 'School',
-      }));
-      return res.json({
-        tab,
-        schoolId: filterId || 'all',
-        schools: schoolOptions,
-        date: selectedDate,
-        items,
-      });
-    }
-
-    // report-cards
-    const { data, error } = await supabase
-      .from('report_cards')
-      .select('*')
-      .in('school_id', schoolIds)
-      .order('uploaded_at', { ascending: false })
-      .limit(500);
-
-    if (error) {
-      if (isMissingColumnError(error, 'report_cards') || error.code === '42P01') {
-        return res.json({
-          tab,
-          schoolId: filterId || 'all',
-          schools: schoolOptions,
-          items: [],
-          note: 'Report cards table is not set up yet. Run database/migrations.sql in Supabase.',
-        });
-      }
-      throw error;
-    }
-
-    const items = (data || []).map((row) => ({
-      ...row,
-      school_name: names.get(row.school_id) || 'School',
-    }));
-    return res.json({ tab, schoolId: filterId || 'all', schools: schoolOptions, items });
-  } catch (error) {
-    console.error('Super admin monitor error:', error);
-    res.status(500).json({ error: error.message || 'Failed to load monitoring data' });
-  }
-});
-
 app.post('/api/telemetry', authenticateToken, async (req, res) => {
   try {
     if (req.user.role === 'super_admin') {
@@ -3462,7 +3324,6 @@ app.post('/api/students', authenticateToken, enforcePlanApproval, async (req, re
       houseAddress,
       dateOfBirth,
       rollNumber,
-      skills,
       photo,
     } = req.body;
 
@@ -3491,7 +3352,6 @@ app.post('/api/students', authenticateToken, enforcePlanApproval, async (req, re
       house_address: houseAddress?.trim() || null,
       date_of_birth: dateOfBirth || null,
       roll_number: rollNumber?.trim() || null,
-      skills: skills?.trim() || null,
       barcode,
       qr_code: barcode,
       created_at: new Date(),
@@ -3545,7 +3405,6 @@ app.put('/api/students/:id', authenticateToken, enforcePlanApproval, async (req,
       date_of_birth,
       rollNumber,
       roll_number,
-      skills,
     } = req.body;
 
     const updates = {};
@@ -3568,7 +3427,6 @@ app.put('/api/students/:id', authenticateToken, enforcePlanApproval, async (req,
     if (nextDob !== undefined) updates.date_of_birth = nextDob || null;
     const nextRoll = rollNumber !== undefined ? rollNumber : roll_number;
     if (nextRoll !== undefined) updates.roll_number = nextRoll;
-    if (skills !== undefined) updates.skills = skills?.trim?.() ? skills.trim() : skills || null;
 
     const { data: student, error } = await updateStudentRecord(id, req.user.schoolId, updates);
 
@@ -3604,13 +3462,6 @@ app.delete('/api/students/:id', authenticateToken, enforcePlanApproval, async (r
 // ============ STAFF ROUTES ============
 
 // helper to normalize DB records for the frontend
-const parseSalary = (value) => {
-  if (value === undefined || value === null || value === '') return null;
-  const amount = Number(value);
-  if (!Number.isFinite(amount) || amount < 0) return null;
-  return Math.round(amount * 100) / 100;
-};
-
 const normalizeStaffRecord = (rec) => {
   if (!rec) return rec;
   return {
@@ -3618,7 +3469,6 @@ const normalizeStaffRecord = (rec) => {
     secretCode: rec.secret_code || null,
     subjects: rec.subjects || '',
     classNames: rec.class_names || '',
-    salary: rec.salary == null || rec.salary === '' ? null : Number(rec.salary),
   };
 };
 
@@ -3727,7 +3577,7 @@ const slugifySchoolName = schoolNameSlug;
 
 const insertStaffRecord = async (record) => {
   const payload = fillIdentityCodes({ ...record });
-  const optionalColumns = ['secret_code', 'subjects', 'class_names', 'salary', 'photo_url', 'barcode', 'qr_code'];
+  const optionalColumns = ['secret_code', 'subjects', 'class_names', 'photo_url', 'barcode', 'qr_code'];
 
   for (let attempt = 0; attempt <= optionalColumns.length + 4; attempt++) {
     const { data, error } = await supabase.from('staffs').insert([payload]).select().single();
@@ -3752,7 +3602,7 @@ const insertStaffRecord = async (record) => {
 
 const updateStaffRecord = async (id, schoolId, updates) => {
   const payload = { ...updates };
-  const optionalColumns = ['secret_code', 'subjects', 'class_names', 'salary', 'photo_url'];
+  const optionalColumns = ['secret_code', 'subjects', 'class_names', 'photo_url'];
 
   for (let attempt = 0; attempt <= optionalColumns.length; attempt++) {
     const { data, error } = await supabase
@@ -3812,7 +3662,7 @@ app.get('/api/staff', authenticateToken, enforcePlanApproval, async (req, res) =
 
 app.post('/api/staff', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
-    const { name, role, secretCode, subjects, classNames, class_names, salary } = req.body;
+    const { name, role, secretCode, subjects, classNames, class_names } = req.body;
 
     if (!name?.trim()) {
       return res.status(400).json({ error: 'Staff name is required' });
@@ -3835,7 +3685,6 @@ app.post('/api/staff', authenticateToken, enforcePlanApproval, async (req, res) 
       secret_code: accessCode,
       subjects: subjectsValue,
       class_names: classesValue,
-      salary: parseSalary(salary),
       created_at: new Date(),
     };
 
@@ -3863,7 +3712,6 @@ app.put('/api/staff/:id', authenticateToken, enforcePlanApproval, async (req, re
       subjects,
       classNames,
       class_names,
-      salary,
     } = req.body;
 
     const { data: currentStaff, error: fetchError } = await supabase
@@ -3885,7 +3733,6 @@ app.put('/api/staff/:id', authenticateToken, enforcePlanApproval, async (req, re
     if (classNames !== undefined || class_names !== undefined) {
       updates.class_names = toCsvField(classNames !== undefined ? classNames : class_names);
     }
-    if (salary !== undefined) updates.salary = parseSalary(salary);
 
     if (secretCode !== undefined) {
       updates.secret_code = String(secretCode || '').trim() || generateSecretCode();
@@ -3965,7 +3812,7 @@ app.get('/api/non-staff', authenticateToken, enforcePlanApproval, async (req, re
 
 app.post('/api/non-staff', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
-    const { name, role, salary } = req.body;
+    const { name, role } = req.body;
 
     if (!name?.trim()) {
       return res.status(400).json({ error: 'Name is required' });
@@ -3976,13 +3823,12 @@ app.post('/api/non-staff', authenticateToken, enforcePlanApproval, async (req, r
       school_id: req.user.schoolId,
       name: name.trim(),
       role: role?.trim() || null,
-      salary: parseSalary(salary),
       barcode,
       qr_code: barcode,
       created_at: new Date(),
     });
 
-    const optionalColumns = ['photo_url', 'barcode', 'qr_code', 'salary'];
+    const optionalColumns = ['photo_url', 'barcode', 'qr_code'];
     let nonStaff = null;
     let error = null;
     for (let attempt = 0; attempt <= optionalColumns.length + 4; attempt++) {
@@ -4034,14 +3880,13 @@ app.get('/api/non-staff/:id', authenticateToken, enforcePlanApproval, async (req
 app.put('/api/non-staff/:id', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, role, salary } = req.body;
+    const { name, role } = req.body;
 
     const updates = {};
     if (name !== undefined) updates.name = name;
     if (role !== undefined) updates.role = role;
-    if (salary !== undefined) updates.salary = parseSalary(salary);
 
-    const optionalColumns = ['photo_url', 'salary'];
+    const optionalColumns = ['photo_url'];
     let nonStaff = null;
     let error = null;
     const payload = { ...updates };

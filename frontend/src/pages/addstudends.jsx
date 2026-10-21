@@ -10,7 +10,6 @@ import {
   MapPin,
   Calendar,
   ArrowLeft,
-  Trophy,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { invalidateCache } from '../utils/requestCache';
@@ -32,7 +31,6 @@ const AddStudent = () => {
     houseAddress: '',
     dateOfBirth: '',
     rollNumber: '',
-    skills: '',
   });
 
   const handleSubmit = async (e) => {
@@ -194,25 +192,6 @@ const AddStudent = () => {
                 </div>
               </div>
 
-              <div className="sm:col-span-2">
-                <label className="mb-1.5 block text-sm font-medium text-slate-200">
-                  Skills / talents
-                </label>
-                <div className="relative">
-                  <Trophy className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-                  <input
-                    type="text"
-                    name="skills"
-                    value={formData.skills}
-                    onChange={handleChange}
-                    className={`${fieldClass} pl-10`}
-                    placeholder="e.g. Football, Athletics, Music"
-                  />
-                </div>
-                <p className="mt-1.5 text-xs text-slate-500">
-                  Optional. Shown on the public student ID when their QR is scanned.
-                </p>
-              </div>
             </div>
           </section>
 

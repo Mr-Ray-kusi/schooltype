@@ -7,7 +7,6 @@ import {
   Briefcase,
   Calendar,
   QrCode,
-  UserPlus,
   LogOut,
   Menu,
   X,
@@ -16,12 +15,9 @@ import {
   MessageSquare,
   FileText,
   DollarSign,
-  Receipt,
   Lock,
-  Landmark,
   Wallet,
   Mail,
-  ClipboardList,
   Bell,
   Activity,
   GraduationCap,
@@ -119,7 +115,6 @@ const Layout = ({ children }) => {
         { name: 'Setup', href: '/classes', icon: BookOpen, featureKey: 'classes' },
         { name: 'Attendance', href: '/attendance', icon: Calendar, featureKey: 'attendance' },
         { name: 'Scanner', href: '/scanner', icon: QrCode, featureKey: 'scanner' },
-        { name: 'Add Student', href: '/add-student', icon: UserPlus, featureKey: 'add-student' },
       ],
     },
     {
@@ -138,10 +133,8 @@ const Layout = ({ children }) => {
     {
       title: 'Finance',
       items: [
-        { name: 'Bank Settings', href: '/bank-settings', icon: Landmark, featureKey: 'bank-settings' },
         { name: 'School Wallet', href: '/school-wallet', icon: Wallet, featureKey: 'school-wallet' },
-        { name: 'Fees Paid', href: '/fees-paid', icon: DollarSign, featureKey: 'fees-paid' },
-        { name: 'Fees Unpaid', href: '/fees-unpaid', icon: Receipt, featureKey: 'fees-unpaid' },
+        { name: 'Fees', href: '/fees-paid', icon: DollarSign, featureKeys: ['fees-paid', 'fees-unpaid'] },
       ],
     },
   ];
@@ -153,7 +146,6 @@ const Layout = ({ children }) => {
           items: [
             { name: 'All Schools', href: '/super-admin', icon: LayoutDashboard },
             { name: 'Analytics', href: '/super-admin/analytics', icon: Activity },
-            { name: 'Monitoring', href: '/super-admin/monitor', icon: ClipboardList },
             { name: 'Notifications', href: '/super-admin/notifications', icon: Bell },
             { name: 'Email Schools', href: '/super-admin/email-schools', icon: Mail },
             { name: 'SMS Units', href: '/super-admin/sms', icon: MessageSquare },
@@ -162,7 +154,6 @@ const Layout = ({ children }) => {
         {
           title: 'Finance',
           items: [
-            { name: 'Bank Settings', href: '/super-admin/bank-settings', icon: Landmark },
             { name: 'Platform Wallet', href: '/super-admin/platform-wallet', icon: Wallet },
           ],
         },

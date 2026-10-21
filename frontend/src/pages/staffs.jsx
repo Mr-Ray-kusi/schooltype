@@ -34,13 +34,6 @@ const parseCsvList = (value) => {
     .filter(Boolean);
 };
 
-const formatSalary = (value) => {
-  if (value == null || value === '') return '—';
-  const amount = Number(value);
-  if (!Number.isFinite(amount)) return '—';
-  return `GHS ${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-};
-
 const asStaffRow = (item) => ({
   ...item,
   kind: 'staff',
@@ -79,12 +72,10 @@ const Staff = () => {
     secretCode: '',
     subjects: [],
     classNames: [],
-    salary: '',
   });
   const [nonStaffForm, setNonStaffForm] = useState({
     name: '',
     role: '',
-    salary: '',
   });
   const [peopleFilter, setPeopleFilter] = useState(canStaff ? 'staff' : 'non-staff');
   const [setupSubjects, setSetupSubjects] = useState([]);
@@ -224,13 +215,12 @@ const Staff = () => {
       secretCode: generateStrongPassword(16),
       subjects: [],
       classNames: [],
-      salary: '',
     });
     setEditingStaff(null);
   };
 
   const resetNonStaffForm = () => {
-    setNonStaffForm({ name: '', role: '', salary: '' });
+    setNonStaffForm({ name: '', role: '' });
     setEditingNonStaff(null);
   };
 
@@ -299,7 +289,7 @@ const Staff = () => {
       setPeople((prev) => [asNonStaffRow(data), ...prev.filter((row) => row.id !== data.id)].slice(0, LIST_PAGE_SIZE));
       setTotal((current) => current + 1);
       setPage(1);
-    } catch (error) {
+      } catch (error) {
       if (error.offlineQueued) {
         setShowNonStaffModal(false);
         resetNonStaffForm();
@@ -352,7 +342,6 @@ const Staff = () => {
         secretCode: person.secretCode || person.secret_code || generateSecretCode(),
         subjects: parseCsvList(person.subjects),
         classNames: parseCsvList(person.classNames || person.class_names),
-        salary: person.salary ?? '',
       });
       setShowStaffModal(true);
       return;
@@ -361,7 +350,6 @@ const Staff = () => {
     setNonStaffForm({
       name: person.name,
       role: person.role || '',
-      salary: person.salary ?? '',
     });
     setShowNonStaffModal(true);
   };
@@ -402,8 +390,8 @@ const Staff = () => {
   if (loading && people.length === 0) {
     return (
       <>
-        <div className="text-center py-12 text-slate-300">Loading staff...</div>
-      </>
+<div className="text-center py-12 text-slate-300">Loading staff...</div>
+</>
     );
   }
 
@@ -496,17 +484,17 @@ const Staff = () => {
               </button>
             )}
             {canNonStaff && (
-              <button
-                onClick={() => {
+          <button
+            onClick={() => {
                   resetNonStaffForm();
                   setShowNonStaffModal(true);
-                }}
+            }}
                 className="inline-flex min-w-0 shrink items-center justify-center gap-1 whitespace-nowrap rounded-lg bg-purple-600 px-2 py-2 text-[11px] font-medium text-white hover:bg-purple-700 md:gap-2 md:px-4 md:text-sm"
-              >
+          >
                 <Plus className="hidden h-5 w-5 md:block" />
                 <span className="md:hidden">+ non-staff</span>
                 <span className="hidden md:inline">Add Non-staff</span>
-              </button>
+          </button>
             )}
           </div>
         </div>
@@ -517,23 +505,23 @@ const Staff = () => {
             <p className="min-w-0 flex-1 truncate text-xs text-sky-200">
               {portalLoading ? 'Loading portal link…' : portalUrl || 'Could not load portal link'}
             </p>
-            <button
-              type="button"
-              onClick={copyPortalLink}
-              disabled={!portalUrl}
+              <button
+                type="button"
+                onClick={copyPortalLink}
+                disabled={!portalUrl}
               className="inline-flex items-center gap-1 rounded-lg border border-slate-500 px-2 py-1 text-xs text-slate-100 hover:bg-slate-700 disabled:opacity-50"
-            >
-              <Copy className="h-3.5 w-3.5" />
-              Copy
-            </button>
-            <button
-              type="button"
-              onClick={regeneratePortalLink}
+              >
+                <Copy className="h-3.5 w-3.5" />
+                Copy
+              </button>
+              <button
+                type="button"
+                onClick={regeneratePortalLink}
               className="inline-flex items-center gap-1 rounded-lg border border-slate-500 px-2 py-1 text-xs text-slate-100 hover:bg-slate-700"
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
               New
-            </button>
+              </button>
           </div>
         )}
 
@@ -559,7 +547,6 @@ const Staff = () => {
               ? [
                   { group: 'Assignment', label: 'Type', value: 'Staff' },
                   { group: 'Assignment', label: 'Role', value: viewingStaff.role },
-                  { group: 'Assignment', label: 'Salary', value: formatSalary(viewingStaff.salary) },
                   { group: 'Assignment', label: 'Subjects', value: viewingStaff.subjects },
                   {
                     group: 'Assignment',
@@ -575,7 +562,6 @@ const Staff = () => {
               : [
                   { group: 'Assignment', label: 'Type', value: 'Non-staff' },
                   { group: 'Assignment', label: 'Role', value: viewingPerson?.role },
-                  { group: 'Assignment', label: 'Salary', value: formatSalary(viewingPerson?.salary) },
                 ]
           }
           onClose={() => setViewingPerson(null)}
@@ -663,19 +649,6 @@ const Staff = () => {
                       </option>
                     ))}
                   </select>
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-200">Salary (GHS)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={staffForm.salary}
-                    onChange={(e) => setStaffForm({ ...staffForm, salary: e.target.value })}
-                    className="w-full px-4 py-2 border border-slate-500 rounded-lg text-slate-50"
-                    placeholder="e.g., 2500"
-                  />
                 </div>
 
                 <div>
@@ -786,19 +759,6 @@ const Staff = () => {
                   </select>
                 </div>
 
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-200">Salary (GHS)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={nonStaffForm.salary}
-                    onChange={(e) => setNonStaffForm({ ...nonStaffForm, salary: e.target.value })}
-                    className="w-full px-4 py-2 border border-slate-500 rounded-lg text-slate-50"
-                    placeholder="e.g., 1200"
-                  />
-                </div>
-
                 {!editingNonStaff && (
                   <p className="text-xs text-slate-400 bg-slate-900/50 border border-slate-600 rounded-lg p-3">
                     A unique attendance QR code is generated automatically when you save.
@@ -828,7 +788,7 @@ const Staff = () => {
           </div>
         )}
       </div>
-    </>
+</>
   );
 };
 

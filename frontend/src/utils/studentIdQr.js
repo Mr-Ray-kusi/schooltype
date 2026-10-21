@@ -5,13 +5,10 @@
 
 export function buildPersonIdUrl(
   barcode,
-  origin = typeof window !== 'undefined' ? window.location.origin : '',
-  gate = ''
+  origin = typeof window !== 'undefined' ? window.location.origin : ''
 ) {
   if (!barcode) return '';
-  const url = `${origin}/id/${encodeURIComponent(barcode)}`;
-  if (gate) return `${url}?g=${encodeURIComponent(gate)}`;
-  return url;
+  return `${origin}/id/${encodeURIComponent(barcode)}`;
 }
 
 export function buildFeePayUrl(barcode, origin = typeof window !== 'undefined' ? window.location.origin : '') {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { buildStudentIdUrl } from '../utils/studentIdQr';
 import { invalidateCache, peekCache, staleGet } from '../utils/requestCache';
@@ -8,7 +8,7 @@ import { downloadPersonPack, downloadPeoplePacks, studentPack } from '../utils/p
 import PersonRecordTable from '../components/PersonRecordTable';
 import PersonDetailModal from '../components/PersonDetailModal';
 import PaginationBar from '../components/PaginationBar';
-import { Search, User, Download } from 'lucide-react';
+import { Search, User, Download, UserPlus } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const Students = () => {
@@ -118,7 +118,6 @@ const Students = () => {
         houseAddress: editingStudent.house_address,
         dateOfBirth: editingStudent.date_of_birth,
         rollNumber: editingStudent.roll_number,
-        skills: editingStudent.skills,
       });
       invalidateCache('students');
       invalidateCache('dashboard');
@@ -188,6 +187,13 @@ const Students = () => {
                 className="min-w-[200px] rounded-lg border border-slate-500 py-2 pl-10 pr-4 focus:ring-2 focus:ring-primary-500"
               />
             </div>
+            <Link
+              to="/add-student"
+              className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-3 py-2 text-sm font-medium text-white hover:bg-primary-700"
+            >
+              <UserPlus className="h-4 w-4" />
+              Add student
+            </Link>
             <select
               value={selectedClass}
               onChange={(e) => setSelectedClass(e.target.value)}
@@ -225,7 +231,6 @@ const Students = () => {
                 ? String(viewingStudent.date_of_birth).slice(0, 10)
                 : '',
             },
-            { group: 'School', label: 'Skills', value: viewingStudent?.skills },
             { group: 'Family', label: 'Parent / guardian', value: viewingStudent?.parent_name },
             { group: 'Family', label: 'Relationship', value: viewingStudent?.parent_relationship },
             { group: 'Family', label: 'Parent phone', value: viewingStudent?.parent_phone },
@@ -325,13 +330,6 @@ const Students = () => {
                   className="w-full px-4 py-2 border border-slate-500 rounded-lg"
                   placeholder="Roll Number"
                 />
-                <input
-                  type="text"
-                  value={editingStudent.skills || ''}
-                  onChange={(e) => setEditingStudent({ ...editingStudent, skills: e.target.value })}
-                  className="w-full px-4 py-2 border border-slate-500 rounded-lg"
-                  placeholder="Skills (e.g. Football, Athletics)"
-                />
                 <div className="flex gap-2">
                   <button type="submit" className="flex-1 bg-primary-600 text-white py-2 rounded-lg hover:bg-primary-700">
                     Update
@@ -370,7 +368,7 @@ const Students = () => {
           <div className="rounded-2xl border border-dashed border-slate-600 bg-slate-800/50 py-16 text-center">
             <User className="mx-auto mb-3 h-12 w-12 text-slate-500" />
             <p className="text-slate-300">No students found.</p>
-            <p className="mt-1 text-sm text-slate-400">Add your first student from the Add Student page.</p>
+            <p className="mt-1 text-sm text-slate-400">Use Add student to enroll the first record.</p>
           </div>
         )}
       </div>

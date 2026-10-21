@@ -36,7 +36,6 @@ const SuperAdmin = lazyWithRetry(() => import('./pages/super-admin'));
 const SuperAdminSchool = lazyWithRetry(() => import('./pages/super-admin-school'));
 const SuperAdminBroadcast = lazyWithRetry(() => import('./pages/super-admin-broadcast'));
 const SuperAdminSms = lazyWithRetry(() => import('./pages/super-admin-sms'));
-const SuperAdminMonitor = lazyWithRetry(() => import('./pages/super-admin-monitor'));
 const SuperAdminAnalytics = lazyWithRetry(() => import('./pages/super-admin-analytics'));
 const Notifications = lazyWithRetry(() => import('./pages/notifications'));
 const Alumni = lazyWithRetry(() => import('./pages/alumni'));
@@ -154,10 +153,8 @@ function App() {
                   <Route element={<PlanFeatureRoute feature="report-cards" />}>
                     <Route path="/report-cards" element={<ReportCards />} />
                   </Route>
-                  <Route element={<PlanFeatureRoute feature="fees-paid" />}>
+                  <Route element={<PlanFeatureRoute features={['fees-paid', 'fees-unpaid']} />}>
                     <Route path="/fees-paid" element={<FeesPaid />} />
-                  </Route>
-                  <Route element={<PlanFeatureRoute feature="fees-unpaid" />}>
                     <Route path="/fees-unpaid" element={<FeesUnpaid />} />
                   </Route>
                   <Route element={<PlanFeatureRoute features={['messages-sms', 'messages-email']} />}>
@@ -192,7 +189,6 @@ function App() {
                   <Route path="/super-admin/email-schools" element={<SuperAdminBroadcast />} />
                   <Route path="/super-admin/notifications" element={<Notifications />} />
                   <Route path="/super-admin/sms" element={<SuperAdminSms />} />
-                  <Route path="/super-admin/monitor" element={<SuperAdminMonitor />} />
                   <Route path="/super-admin/analytics" element={<SuperAdminAnalytics />} />
                 </Route>
               </Route>

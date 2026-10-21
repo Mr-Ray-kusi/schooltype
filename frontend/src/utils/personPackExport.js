@@ -188,7 +188,6 @@ export function studentPack(student, qrValue) {
       Class: student.class || '',
       'Roll number': student.roll_number || '',
       'Date of birth': student.date_of_birth || '',
-      Skills: student.skills || '',
       'Parent name': student.parent_name || '',
       'Parent relationship': student.parent_relationship || '',
       'Parent phone': student.parent_phone || '',
@@ -209,7 +208,6 @@ export function staffPack(member, qrValue) {
     details: {
       Name: member.name,
       Role: member.role || '',
-      Salary: member.salary ?? '',
       'Access code': member.secretCode || member.secret_code || '',
       Subjects: member.subjects || '',
       Classes: member.classNames || member.class_names || '',
@@ -228,7 +226,6 @@ export function nonStaffPack(person, qrValue) {
     details: {
       Name: person.name,
       Role: person.role || '',
-      Salary: person.salary ?? '',
       Barcode: barcode,
     },
   };

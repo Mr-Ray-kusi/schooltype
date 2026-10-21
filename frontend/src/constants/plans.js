@@ -30,8 +30,7 @@ const SHARED_FEATURE_BULLETS = [
   'Bulk SMS & email messaging',
   'Class management & organization',
   'Report cards & teacher result uploads',
-  'Fees paid — salary & payment tracking',
-  'Fees unpaid — overdue alerts & reminders',
+  'Fees tracking',
   'School wallet with Paystack bank & MoMo',
   'In-app notifications with platform admin',
 ];
@@ -132,8 +131,8 @@ export const FEATURE_LABELS = {
   'messages-email': 'Bulk Email',
   classes: 'Classes',
   'report-cards': 'Report Cards',
-  'fees-paid': 'Fees Paid',
-  'fees-unpaid': 'Fees Unpaid',
+  'fees-paid': 'Fees',
+  'fees-unpaid': 'Fees',
   'bank-settings': 'Bank Settings',
   'school-wallet': 'School Wallet',
 };
@@ -171,7 +170,7 @@ export const SYSTEM_CAPABILITY_GROUPS = [
   },
   {
     title: 'Academics & Finance',
-    items: ['Class organization', 'Report cards & teacher uploads', 'Salary & fees tracking', 'School wallet & MoMo/bank payouts'],
+    items: ['Class organization', 'Report cards & teacher uploads', 'Fees tracking', 'School wallet & MoMo/bank payouts'],
   },
 ];
 

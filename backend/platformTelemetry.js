@@ -250,7 +250,6 @@ export function pageLabel(path) {
   if (p.startsWith('/bank-settings')) return 'Bank settings';
   if (p.startsWith('/notifications')) return 'Notifications';
   if (p.startsWith('/super-admin/analytics')) return 'Platform analytics';
-  if (p.startsWith('/super-admin/monitor')) return 'Monitoring';
   if (p.startsWith('/super-admin')) return 'Platform admin';
   return p;
 }
