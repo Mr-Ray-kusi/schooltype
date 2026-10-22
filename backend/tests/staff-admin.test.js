@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { isSchoolHeadRole } from '../staffAdminRoutes.js';
 import { inspectScoreLock, scoreLockKey } from '../scorePublishStore.js';
+import { staffPortalApiAllowed } from '../staffSchoolAuth.js';
 
 test('the administrator role is the head of school in the staff portal', () => {
   assert.equal(isSchoolHeadRole('Administrator'), true);
@@ -23,4 +24,23 @@ test('published reports lock teachers unless the administrator allows one', () =
   assert.equal(allowed.canEdit, true);
   assert.equal(open.published, false);
   assert.equal(open.canEdit, true);
+});
+
+test('staff administrator can use academic APIs and not wallet transfers', () => {
+  const admin = { role: 'Administrator' };
+  assert.equal(staffPortalApiAllowed(admin, { method: 'POST', path: '/api/students' }).ok, true);
+  assert.equal(staffPortalApiAllowed(admin, { method: 'PUT', path: '/api/classes/1' }).ok, true);
+  assert.equal(staffPortalApiAllowed(admin, { method: 'GET', path: '/api/attendance' }).ok, true);
+  assert.equal(staffPortalApiAllowed(admin, { method: 'POST', path: '/api/scanner/regenerate' }).ok, true);
+  assert.equal(staffPortalApiAllowed(admin, { method: 'POST', path: '/api/wallet/deposit' }).ok, false);
+});
+
+test('accountant can manage fees and view wallet but cannot deposit or withdraw', () => {
+  const accountant = { role: 'Accountant' };
+  assert.equal(staffPortalApiAllowed(accountant, { method: 'GET', path: '/api/fees/overview' }).ok, true);
+  assert.equal(staffPortalApiAllowed(accountant, { method: 'POST', path: '/api/fees/manual' }).ok, true);
+  assert.equal(staffPortalApiAllowed(accountant, { method: 'GET', path: '/api/wallet' }).ok, true);
+  assert.equal(staffPortalApiAllowed(accountant, { method: 'POST', path: '/api/wallet/deposit' }).ok, false);
+  assert.equal(staffPortalApiAllowed(accountant, { method: 'POST', path: '/api/wallet/withdraw' }).ok, false);
+  assert.equal(staffPortalApiAllowed(accountant, { method: 'POST', path: '/api/students' }).ok, false);
 });

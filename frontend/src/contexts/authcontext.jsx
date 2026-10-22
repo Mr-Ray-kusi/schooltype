@@ -5,7 +5,7 @@ import { hasFeature as planHasFeature } from '../constants/plans';
 import { clearPersistedCache } from '../utils/requestCache';
 import { clearStoredSchoolLogo, readStoredSchoolLogo, writeStoredSchoolLogo } from '../utils/schoolLogoStore';
 
-const AuthContext = createContext();
+export const AuthContext = createContext();
 
 /** How often unpaid school admins check whether Paystack unlocked their plan. */
 const PLAN_APPROVAL_POLL_MS = 15000;

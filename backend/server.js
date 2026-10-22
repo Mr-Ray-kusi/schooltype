@@ -93,6 +93,7 @@ import {
 import { getFeeOverviewPayload, registerFeeRoutes, registerStaffFeeRoutes } from './feeRoutes.js';
 import { registerStaffAdminRoutes } from './staffAdminRoutes.js';
 import { inspectScoreLock, loadScoreLocks } from './scorePublishStore.js';
+import { staffPortalApiAllowed, staffPortalAsSchoolUser } from './staffSchoolAuth.js';
 import { registerAlumniRoutes } from './alumniRoutes.js';
 import { applyTermPromotion } from './studentPromotion.js';
 import { sortClasses } from './classHierarchy.js';
@@ -1099,6 +1100,22 @@ const authenticateToken = (req, res, next) => {
   jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] }, async (err, user) => {
     if (err) {
       return res.status(403).json({ error: 'Invalid or expired token' });
+    }
+    if (user?.purpose === 'staff_portal') {
+      if (!isStaffSessionActive(user.staffId, token)) {
+        return res.status(401).json({
+          error: 'This staff login is already used on another device. Sign in here to continue.',
+        });
+      }
+      const gate = staffPortalApiAllowed(user, req);
+      if (!gate.ok) {
+        return res.status(gate.status || 403).json({ error: gate.error });
+      }
+      req.user = staffPortalAsSchoolUser(user);
+      req.staffPortal = user;
+      req.accessToken = token;
+      const tenantDb = createTenantClient(user.schoolId, 'school');
+      return runWithTenant({ db: tenantDb, schoolId: user.schoolId }, () => next());
     }
     try {
       const session = await getAuthSession(token);
@@ -4765,6 +4782,14 @@ async function issueStaffPortalSession(req, res, resolved) {
   res.json({
     sessionToken,
     schoolName: resolved.schoolName,
+    school: {
+      name: resolved.schoolName,
+      logo_url: resolved.school?.logo_url || null,
+      payment_plan: resolved.school?.payment_plan || null,
+      plan_status: resolved.school?.plan_status || 'approved',
+      plan_approved: true,
+      role: 'school',
+    },
     staff: {
       id: staff.id,
       name: staff.name,
@@ -4858,7 +4883,7 @@ app.get('/api/staff-portal/session/me', authenticateStaffPortal, async (req, res
 
     const { data: school } = await supabase
       .from('schools')
-      .select('name')
+      .select('name, logo_url, payment_plan, plan_status')
       .eq('id', req.staffPortal.schoolId)
       .maybeSingle();
 
@@ -4866,6 +4891,14 @@ app.get('/api/staff-portal/session/me', authenticateStaffPortal, async (req, res
 
     res.json({
       schoolName: school?.name || 'School',
+      school: {
+        name: school?.name || 'School',
+        logo_url: school?.logo_url || null,
+        payment_plan: school?.payment_plan || null,
+        plan_status: school?.plan_status || 'approved',
+        plan_approved: true,
+        role: 'school',
+      },
       currentTerm: currentTerm.name,
       term: currentTerm,
       staff: {

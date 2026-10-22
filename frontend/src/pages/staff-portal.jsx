@@ -3,8 +3,10 @@ import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import { BookOpen, GraduationCap, LogOut, Save, Users } from 'lucide-react';
-import AccountantFees from '../components/AccountantFees';
 import AdministratorSchool from '../components/AdministratorSchool';
+import Fees from './fees-paid';
+import SchoolWallet from './school-wallet';
+import { AuthContext } from '../contexts/authcontext';
 
 const ROLES = ['Administrator', 'Teacher', 'Accountant'];
 const ATTITUDES = ['Excellent', 'Good', 'Bad', 'Worse'];
@@ -46,6 +48,8 @@ const StaffPortal = () => {
   const [savingAll, setSavingAll] = useState(false);
   const [promotionResult, setPromotionResult] = useState(null);
   const [scoreLock, setScoreLock] = useState({ published: false, canEdit: true });
+  const [schoolRecord, setSchoolRecord] = useState(null);
+  const [financeTab, setFinanceTab] = useState('fees');
 
   const authHeaders = useMemo(
     () => (sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
@@ -116,7 +120,7 @@ const StaffPortal = () => {
     };
   }, [token, resolvingSlug, schoolSlug]);
 
-  const persistSession = (nextToken, nextStaff, nextSchool) => {
+  const persistSession = (nextToken, nextStaff, nextSchool, nextSchoolRecord) => {
     sessionStorage.setItem(
       SESSION_KEY,
       JSON.stringify({
@@ -125,6 +129,7 @@ const StaffPortal = () => {
         sessionToken: nextToken,
         staff: nextStaff,
         schoolName: nextSchool,
+        school: nextSchoolRecord || null,
       })
     );
   };
@@ -135,7 +140,20 @@ const StaffPortal = () => {
     setStaff(null);
     setStudents([]);
     setDraftScores({});
+    setSchoolRecord(null);
   };
+
+  useEffect(() => {
+    if (!sessionToken) return undefined;
+    const id = axios.interceptors.request.use((config) => {
+      config.headers = config.headers || {};
+      if (!config.headers.Authorization) {
+        config.headers.Authorization = `Bearer ${sessionToken}`;
+      }
+      return config;
+    });
+    return () => axios.interceptors.request.eject(id);
+  }, [sessionToken]);
 
   const loadTeacherData = useCallback(
     async (subject, className, selectedTerm) => {
@@ -179,6 +197,7 @@ const StaffPortal = () => {
         if (cancelled) return;
         setStaff(data.staff);
         setSchoolName(data.schoolName || schoolName);
+        if (data.school) setSchoolRecord(data.school);
         if (data.currentTerm) setTerm(data.currentTerm);
         const firstSubject = data.staff.subjects?.[0] || '';
         const firstClass = data.staff.classNames?.[0] || '';
@@ -245,7 +264,8 @@ const StaffPortal = () => {
       setSessionToken(data.sessionToken);
       setStaff(data.staff);
       setSchoolName(data.schoolName || schoolName);
-      persistSession(data.sessionToken, data.staff, data.schoolName);
+      if (data.school) setSchoolRecord(data.school);
+      persistSession(data.sessionToken, data.staff, data.schoolName, data.school);
       setSelectedSubject(data.staff.subjects?.[0] || '');
       setSelectedClass(data.staff.classNames?.[0] || '');
       toast.success(`Welcome, ${data.staff.name}`);
@@ -389,6 +409,24 @@ const StaffPortal = () => {
   );
   const wideLayout = isAccountant || isAdministrator;
   const scoresLocked = Boolean(scoreLock?.published && !scoreLock?.canEdit);
+  const portalAuth = {
+    token: sessionToken,
+    school: schoolRecord || {
+      name: schoolName,
+      role: 'school',
+      plan_approved: true,
+      plan_status: 'approved',
+    },
+    isSuperAdmin: false,
+    isPlanApproved: true,
+    isSubscriptionActive: true,
+    includesPlanFeature: () => true,
+    hasFeature: () => true,
+    hasMessaging: false,
+    persistSchool: (next) => setSchoolRecord((prev) => ({ ...(prev || {}), ...next })),
+    refreshSchool: async () => {},
+    loading: false,
+  };
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
@@ -412,9 +450,39 @@ const StaffPortal = () => {
 
       <main className={`mx-auto space-y-6 px-4 py-8 ${wideLayout ? 'max-w-7xl' : 'max-w-5xl'}`}>
         {isAdministrator ? (
-          <AdministratorSchool schoolName={schoolName} authHeaders={authHeaders} />
+          <AuthContext.Provider value={portalAuth}>
+            <AdministratorSchool schoolName={schoolName} authHeaders={authHeaders} />
+          </AuthContext.Provider>
         ) : isAccountant ? (
-          <AccountantFees schoolName={schoolName} authHeaders={authHeaders} />
+          <AuthContext.Provider value={portalAuth}>
+            <div className="flex flex-col gap-6 lg:flex-row">
+              <aside className="shrink-0 lg:w-52">
+                <div className="sticky top-4 space-y-2 rounded-2xl border border-slate-700 bg-slate-900/70 p-3">
+                  <p className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-300">
+                    Finance
+                  </p>
+                  {[
+                    { id: 'fees', label: 'Fees' },
+                    { id: 'wallet', label: 'School wallet' },
+                  ].map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setFinanceTab(item.id)}
+                      className={`flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-medium ${
+                        financeTab === item.id ? 'bg-emerald-600 text-white' : 'text-slate-200 hover:bg-slate-800'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </aside>
+              <div className="min-w-0 flex-1">
+                {financeTab === 'fees' ? <Fees /> : <SchoolWallet viewOnly />}
+              </div>
+            </div>
+          </AuthContext.Provider>
         ) : !isTeacher ? (
           <div className="rounded-3xl border border-slate-700 bg-slate-900/60 p-8 text-center">
             <p className="text-lg font-semibold">Signed in as {staff.role}</p>

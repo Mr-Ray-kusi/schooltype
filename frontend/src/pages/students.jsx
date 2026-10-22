@@ -12,10 +12,14 @@ import PaginationBar from '../components/PaginationBar';
 import { Search, User, Download, UserPlus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/authcontext';
+import { useStaffEmbed } from '../contexts/staffEmbed';
+import AddStudent from './addstudends';
 import { buildTermAttendancePdfBytes } from '../utils/attendanceTermPdf';
 
 const Students = () => {
   const { school } = useAuth();
+  const embed = useStaffEmbed();
+  const [showAdd, setShowAdd] = useState(false);
   const [students, setStudents] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -216,13 +220,24 @@ const Students = () => {
                 className="min-w-[200px] rounded-lg border border-slate-500 py-2 pl-10 pr-4 focus:ring-2 focus:ring-primary-500"
               />
             </div>
-            <Link
-              to="/add-student"
-              className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-3 py-2 text-sm font-medium text-white hover:bg-primary-700"
-            >
-              <UserPlus className="h-4 w-4" />
-              Add student
-            </Link>
+            {embed.embedded ? (
+              <button
+                type="button"
+                onClick={() => setShowAdd(true)}
+                className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-3 py-2 text-sm font-medium text-white hover:bg-primary-700"
+              >
+                <UserPlus className="h-4 w-4" />
+                Add student
+              </button>
+            ) : (
+              <Link
+                to="/add-student"
+                className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-3 py-2 text-sm font-medium text-white hover:bg-primary-700"
+              >
+                <UserPlus className="h-4 w-4" />
+                Add student
+              </Link>
+            )}
             <select
               value={selectedClass}
               onChange={(e) => setSelectedClass(e.target.value)}
@@ -405,6 +420,16 @@ const Students = () => {
           </div>
         )}
       </div>
+      {showAdd ? (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/90 p-4">
+          <AddStudent
+            onClose={() => {
+              setShowAdd(false);
+              fetchStudents();
+            }}
+          />
+        </div>
+      ) : null}
 </>
   );
 };

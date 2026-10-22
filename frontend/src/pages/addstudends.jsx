@@ -16,8 +16,12 @@ import { invalidateCache } from '../utils/requestCache';
 const fieldClass =
   'w-full rounded-xl border border-slate-600/80 bg-slate-950/60 px-4 py-3 text-sm text-white placeholder:text-slate-500 outline-none transition focus:border-sky-500/60 focus:ring-2 focus:ring-sky-500/30';
 
-const AddStudent = () => {
+const AddStudent = ({ onClose } = {}) => {
   const navigate = useNavigate();
+  const finish = () => {
+    if (onClose) onClose();
+    else navigate('/students');
+  };
   const [loading, setLoading] = useState(false);
   const [schoolClasses, setSchoolClasses] = useState([]);
   const [formData, setFormData] = useState({
@@ -52,10 +56,10 @@ const AddStudent = () => {
       } else {
         toast.success(data?.roll_number ? `Student added. ID ${data.roll_number}` : 'Student added successfully!');
       }
-      navigate('/students');
+      finish();
     } catch (error) {
       if (error.offlineQueued) {
-        navigate('/students');
+        finish();
         return;
       }
       console.error('Error adding student:', error);
@@ -93,13 +97,24 @@ const AddStudent = () => {
 
         <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <Link
-              to="/students"
-              className="mb-3 inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-200"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" />
-              Back to students
-            </Link>
+            {onClose ? (
+              <button
+                type="button"
+                onClick={onClose}
+                className="mb-3 inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-200"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                Back to students
+              </button>
+            ) : (
+              <Link
+                to="/students"
+                className="mb-3 inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-200"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                Back to students
+              </Link>
+            )}
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300/90">
               Enrollment
             </p>

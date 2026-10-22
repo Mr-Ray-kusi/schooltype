@@ -65,7 +65,7 @@ const statusStyles = {
   processing: 'bg-sky-500/15 text-sky-200 border-sky-500/25',
 };
 
-const SchoolWallet = () => {
+const SchoolWallet = ({ viewOnly = false } = {}) => {
   const { isSuperAdmin } = useAuth();
   const bankSettingsPath = isSuperAdmin ? '/super-admin/bank-settings' : '/bank-settings';
   const title = isSuperAdmin ? 'Platform Wallet' : 'School Wallet';
@@ -376,14 +376,16 @@ const SchoolWallet = () => {
                 <RefreshCw className={`h-4 w-4 shrink-0 ${loading ? 'animate-spin' : ''}`} />
                 Refresh
               </button>
-              <Link
-                to={bankSettingsPath}
-                className="group inline-flex min-w-0 items-center justify-center gap-1.5 rounded-xl bg-primary-600 px-2 py-2.5 text-xs font-semibold text-white shadow-lg shadow-primary-900/30 transition hover:bg-primary-500 md:gap-2 md:px-5 md:py-3 md:text-sm"
-              >
-                <Landmark className="h-4 w-4 shrink-0" />
-                <span className="truncate">Bank Settings</span>
-                <ArrowRight className="hidden h-4 w-4 transition group-hover:translate-x-0.5 md:block" />
-              </Link>
+              {viewOnly ? null : (
+                <Link
+                  to={bankSettingsPath}
+                  className="group inline-flex min-w-0 items-center justify-center gap-1.5 rounded-xl bg-primary-600 px-2 py-2.5 text-xs font-semibold text-white shadow-lg shadow-primary-900/30 transition hover:bg-primary-500 md:gap-2 md:px-5 md:py-3 md:text-sm"
+                >
+                  <Landmark className="h-4 w-4 shrink-0" />
+                  <span className="truncate">Bank Settings</span>
+                  <ArrowRight className="hidden h-4 w-4 transition group-hover:translate-x-0.5 md:block" />
+                </Link>
+              )}
             </div>
           </div>
 
@@ -614,6 +616,11 @@ const SchoolWallet = () => {
             </section>
           </div>
 
+          {viewOnly ? (
+            <p className="rounded-2xl border border-slate-700 bg-slate-900/50 px-4 py-3 text-sm text-slate-400">
+              You can see balances and records. Only the school account can deposit or withdraw.
+            </p>
+          ) : (
           <section className="animate-[fadeIn_0.7s_ease-out] border-t border-slate-700/80 pt-8">
             <h2 className="text-lg font-semibold text-white">Move money</h2>
 
@@ -779,6 +786,7 @@ const SchoolWallet = () => {
               </div>
             )}
           </section>
+          )}
         </div>
       </div>
 
