@@ -3,6 +3,7 @@ import axios from 'axios';
 import toast from 'react-hot-toast';
 import { hasFeature as planHasFeature } from '../constants/plans';
 import { clearPersistedCache } from '../utils/requestCache';
+import { clearStoredSchoolLogo, readStoredSchoolLogo, writeStoredSchoolLogo } from '../utils/schoolLogoStore';
 
 const AuthContext = createContext();
 
@@ -151,8 +152,8 @@ const mergeSchoolState = (incoming, previous) => {
           plan_selected_at: incoming.plan_selected_at || previous.plan_selected_at || null,
         };
 
-  // Keep a prior hosted logo if verify omitted it. Never restore data-URL logos.
-  if (!merged.logo_url && isPersistableLogo(previous.logo_url)) {
+  // Verify omits huge logos. Keep the image the school set at setup.
+  if (!merged.logo_url && previous.logo_url) {
     merged.logo_url = previous.logo_url;
   }
 
@@ -197,6 +198,7 @@ export const AuthProvider = ({ children }) => {
     setSchool(merged);
     if (!merged) return;
     writeSessionFlag(true);
+    if (merged.logo_url) writeStoredSchoolLogo(merged.logo_url);
     const slim = slimSchoolForStorage(merged);
     try {
       localStorage.setItem('school', JSON.stringify(slim));
@@ -217,6 +219,7 @@ export const AuthProvider = ({ children }) => {
     applyAccessToken('');
     writeSessionFlag(false);
     clearPersistedCache();
+    clearStoredSchoolLogo();
     localStorage.removeItem('token');
     localStorage.removeItem('school');
     localStorage.removeItem('tokenExpiresAt');
@@ -275,6 +278,32 @@ export const AuthProvider = ({ children }) => {
 
     validateToken();
   }, [clearSession, persistSchool]);
+
+  useEffect(() => {
+    if (!token) return undefined;
+    let cancelled = false;
+
+    const restoreLogo = async () => {
+      const stored = await readStoredSchoolLogo();
+      if (cancelled) return;
+      if (stored && !schoolRef.current?.logo_url) {
+        persistSchool({ logo_url: stored });
+      }
+      if (schoolRef.current?.role === 'super_admin') return;
+      try {
+        const { data } = await axios.get('/api/school/branding', { timeout: 12000 });
+        if (cancelled || !data?.logo_url) return;
+        persistSchool({ logo_url: data.logo_url });
+      } catch {
+        // keep the stored setup image
+      }
+    };
+
+    restoreLogo();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, persistSchool]);
 
   useEffect(() => {
     const saved = readAccessToken();

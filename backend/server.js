@@ -28,6 +28,7 @@ import {
 } from './publicIdGate.js';
 import { formatParsedStudentId, parseStudentId, syncStudentIds } from './studentId.js';
 import { buildHealthPayload } from './runtimeHealth.js';
+import { pingDbPooler } from './dbPooler.js';
 import { purgePersonRelated } from './personPurge.js';
 import nodemailer from 'nodemailer';
 import { getPlan, getPlanFeatures, getPlansList, VALID_PLAN_IDS, hasPlanFeature, resolvePlanId } from './plans.js';
@@ -3175,6 +3176,8 @@ app.get('/api/health', async (req, res) => {
   try {
     const payload = await buildHealthPayload({ checkDb });
     if (checkDb) {
+      payload.db_pooler = await pingDbPooler();
+      if (payload.db_pooler.configured && !payload.db_pooler.ok) payload.status = 'degraded';
       const dbHealth = await supabase
         .from('schools')
         .select('id', { count: 'exact', head: true })

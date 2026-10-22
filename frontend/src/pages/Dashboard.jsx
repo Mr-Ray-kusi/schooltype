@@ -51,7 +51,7 @@ const EMPTY_STATS = {
 };
 
 const Dashboard = () => {
-  const { school, persistSchool, includesPlanFeature, isPlanApproved } = useAuth();
+  const { school, includesPlanFeature, isPlanApproved } = useAuth();
   const selectedDate = schoolLocalDate();
   const cachedStats = peekCache(`dashboard:${selectedDate}`);
   const [stats, setStats] = useState(() =>
@@ -89,22 +89,6 @@ const Dashboard = () => {
   useEffect(() => {
     fetchDashboardData(selectedDate, { silent: false });
   }, [selectedDate, isPlanApproved, fetchDashboardData]);
-
-  useEffect(() => {
-    if (school?.logo_url) return undefined;
-    let cancelled = false;
-    axios
-      .get('/api/school/branding')
-      .then(({ data }) => {
-        const logo = data?.logo_url;
-        if (cancelled || !logo || String(logo).startsWith('data:')) return;
-        persistSchool({ logo_url: logo });
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [persistSchool, school?.logo_url]);
 
   useLivePoll(() => fetchDashboardData(selectedDate, { silent: true }), 45000, !loading);
 
@@ -221,12 +205,16 @@ const Dashboard = () => {
         <SubscriptionBanner />
 
         <header className="dashboard-hero relative mt-8 mb-10 overflow-hidden rounded-[2rem] md:mt-10 md:mb-14">
-          <img
-            src={school?.logo_url || '/landing-security.jpg'}
-            alt={school?.name ? `${school.name} dashboard` : 'Dashboard'}
-            decoding="async"
-            className="h-56 w-full object-cover object-[68%_center] sm:h-72 lg:h-80"
-          />
+          {school?.logo_url ? (
+            <img
+              src={school.logo_url}
+              alt={school?.name ? `${school.name} dashboard` : 'Dashboard'}
+              decoding="async"
+              className="h-56 w-full object-cover object-[68%_center] sm:h-72 lg:h-80"
+            />
+          ) : (
+            <div className="h-56 w-full bg-slate-900 sm:h-72 lg:h-80" aria-hidden />
+          )}
           <div
             aria-hidden
             className="absolute inset-0 bg-gradient-to-r from-slate-950 via-slate-950/55 to-slate-950/10"
