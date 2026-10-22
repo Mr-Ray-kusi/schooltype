@@ -45,6 +45,7 @@ const StaffPortal = () => {
   const [loadingPortal, setLoadingPortal] = useState(true);
   const [savingAll, setSavingAll] = useState(false);
   const [promotionResult, setPromotionResult] = useState(null);
+  const [scoreLock, setScoreLock] = useState({ published: false, canEdit: true });
 
   const authHeaders = useMemo(
     () => (sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
@@ -148,8 +149,11 @@ const StaffPortal = () => {
           }),
         ]);
         setStudents(studentsRes.data || []);
+        const payload = scoresRes.data;
+        const rows = Array.isArray(payload) ? payload : payload?.scores || [];
+        setScoreLock(Array.isArray(payload) ? { published: false, canEdit: true } : payload?.lock || { published: false, canEdit: true });
         const nextDraft = {};
-        for (const row of scoresRes.data || []) {
+        for (const row of rows) {
           nextDraft[row.student_id] = {
             score: row.score ?? '',
             maxScore: row.max_score ?? 100,
@@ -268,7 +272,7 @@ const StaffPortal = () => {
   const allMarksEntered = classStudents.length > 0 && markedCount === classStudents.length;
 
   const saveAllScores = async () => {
-    if (!allMarksEntered || savingAll) return;
+    if (!allMarksEntered || savingAll || (scoreLock?.published && !scoreLock?.canEdit)) return;
     setSavingAll(true);
     try {
       const { data } = await axios.post(
@@ -384,11 +388,12 @@ const StaffPortal = () => {
     String(staff.role).toLowerCase()
   );
   const wideLayout = isAccountant || isAdministrator;
+  const scoresLocked = Boolean(scoreLock?.published && !scoreLock?.canEdit);
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
       <header className="border-b border-slate-800 bg-slate-900/80 px-4 py-4">
-        <div className={`mx-auto flex items-center justify-between gap-3 ${wideLayout ? 'max-w-6xl' : 'max-w-5xl'}`}>
+        <div className={`mx-auto flex items-center justify-between gap-3 ${wideLayout ? 'max-w-7xl' : 'max-w-5xl'}`}>
           <div>
             <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{schoolName}</p>
             <h1 className="text-xl font-bold">{staff.name}</h1>
@@ -405,7 +410,7 @@ const StaffPortal = () => {
         </div>
       </header>
 
-      <main className={`mx-auto space-y-6 px-4 py-8 ${wideLayout ? 'max-w-6xl' : 'max-w-5xl'}`}>
+      <main className={`mx-auto space-y-6 px-4 py-8 ${wideLayout ? 'max-w-7xl' : 'max-w-5xl'}`}>
         {isAdministrator ? (
           <AdministratorSchool schoolName={schoolName} authHeaders={authHeaders} />
         ) : isAccountant ? (
@@ -496,11 +501,21 @@ const StaffPortal = () => {
                           ? ` ${markedCount}/${classStudents.length} entered.`
                           : ''}
                       </p>
+                      {scoreLock?.published && !scoreLock?.canEdit ? (
+                        <p className="mt-2 text-xs text-amber-200">
+                          The administrator has published this report. Ask them to allow you to edit.
+                        </p>
+                      ) : null}
+                      {scoreLock?.published && scoreLock?.canEdit ? (
+                        <p className="mt-2 text-xs text-emerald-200">
+                          The administrator allowed you to edit this published report.
+                        </p>
+                      ) : null}
                     </div>
                     <button
                       type="button"
                       onClick={saveAllScores}
-                      disabled={!allMarksEntered || savingAll}
+                      disabled={!allMarksEntered || savingAll || scoresLocked}
                       className="inline-flex items-center justify-center gap-1.5 rounded-full bg-sky-500 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       <Save className="h-3.5 w-3.5" />
@@ -574,7 +589,7 @@ const StaffPortal = () => {
                               }
                               className="w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-sm lg:w-24"
                               placeholder="Score"
-                              disabled={savingAll}
+                              disabled={savingAll || scoresLocked}
                             />
                             <input
                               type="number"
@@ -587,7 +602,7 @@ const StaffPortal = () => {
                               }
                               className="w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-sm lg:w-24"
                               placeholder="Max"
-                              disabled={savingAll}
+                              disabled={savingAll || scoresLocked}
                             />
                             <select
                               value={draft.attitude || ''}
@@ -598,7 +613,7 @@ const StaffPortal = () => {
                                 }))
                               }
                               className="w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-sm lg:w-36"
-                              disabled={savingAll}
+                              disabled={savingAll || scoresLocked}
                             >
                               <option value="">Attitude</option>
                               {ATTITUDES.map((item) => (
@@ -618,7 +633,7 @@ const StaffPortal = () => {
                               }
                               className="w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-sm lg:w-40"
                               placeholder="Remark"
-                              disabled={savingAll}
+                              disabled={savingAll || scoresLocked}
                             />
                           </div>
                         );

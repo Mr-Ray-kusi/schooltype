@@ -92,6 +92,7 @@ import {
 } from './schoolSignupPayment.js';
 import { getFeeOverviewPayload, registerFeeRoutes, registerStaffFeeRoutes } from './feeRoutes.js';
 import { registerStaffAdminRoutes } from './staffAdminRoutes.js';
+import { inspectScoreLock, loadScoreLocks } from './scorePublishStore.js';
 import { registerAlumniRoutes } from './alumniRoutes.js';
 import { applyTermPromotion } from './studentPromotion.js';
 import { sortClasses } from './classHierarchy.js';
@@ -4954,11 +4955,17 @@ app.get('/api/staff-portal/session/scores', authenticateStaffPortal, async (req,
     const { data, error } = await query.order('updated_at', { ascending: false });
     if (error) {
       if (isMissingColumnError(error, 'student_scores') || error.code === '42P01') {
-        return res.json([]);
+        return res.json({ scores: [], lock: { published: false, canEdit: true } });
       }
       throw error;
     }
-    res.json(data || []);
+    const lockState = await loadScoreLocks(req.staffPortal.schoolId);
+    const lock = inspectScoreLock(lockState.locks, {
+      term,
+      className,
+      staffId: req.staffPortal.staffId,
+    });
+    res.json({ scores: data || [], lock });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -5017,6 +5024,19 @@ const upsertStaffPortalScore = async ({ schoolId, staffId, staff, body }) => {
   const studentClass = String(student.class || '').trim();
   if (allowedClasses.length && !listsOverlap([studentClass], allowedClasses)) {
     throw portalHttpError(403, 'Student is not in your assigned classes');
+  }
+
+  const lockState = await loadScoreLocks(schoolId);
+  const lock = inspectScoreLock(lockState.locks, {
+    term,
+    className: className || studentClass,
+    staffId,
+  });
+  if (lock.published && !lock.canEdit) {
+    throw portalHttpError(
+      403,
+      'This report is published. Ask the administrator to allow you to edit.'
+    );
   }
 
   const record = {
