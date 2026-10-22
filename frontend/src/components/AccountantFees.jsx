@@ -92,7 +92,7 @@ const FeeClassChart = ({ rows }) => {
   );
 };
 
-const AccountantFees = ({ schoolName, authHeaders }) => {
+const AccountantFees = ({ schoolName, authHeaders, readOnly = false }) => {
   const requestConfig = useMemo(() => ({ headers: authHeaders }), [authHeaders]);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -266,7 +266,10 @@ const AccountantFees = ({ schoolName, authHeaders }) => {
           <h2 className="text-2xl font-bold text-white">Fees paid and unpaid</h2>
           <p className="mt-1 text-sm text-slate-400">
             {periodLabel || 'This term'}
-            {classFilter ? ` · ${classFilter}` : ''}. Record cash payments, print receipts, and export reports.
+            {classFilter ? ` · ${classFilter}` : ''}.{' '}
+            {readOnly
+              ? 'View only. The accountant records payments and sends reminders.'
+              : 'Record cash payments, print receipts, and export reports.'}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -293,14 +296,16 @@ const AccountantFees = ({ schoolName, authHeaders }) => {
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </button>
-          <button
-            type="button"
-            onClick={() => setShowManual(true)}
-            className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
-          >
-            <Plus className="h-4 w-4" />
-            Record payment
-          </button>
+          {readOnly ? null : (
+            <button
+              type="button"
+              onClick={() => setShowManual(true)}
+              className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
+            >
+              <Plus className="h-4 w-4" />
+              Record payment
+            </button>
+          )}
         </div>
       </div>
 
@@ -361,7 +366,7 @@ const AccountantFees = ({ schoolName, authHeaders }) => {
             <FileSpreadsheet className="h-4 w-4" />
             {exporting === 'year' ? 'Exporting…' : 'Excel · this year'}
           </button>
-          {tab === 'unpaid' ? (
+          {tab === 'unpaid' && !readOnly ? (
             <button
               type="button"
               onClick={() => setShowReminder(true)}
@@ -454,7 +459,7 @@ const AccountantFees = ({ schoolName, authHeaders }) => {
         </div>
       )}
 
-      {showManual ? (
+      {showManual && !readOnly ? (
         <RecordFeePaymentModal
           students={data?.students || []}
           month={data?.month}

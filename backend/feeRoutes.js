@@ -21,6 +21,7 @@ import { settleSmsPayment, refundSchoolAndPlatformUnits, quoteSmsForPhones } fro
 import { buildOwingFeeSmsBodies, groupOwingParents } from './feeReminderSms.js';
 import { makeWalletReference } from './schoolWalletStore.js';
 import { supabase } from './supabaseClient.js';
+import { isSchoolHeadRole } from './staffAdminRoutes.js';
 import {
   getClassFeeAmount,
   resolveStudentFeeAmount,
@@ -1687,15 +1688,21 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
 export function registerStaffFeeRoutes(app, { authenticateStaffPortal }) {
   const requireAccountant = (req, res, next) => {
     if (String(req.staffPortal?.role || '').toLowerCase() !== 'accountant') {
-      return res.status(403).json({ error: 'Only accountants can manage fees here' });
+      return res.status(403).json({ error: 'Only accountants can record payments or send reminders here' });
     }
     next();
+  };
+
+  const requireFeeViewer = (req, res, next) => {
+    const role = String(req.staffPortal?.role || '').toLowerCase();
+    if (role === 'accountant' || isSchoolHeadRole(role)) return next();
+    return res.status(403).json({ error: 'Only the administrator or accountant can view fees here' });
   };
 
   app.get(
     '/api/staff-portal/session/fees/overview',
     authenticateStaffPortal,
-    requireAccountant,
+    requireFeeViewer,
     async (req, res) => {
       try {
         const payload = await getFeeOverviewPayload(req.staffPortal.schoolId, req.query);

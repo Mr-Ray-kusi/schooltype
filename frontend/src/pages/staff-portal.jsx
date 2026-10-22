@@ -4,6 +4,7 @@ import axios from 'axios';
 import toast from 'react-hot-toast';
 import { BookOpen, GraduationCap, LogOut, Save, Users } from 'lucide-react';
 import AccountantFees from '../components/AccountantFees';
+import AdministratorSchool from '../components/AdministratorSchool';
 
 const ROLES = ['Administrator', 'Teacher', 'Accountant'];
 const ATTITUDES = ['Excellent', 'Good', 'Bad', 'Worse'];
@@ -379,11 +380,15 @@ const StaffPortal = () => {
 
   const isTeacher = String(staff.role).toLowerCase() === 'teacher';
   const isAccountant = String(staff.role).toLowerCase() === 'accountant';
+  const isAdministrator = ['administrator', 'headteacher', 'head teacher', 'headmistress', 'headmaster'].includes(
+    String(staff.role).toLowerCase()
+  );
+  const wideLayout = isAccountant || isAdministrator;
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
       <header className="border-b border-slate-800 bg-slate-900/80 px-4 py-4">
-        <div className={`mx-auto flex items-center justify-between gap-3 ${isAccountant ? 'max-w-6xl' : 'max-w-5xl'}`}>
+        <div className={`mx-auto flex items-center justify-between gap-3 ${wideLayout ? 'max-w-6xl' : 'max-w-5xl'}`}>
           <div>
             <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{schoolName}</p>
             <h1 className="text-xl font-bold">{staff.name}</h1>
@@ -400,8 +405,10 @@ const StaffPortal = () => {
         </div>
       </header>
 
-      <main className={`mx-auto space-y-6 px-4 py-8 ${isAccountant ? 'max-w-6xl' : 'max-w-5xl'}`}>
-        {isAccountant ? (
+      <main className={`mx-auto space-y-6 px-4 py-8 ${wideLayout ? 'max-w-6xl' : 'max-w-5xl'}`}>
+        {isAdministrator ? (
+          <AdministratorSchool schoolName={schoolName} authHeaders={authHeaders} />
+        ) : isAccountant ? (
           <AccountantFees schoolName={schoolName} authHeaders={authHeaders} />
         ) : !isTeacher ? (
           <div className="rounded-3xl border border-slate-700 bg-slate-900/60 p-8 text-center">

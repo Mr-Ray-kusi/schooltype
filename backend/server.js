@@ -91,6 +91,7 @@ import {
   cancelSignupCharge,
 } from './schoolSignupPayment.js';
 import { getFeeOverviewPayload, registerFeeRoutes, registerStaffFeeRoutes } from './feeRoutes.js';
+import { registerStaffAdminRoutes } from './staffAdminRoutes.js';
 import { registerAlumniRoutes } from './alumniRoutes.js';
 import { applyTermPromotion } from './studentPromotion.js';
 import { sortClasses } from './classHierarchy.js';
@@ -5244,6 +5245,7 @@ app.post('/api/staff-portal/session/scores/batch', authenticateStaffPortal, asyn
 });
 
 registerStaffFeeRoutes(app, { authenticateStaffPortal });
+registerStaffAdminRoutes(app, { authenticateStaffPortal });
 
 // ============ REPORT CARDS (admin view of teacher-entered scores) ============
 
