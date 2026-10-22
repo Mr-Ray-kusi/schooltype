@@ -6414,8 +6414,12 @@ async function initializeDatabase() {
       return false;
     }
     console.log('Database setup complete');
-    await initSchoolPlanStore();
-    console.log('School plan store ready (Supabase)');
+    try {
+      await initSchoolPlanStore();
+      console.log('School plan store ready (Supabase)');
+    } catch (planErr) {
+      console.warn('School plan store init skipped:', planErr.message || planErr);
+    }
 
     const warmOptionalStores = async () => {
       try {
@@ -6782,9 +6786,7 @@ app.post('/api/super-admin/notifications', authenticateToken, requireSuperAdmin,
 if (!isVercel()) {
   ready.then((ok) => {
     if (!ok) {
-      console.error('Aborting: database initialization failed. Server not started.');
-      process.exit(1);
-      return;
+      console.error('Database initialization failed. Starting the API so /api/health can report it.');
     }
 
     const host = process.env.HOST || '0.0.0.0';

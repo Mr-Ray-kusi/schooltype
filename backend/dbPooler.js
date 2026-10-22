@@ -1,4 +1,3 @@
-import pg from 'pg';
 import { describeDbPooler } from './runtimeHealth.js';
 
 function connectionString() {
@@ -21,8 +20,15 @@ export async function pingDbPooler() {
     return { ...info, ok: false, latency_ms: null };
   }
 
+  let pg;
+  try {
+    pg = await import('pg');
+  } catch {
+    return { ...info, ok: false, error: { code: 'NO_PG', message: 'pg is not installed on this host.' } };
+  }
+  const Client = pg.default?.Client || pg.Client;
   const started = Date.now();
-  const client = new pg.Client({
+  const client = new Client({
     connectionString: raw,
     connectionTimeoutMillis: 8000,
     ssl: { rejectUnauthorized: false },
