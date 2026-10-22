@@ -40,6 +40,24 @@ const SuperAdminAnalytics = lazyWithRetry(() => import('./pages/super-admin-anal
 const Notifications = lazyWithRetry(() => import('./pages/notifications'));
 const Alumni = lazyWithRetry(() => import('./pages/alumni'));
 
+const PAGE_PRELOADERS = [
+  [/^\/$/, () => import('./pages/home')],
+  [/^\/login$/, () => import('./pages/login')],
+  [/^\/dashboard/, () => import('./pages/Dashboard')],
+  [/^\/students/, () => import('./pages/students')],
+  [/^\/staff/, () => import('./pages/staffs')],
+  [/^\/attendance/, () => import('./pages/attendance')],
+  [/^\/classes/, () => import('./pages/classes')],
+  [/^\/messages/, () => import('./pages/message')],
+  [/^\/super-admin/, () => import('./pages/super-admin')],
+];
+
+if (typeof window !== 'undefined') {
+  const path = window.location.pathname || '/';
+  const match = PAGE_PRELOADERS.find(([pattern]) => pattern.test(path));
+  match?.[1]();
+}
+
 const LoadingScreen = () => (
   <div className="flex items-center justify-center h-screen bg-slate-900 text-slate-300">Loading...</div>
 );
@@ -47,6 +65,11 @@ const LoadingScreen = () => (
 const SchoolAdminRoute = () => {
   const { token, school, loading } = useAuth();
 
+  if (school && token) {
+    if (school?.role === 'super_admin') return <Navigate to="/super-admin" />;
+    if (!isSchoolPaid(school)) return <Navigate to="/select-plan" />;
+    return <Outlet />;
+  }
   if (loading) return <LoadingScreen />;
   if (!token) return <Navigate to="/login" />;
   if (!school) return <LoadingScreen />;
@@ -71,6 +94,10 @@ const PlanFeatureRoute = ({ feature, features }) => {
 const SuperAdminRoute = () => {
   const { token, school, loading } = useAuth();
 
+  if (school && token) {
+    if (school?.role !== 'super_admin') return <Navigate to="/dashboard" />;
+    return <Outlet />;
+  }
   if (loading) return <LoadingScreen />;
   if (!token) return <Navigate to="/login" />;
   if (!school) return <LoadingScreen />;
@@ -81,6 +108,13 @@ const SuperAdminRoute = () => {
 const FinanceRoute = ({ feature }) => {
   const { token, school, loading, isSuperAdmin, hasFeature, includesPlanFeature } = useAuth();
 
+  if (token && (isSuperAdmin || school?.role === 'super_admin')) return <Outlet />;
+  if (school && token) {
+    if (!isSchoolPaid(school)) return <Navigate to="/select-plan" />;
+    if (feature && !includesPlanFeature(feature)) return <Navigate to="/dashboard" />;
+    if (feature && !hasFeature(feature)) return <Navigate to="/dashboard" />;
+    return <Outlet />;
+  }
   if (loading) return <LoadingScreen />;
   if (!token) return <Navigate to="/login" />;
   if (isSuperAdmin || school?.role === 'super_admin') return <Outlet />;
@@ -94,6 +128,11 @@ const FinanceRoute = ({ feature }) => {
 const SelectPlanRoute = ({ children }) => {
   const { token, school, loading } = useAuth();
 
+  if (school && token) {
+    if (school?.role === 'super_admin') return <Navigate to="/super-admin" />;
+    if (isSchoolPaid(school)) return <Navigate to="/dashboard" />;
+    return children;
+  }
   if (loading) return <LoadingScreen />;
   if (!token) return <Navigate to="/login" />;
   if (!school) return <LoadingScreen />;

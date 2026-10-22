@@ -87,7 +87,7 @@ const scrollToId = (id) => {
 };
 
 const Home = () => {
-  const { token, school, loading } = useAuth();
+  const { token, school } = useAuth();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeId, setActiveId] = useState('home');
@@ -114,7 +114,7 @@ const Home = () => {
     });
 
     return () => observer.disconnect();
-  }, [loading, token]);
+  }, [token]);
 
   const handleNavClick = (item) => {
     setActiveId(item.id);
@@ -127,14 +127,6 @@ const Home = () => {
       scrollToId(item.id);
     }
   };
-
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-950 font-sans text-slate-300">
-        Loading…
-      </div>
-    );
-  }
 
   const navBar = (
     <>

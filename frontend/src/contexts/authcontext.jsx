@@ -2,6 +2,7 @@ import React, { createContext, useState, useContext, useEffect, useCallback, use
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import { hasFeature as planHasFeature } from '../constants/plans';
+import { clearPersistedCache } from '../utils/requestCache';
 
 const AuthContext = createContext();
 
@@ -37,6 +38,7 @@ const isAuthRoute = (url = '') =>
   url.includes('/api/auth/signup-charge');
 
 const ACCESS_TOKEN_KEY = 'st_access';
+const SESSION_FLAG_KEY = 'st_session';
 
 const readAccessToken = () => {
   try {
@@ -44,6 +46,38 @@ const readAccessToken = () => {
   } catch {
     return '';
   }
+};
+
+const readSessionFlag = () => {
+  try {
+    return localStorage.getItem(SESSION_FLAG_KEY) === '1';
+  } catch {
+    return false;
+  }
+};
+
+const writeSessionFlag = (on) => {
+  try {
+    if (on) localStorage.setItem(SESSION_FLAG_KEY, '1');
+    else localStorage.removeItem(SESSION_FLAG_KEY);
+  } catch {
+    // private mode
+  }
+};
+
+const isPersistableLogo = (url) => {
+  if (!url || typeof url !== 'string') return false;
+  if (url.startsWith('data:')) return false;
+  return url.length < 2048;
+};
+
+const slimSchoolForStorage = (school) => {
+  if (!school || typeof school !== 'object') return null;
+  return {
+    ...school,
+    payment_records: [],
+    logo_url: isPersistableLogo(school.logo_url) ? school.logo_url : null,
+  };
 };
 
 const writeAccessToken = (value) => {
@@ -68,7 +102,10 @@ const readCachedSchool = () => {
     const raw = localStorage.getItem('school');
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' ? parsed : null;
+    if (!parsed || typeof parsed !== 'object') return null;
+    if (!isPersistableLogo(parsed.logo_url)) parsed.logo_url = null;
+    parsed.payment_records = [];
+    return parsed;
   } catch {
     localStorage.removeItem('school');
     return null;
@@ -114,8 +151,8 @@ const mergeSchoolState = (incoming, previous) => {
           plan_selected_at: incoming.plan_selected_at || previous.plan_selected_at || null,
         };
 
-  // Keep a prior logo if verify omitted a huge base64 payload.
-  if (!merged.logo_url && previous.logo_url) {
+  // Keep a prior hosted logo if verify omitted it. Never restore data-URL logos.
+  if (!merged.logo_url && isPersistableLogo(previous.logo_url)) {
     merged.logo_url = previous.logo_url;
   }
 
@@ -144,22 +181,31 @@ const mergeSchoolState = (incoming, previous) => {
   return merged;
 };
 
+const bootSchool = typeof window !== 'undefined' ? readCachedSchool() : null;
+const bootAccess = typeof window !== 'undefined' ? readAccessToken() : '';
+if (bootAccess) applyAccessToken(bootAccess);
+
 export const AuthProvider = ({ children }) => {
-  const [token, setToken] = useState(null);
-  const [school, setSchool] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const schoolRef = useRef(null);
+  const [token, setToken] = useState(() => bootAccess || (bootSchool ? 'session' : null));
+  const [school, setSchool] = useState(() => bootSchool);
+  const [loading, setLoading] = useState(() => !bootSchool && (Boolean(bootAccess) || readSessionFlag()));
+  const schoolRef = useRef(bootSchool);
 
   const persistSchool = useCallback((schoolData, previous) => {
     const merged = mergeSchoolState(schoolData, previous === undefined ? schoolRef.current : previous);
     schoolRef.current = merged;
     setSchool(merged);
+    if (!merged) return;
+    writeSessionFlag(true);
+    const slim = slimSchoolForStorage(merged);
     try {
-      if (merged) {
-        localStorage.setItem('school', JSON.stringify(merged));
-      }
+      localStorage.setItem('school', JSON.stringify(slim));
     } catch {
-      // ignore quota / private mode failures
+      try {
+        localStorage.setItem('school', JSON.stringify({ ...slim, logo_url: null }));
+      } catch {
+        // ignore quota / private mode failures
+      }
     }
   }, []);
 
@@ -169,6 +215,8 @@ export const AuthProvider = ({ children }) => {
     schoolRef.current = null;
     writeAccessToken('');
     applyAccessToken('');
+    writeSessionFlag(false);
+    clearPersistedCache();
     localStorage.removeItem('token');
     localStorage.removeItem('school');
     localStorage.removeItem('tokenExpiresAt');
@@ -178,6 +226,7 @@ export const AuthProvider = ({ children }) => {
     persistSchool(schoolData);
     writeAccessToken(newToken);
     applyAccessToken(newToken);
+    writeSessionFlag(true);
     setToken(newToken || 'session');
     localStorage.removeItem('token');
     localStorage.removeItem('tokenExpiresAt');
@@ -186,24 +235,31 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     const validateToken = async () => {
-      const cachedSchool = readCachedSchool();
+      const cachedSchool = schoolRef.current || readCachedSchool();
       const savedToken = readAccessToken();
       localStorage.removeItem('token');
       localStorage.removeItem('tokenExpiresAt');
       applyAccessToken(savedToken);
 
+      const shouldVerify = Boolean(cachedSchool || savedToken || readSessionFlag());
+      if (!shouldVerify) {
+        setLoading(false);
+        return;
+      }
+
       if (cachedSchool) {
         schoolRef.current = cachedSchool;
         setSchool(cachedSchool);
-        setToken('session');
+        setToken(savedToken || 'session');
         setLoading(false);
       }
 
       try {
-        const response = await axios.get('/api/auth/verify', { timeout: 12000, withCredentials: true });
+        const response = await axios.get('/api/auth/verify', { timeout: 8000, withCredentials: true });
         if (response.data?.school) {
           persistSchool(response.data.school, cachedSchool || schoolRef.current);
-          setToken('session');
+          setToken(savedToken || 'session');
+          writeSessionFlag(true);
         } else if (!cachedSchool) {
           clearSession();
         }

@@ -3,7 +3,7 @@ import PlanPendingBanner from '../components/PlanPendingBanner';
 import SubscriptionBanner from '../components/SubscriptionBanner';
 import axios from 'axios';
 import { useAuth } from '../contexts/authcontext';
-import { DASHBOARD_CACHE_MS, cachedGet, peekCache } from '../utils/requestCache';
+import { DASHBOARD_CACHE_MS, peekCache, staleGet } from '../utils/requestCache';
 import { schoolLocalDate, schoolLocalDateLabel } from '../utils/schoolDate';
 import { useLivePoll } from '../hooks/useLivePoll';
 import SchoolAnalyticsChart from '../components/SchoolAnalyticsChart';
@@ -29,30 +29,35 @@ const formatGlanceMoney = (amount) =>
     maximumFractionDigits: 0,
   }).format(Number(amount) || 0);
 
+const EMPTY_STATS = {
+  totalStudents: 0,
+  totalStaff: 0,
+  totalNonStaff: 0,
+  unreadMessages: 0,
+  todayAttendance: 0,
+  totalRevenue: 0,
+  feesPaid: 0,
+  unpaidRevenue: 0,
+  yearCollected: 0,
+  billedStudents: 0,
+  paidStudents: 0,
+  unpaidStudents: 0,
+  totalClasses: 0,
+  walletBalance: 0,
+  smsUnits: 0,
+  reportCards: 0,
+  feePeriodLabel: null,
+  attendance: null,
+};
+
 const Dashboard = () => {
   const { school, persistSchool, includesPlanFeature, isPlanApproved } = useAuth();
-  const [stats, setStats] = useState({
-    totalStudents: 0,
-    totalStaff: 0,
-    totalNonStaff: 0,
-    unreadMessages: 0,
-    todayAttendance: 0,
-    totalRevenue: 0,
-    feesPaid: 0,
-    unpaidRevenue: 0,
-    yearCollected: 0,
-    billedStudents: 0,
-    paidStudents: 0,
-    unpaidStudents: 0,
-    totalClasses: 0,
-    walletBalance: 0,
-    smsUnits: 0,
-    reportCards: 0,
-    feePeriodLabel: null,
-    attendance: null,
-  });
-  const [loading, setLoading] = useState(true);
   const selectedDate = schoolLocalDate();
+  const cachedStats = peekCache(`dashboard:${selectedDate}`);
+  const [stats, setStats] = useState(() =>
+    cachedStats && typeof cachedStats === 'object' ? cachedStats : EMPTY_STATS
+  );
+  const [loading, setLoading] = useState(() => !cachedStats);
 
   const applyDashboardPayload = (payload) => {
     if (!payload || typeof payload !== 'object') return;
@@ -62,17 +67,16 @@ const Dashboard = () => {
   const fetchDashboardData = useCallback(async (date, { silent = false } = {}) => {
     const cacheKey = `dashboard:${date}`;
     try {
-      if (!silent) {
-        const cached = peekCache(cacheKey);
-        if (cached) {
-          applyDashboardPayload(cached);
-          setLoading(false);
-        }
+      const cached = peekCache(cacheKey);
+      if (cached && !silent) {
+        applyDashboardPayload(cached);
+        setLoading(false);
       }
-      const statsData = await cachedGet(
+      const statsData = await staleGet(
         cacheKey,
         async () => (await axios.get(`/api/dashboard/stats?date=${date}`)).data,
-        silent ? 0 : DASHBOARD_CACHE_MS
+        silent ? 0 : DASHBOARD_CACHE_MS,
+        (payload) => applyDashboardPayload(payload)
       );
       applyDashboardPayload(statsData);
     } catch (error) {
@@ -92,8 +96,9 @@ const Dashboard = () => {
     axios
       .get('/api/school/branding')
       .then(({ data }) => {
-        if (cancelled || !data?.logo_url) return;
-        persistSchool({ logo_url: data.logo_url });
+        const logo = data?.logo_url;
+        if (cancelled || !logo || String(logo).startsWith('data:')) return;
+        persistSchool({ logo_url: logo });
       })
       .catch(() => {});
     return () => {
