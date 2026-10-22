@@ -127,8 +127,6 @@ const AdministratorSchool = ({ schoolName, authHeaders }) => {
   const [studentTotal, setStudentTotal] = useState(0);
   const [studentPage, setStudentPage] = useState(1);
   const [studentQuery, setStudentQuery] = useState('');
-  const [staff, setStaff] = useState([]);
-  const [nonStaff, setNonStaff] = useState([]);
   const [classes, setClasses] = useState([]);
   const [subjects, setSubjects] = useState([]);
   const [date, setDate] = useState(schoolLocalDate());
@@ -172,22 +170,18 @@ const AdministratorSchool = ({ schoolName, authHeaders }) => {
   const [nonStaffForm, setNonStaffForm] = useState({ name: '', role: '' });
 
   const loadPeople = useCallback(async () => {
-    const [overviewRes, studentsRes, staffRes, nonStaffRes, classesRes, subjectsRes] = await Promise.all([
+    const [overviewRes, studentsRes, classesRes, subjectsRes] = await Promise.all([
       axios.get('/api/staff-portal/session/admin/overview', { headers: authHeaders }),
       axios.get('/api/staff-portal/session/admin/students', {
         headers: authHeaders,
         params: { page: studentPage, limit: LIST_PAGE_SIZE, q: studentQuery || undefined },
       }),
-      axios.get('/api/staff-portal/session/admin/staff', { headers: authHeaders }),
-      axios.get('/api/staff-portal/session/admin/non-staff', { headers: authHeaders }),
       axios.get('/api/staff-portal/session/admin/classes', { headers: authHeaders }),
       axios.get('/api/staff-portal/session/admin/subjects', { headers: authHeaders }),
     ]);
     setOverview(overviewRes.data);
     setStudents(studentsRes.data.items || []);
     setStudentTotal(studentsRes.data.total || 0);
-    setStaff(staffRes.data.items || []);
-    setNonStaff(nonStaffRes.data.items || []);
     setClasses(classesRes.data.items || []);
     setSubjects(subjectsRes.data.items || []);
   }, [authHeaders, studentPage, studentQuery]);
@@ -758,45 +752,6 @@ const AdministratorSchool = ({ schoolName, authHeaders }) => {
                   limit={LIST_PAGE_SIZE}
                   onPageChange={setStudentPage}
                 />
-              </div>
-            </section>
-
-            <section className="grid gap-4 lg:grid-cols-3">
-              <div className="rounded-3xl border border-slate-700 bg-slate-900/50 p-5">
-                <h3 className="font-semibold">Classes</h3>
-                <div className="mt-3 space-y-2 text-sm text-slate-200">
-                  {classes.length ? classes.map((row) => <p key={row.id}>{row.name}</p>) : <p className="text-slate-400">No classes yet.</p>}
-                </div>
-              </div>
-              <div className="rounded-3xl border border-slate-700 bg-slate-900/50 p-5">
-                <h3 className="font-semibold">Staff</h3>
-                <div className="mt-3 space-y-3">
-                  {staff.map((row) => (
-                    <div key={row.id}>
-                      <p className="font-medium text-white">{row.name}</p>
-                      <p className="text-xs text-slate-500">
-                        {row.role}
-                        {row.subjects ? ` · ${row.subjects}` : ''}
-                        {row.class_names ? ` · ${row.class_names}` : ''}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="rounded-3xl border border-slate-700 bg-slate-900/50 p-5">
-                <h3 className="font-semibold">Non-staff</h3>
-                <div className="mt-3 space-y-3">
-                  {nonStaff.length ? (
-                    nonStaff.map((row) => (
-                      <div key={row.id}>
-                        <p className="font-medium text-white">{row.name}</p>
-                        <p className="text-xs text-slate-500">{row.role || '—'}</p>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-sm text-slate-400">No non-staff yet.</p>
-                  )}
-                </div>
               </div>
             </section>
           </div>
