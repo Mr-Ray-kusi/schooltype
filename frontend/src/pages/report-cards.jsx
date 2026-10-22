@@ -5,6 +5,8 @@ import { ChevronDown, ChevronRight, Download, FileText, Printer, RefreshCw, Tras
 import { useAuth } from '../contexts/authcontext';
 import { useLivePoll } from '../hooks/useLivePoll';
 import { invalidateCache, peekCache, staleGet, REPORT_CACHE_MS } from '../utils/requestCache';
+import PaginationBar from '../components/PaginationBar';
+import { LIST_PAGE_SIZE, fetchAllPages } from '../utils/listApi.js';
 import {
   downloadStudentReportCardsPdf,
   downloadSubjectRankingsPdf,
@@ -37,13 +39,18 @@ const ReportCards = () => {
   const [selectedStudentKeys, setSelectedStudentKeys] = useState([]);
   const [clearing, setClearing] = useState(false);
   const [expandedEntryKey, setExpandedEntryKey] = useState(null);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [filterOptions, setFilterOptions] = useState({ classes: [], subjects: [], terms: [] });
 
   const loadScores = useCallback(async ({ silent = false } = {}) => {
-    const cacheKey = 'report-cards:scores';
+    const cacheKey = `report-cards:scores:${page}:${selectedClass}:${selectedSubject}:${selectedTerm}`;
     if (!silent) {
       const cached = peekCache(cacheKey);
       if (cached) {
         setScores(cached.scores || []);
+        setTotal(Number(cached.total) || 0);
+        if (cached.filters) setFilterOptions(cached.filters);
         setLoading(false);
       }
     }
@@ -51,12 +58,22 @@ const ReportCards = () => {
       const data = await staleGet(
         cacheKey,
         async () => {
-          const res = await axios.get('/api/report-cards/scores');
+          const res = await axios.get('/api/report-cards/scores', {
+            params: {
+              page,
+              limit: LIST_PAGE_SIZE,
+              class: selectedClass !== 'all' ? selectedClass : undefined,
+              subject: selectedSubject !== 'all' ? selectedSubject : undefined,
+              term: selectedTerm !== 'all' ? selectedTerm : undefined,
+            },
+          });
           return res.data;
         },
         silent ? 0 : REPORT_CACHE_MS
       );
       setScores(data.scores || []);
+      setTotal(Number(data.total) || 0);
+      if (data.filters) setFilterOptions(data.filters);
     } catch (err) {
       if (!silent) {
         toast.error(err.response?.data?.error || 'Failed to load teacher scores');
@@ -65,11 +82,15 @@ const ReportCards = () => {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, []);
+  }, [page, selectedClass, selectedSubject, selectedTerm]);
 
   useEffect(() => {
     loadScores({ silent: false });
   }, [loadScores]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [selectedClass, selectedSubject, selectedTerm]);
 
   useLivePoll(() => loadScores({ silent: true }), 60000, !loading);
 
@@ -78,19 +99,25 @@ const ReportCards = () => {
   }, [selectedClass, selectedSubject, selectedTerm]);
 
   const classes = useMemo(() => {
-    const set = new Set(scores.map((row) => row.class_name).filter(Boolean));
+    const set = new Set([
+      ...filterOptions.classes,
+      ...scores.map((row) => row.class_name).filter(Boolean),
+    ]);
     return ['all', ...Array.from(set).sort((a, b) => a.localeCompare(b))];
-  }, [scores]);
+  }, [filterOptions.classes, scores]);
 
   const subjects = useMemo(() => {
-    const set = new Set(scores.map((row) => row.subject).filter(Boolean));
+    const set = new Set([
+      ...filterOptions.subjects,
+      ...scores.map((row) => row.subject).filter(Boolean),
+    ]);
     return ['all', ...Array.from(set).sort((a, b) => a.localeCompare(b))];
-  }, [scores]);
+  }, [filterOptions.subjects, scores]);
 
   const terms = useMemo(() => {
-    const set = new Set(scores.map((row) => row.term).filter(Boolean));
+    const set = new Set([...filterOptions.terms, ...scores.map((row) => row.term).filter(Boolean)]);
     return ['all', ...Array.from(set).sort((a, b) => a.localeCompare(b))];
-  }, [scores]);
+  }, [filterOptions.terms, scores]);
 
   const filtered = useMemo(() => {
     return scores.filter((row) => {
@@ -231,13 +258,21 @@ const ReportCards = () => {
     }
   };
 
-  const handleRankingsPdf = () => {
-    if (!filtered.length) {
+  const loadFilteredScores = async () =>
+    fetchAllPages(axios, '/api/report-cards/scores', {
+      class: selectedClass !== 'all' ? selectedClass : undefined,
+      subject: selectedSubject !== 'all' ? selectedSubject : undefined,
+      term: selectedTerm !== 'all' ? selectedTerm : undefined,
+    });
+
+  const handleRankingsPdf = async () => {
+    const allScores = await loadFilteredScores();
+    if (!allScores.length) {
       toast.error('No scores to export for the current filters');
       return;
     }
     downloadSubjectRankingsPdf({
-      scores,
+      scores: allScores,
       schoolName: school?.name || 'School',
       className: selectedClass,
       term: selectedTerm,
@@ -246,14 +281,15 @@ const ReportCards = () => {
     toast.success('Subject rankings PDF downloaded');
   };
 
-  const handleStudentCardsPdf = (studentIds) => {
+  const handleStudentCardsPdf = async (studentIds) => {
     const ids = studentIds || selectedStudentKeys;
     if (!ids.length) {
       toast.error('Select at least one student to print a personal report');
       return;
     }
 
-    const scoped = scores.filter((row) => {
+    const allScores = await loadFilteredScores();
+    const scoped = allScores.filter((row) => {
       if (selectedClass !== 'all' && row.class_name !== selectedClass) return false;
       if (selectedTerm !== 'all' && row.term !== selectedTerm) return false;
       return ids.includes(studentKey(row));
@@ -265,7 +301,7 @@ const ReportCards = () => {
     }
 
     const count = downloadStudentReportCardsPdf({
-      scores,
+      scores: allScores,
       schoolName: school?.name || 'School',
       className: selectedClass,
       term: selectedTerm,
@@ -510,6 +546,9 @@ const ReportCards = () => {
               )}
             </tbody>
           </table>
+        </div>
+        <div className="mt-4">
+          <PaginationBar page={page} total={total} limit={LIST_PAGE_SIZE} onPageChange={setPage} />
         </div>
       </section>
 

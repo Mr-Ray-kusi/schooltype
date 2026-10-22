@@ -143,21 +143,35 @@ export function nextIdAfter(students, code, year, className) {
   return formatStudentId(code, token, year, sequence);
 }
 
-async function loadSchoolStudents(supabase, schoolId) {
-  const { data, error } = await supabase
-    .from('students')
-    .select('id, roll_number, created_at, class, alumni_year')
-    .eq('school_id', schoolId);
+const ID_COLUMNS = 'id, roll_number, created_at, class, alumni_year';
+const ID_COLUMNS_FALLBACK = 'id, roll_number, created_at, class';
+
+async function selectStudentIdRows(supabase, schoolId, apply) {
+  let query = apply(supabase.from('students').select(ID_COLUMNS).eq('school_id', schoolId));
+  let { data, error } = await query;
   if (error && String(error.message || '').includes('alumni_year')) {
-    const retry = await supabase
-      .from('students')
-      .select('id, roll_number, created_at, class')
-      .eq('school_id', schoolId);
+    const retry = await apply(supabase.from('students').select(ID_COLUMNS_FALLBACK).eq('school_id', schoolId));
     if (retry.error) throw retry.error;
     return retry.data || [];
   }
   if (error) throw error;
   return data || [];
+}
+
+async function loadSchoolStudents(supabase, schoolId) {
+  return selectStudentIdRows(supabase, schoolId, (query) => query);
+}
+
+async function loadMissingStudents(supabase, schoolId, limit = 80) {
+  const [nulls, blanks] = await Promise.all([
+    selectStudentIdRows(supabase, schoolId, (query) => query.is('roll_number', null).limit(limit)),
+    selectStudentIdRows(supabase, schoolId, (query) => query.eq('roll_number', '').limit(limit)),
+  ]);
+  const byId = new Map();
+  for (const row of [...nulls, ...blanks]) {
+    if (row?.id) byId.set(row.id, row);
+  }
+  return [...byId.values()].slice(0, limit);
 }
 
 async function codesUsedByOtherSchools(supabase, schoolId, choices) {
@@ -195,8 +209,19 @@ async function persistAssigned(supabase, schoolId, assigned) {
 }
 
 /** Fill blank student IDs and return the next ID for a new enrollment. */
-export async function syncStudentIds(supabase, school, { className } = {}) {
+export async function syncStudentIds(supabase, school, { className, fillOnly = false } = {}) {
   if (!school?.id) throw new Error('School is required');
+
+  if (fillOnly) {
+    const missing = await loadMissingStudents(supabase, school.id);
+    if (!missing.length) return { assigned: [], code: null, nextId: null };
+    const rows = await loadSchoolStudents(supabase, school.id);
+    const code = await resolveSchoolCode(supabase, { ...school, name: school.name || 'School' }, rows);
+    const assigned = assignMissingIds(rows, code);
+    if (assigned.length) await persistAssigned(supabase, school.id, assigned);
+    return { code, assigned, nextId: null };
+  }
+
   const rows = await loadSchoolStudents(supabase, school.id);
   const code = await resolveSchoolCode(supabase, { ...school, name: school.name || 'School' }, rows);
   const assigned = assignMissingIds(rows, code);

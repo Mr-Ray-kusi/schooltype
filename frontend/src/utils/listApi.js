@@ -4,7 +4,7 @@ export function parseListResponse(data) {
   if (Array.isArray(data)) {
     return { items: data, total: data.length, page: 1, limit: data.length || 50 };
   }
-  const items = data?.items || data?.students || data?.staff || [];
+  const items = data?.items || data?.students || data?.staff || data?.scores || data?.people || [];
   return {
     items,
     total: Number(data?.total ?? items.length) || 0,

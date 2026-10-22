@@ -1,6 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
+import { parseListResponse } from '../utils/listApi.js';
 
 const formatGhs = (value) =>
   `GHS ${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -27,10 +28,28 @@ const RecordFeePaymentModal = ({
   const [method, setMethod] = useState('cash');
   const [reference, setReference] = useState('');
   const [saving, setSaving] = useState(false);
+  const [picker, setPicker] = useState(students || []);
+
+  useEffect(() => {
+    let cancelled = false;
+    axios
+      .get('/api/students', { params: { page: 1, limit: 50 }, ...(requestConfig || {}) })
+      .then(({ data }) => {
+        if (cancelled) return;
+        const parsed = parseListResponse(data);
+        setPicker(parsed.items.length ? parsed.items : students || []);
+      })
+      .catch(() => {
+        if (!cancelled) setPicker(students || []);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [students, requestConfig]);
 
   const selected = useMemo(
-    () => (students || []).find((row) => row.id === studentId) || null,
-    [students, studentId]
+    () => (picker || []).find((row) => row.id === studentId) || null,
+    [picker, studentId]
   );
 
   const submit = async (event) => {
@@ -96,14 +115,14 @@ const RecordFeePaymentModal = ({
             value={studentId}
             onChange={(e) => {
               const nextId = e.target.value;
-              const next = (students || []).find((row) => row.id === nextId);
+              const next = (picker || []).find((row) => row.id === nextId);
               setStudentId(nextId);
               if (next?.outstanding > 0) setAmount(String(next.outstanding));
             }}
             required
           >
             <option value="">Select student</option>
-            {(students || []).map((row) => (
+            {(picker || []).map((row) => (
               <option key={row.id} value={row.id}>
                 {row.name}
                 {row.class ? ` · ${row.class}` : ''}

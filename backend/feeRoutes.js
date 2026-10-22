@@ -598,6 +598,14 @@ export async function getFeeOverviewPayload(schoolId, query = {}) {
     : await resolveFeePeriod(schoolId);
   const month = period.key;
   const year = accraYear();
+  const page = Math.max(1, parseInt(query.page, 10) || 1);
+  const limit = Math.min(50, Math.max(1, parseInt(query.limit, 10) || 8));
+  const tab = String(query.tab || query.status || 'paid').toLowerCase();
+  const search = String(query.q || '').trim().toLowerCase();
+  const pagedMode = query.page != null || query.limit != null || query.tab != null;
+
+  const TERM_PAY_COLUMNS =
+    'id, payer_id, payer_name, payer_class, amount, status, channel, payment_method, recorded_by, payment_reference, payment_month, created_at';
 
   const [{ data: students, error: studentError }, { data: classes }, termPayRes, yearPayRes] = await Promise.all([
     supabase
@@ -608,17 +616,17 @@ export async function getFeeOverviewPayload(schoolId, query = {}) {
     supabase.from('classes').select('id, name, fee_amount').eq('school_id', schoolId),
     supabase
       .from('fee_payments')
-      .select('*')
+      .select(TERM_PAY_COLUMNS)
       .eq('school_id', schoolId)
       .eq('payment_month', month)
-      .order('created_at', { ascending: false }),
+      .order('created_at', { ascending: false })
+      .limit(500),
     supabase
       .from('fee_payments')
-      .select('*')
+      .select('amount, status')
       .eq('school_id', schoolId)
       .gte('created_at', `${year}-01-01`)
-      .order('created_at', { ascending: false })
-      .limit(8000),
+      .limit(2000),
   ]);
   if (studentError) throw studentError;
 
@@ -672,7 +680,20 @@ export async function getFeeOverviewPayload(schoolId, query = {}) {
     })
     .filter((row) => row.students > 0);
 
-  const yearLedger = annotatePayments(yearPayments.filter((row) => isSuccessfulFeeStatus(row.status))).map((row) => ({
+  const yearCollected = roundMoney(
+    yearPayments.filter((row) => isSuccessfulFeeStatus(row.status)).reduce((sum, row) => sum + (Number(row.amount) || 0), 0)
+  );
+
+  const yearLedgerRes = await supabase
+    .from('fee_payments')
+    .select(TERM_PAY_COLUMNS, { count: 'exact' })
+    .eq('school_id', schoolId)
+    .gte('created_at', `${year}-01-01`)
+    .order('created_at', { ascending: false })
+    .range((page - 1) * limit, page * limit - 1);
+  const yearLedger = annotatePayments(
+    (yearLedgerRes.data || []).filter((row) => isSuccessfulFeeStatus(row.status))
+  ).map((row) => ({
     id: row.id,
     student_name: row.payer_name,
     class_name: row.payer_class,
@@ -684,6 +705,16 @@ export async function getFeeOverviewPayload(schoolId, query = {}) {
     created_at: row.created_at,
     manual: row.manual,
   }));
+
+  const list = tab === 'unpaid' ? unpaid : paid;
+  const searched = search
+    ? list.filter((row) =>
+        [row.name, row.class, row.recorded_by, row.roll_number, row.barcode]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(search))
+      )
+    : list;
+  const paged = pagedMode ? searched.slice((page - 1) * limit, page * limit) : searched;
 
   return {
     month,
@@ -700,16 +731,21 @@ export async function getFeeOverviewPayload(schoolId, query = {}) {
       unpaid: unpaid.length,
       paid_amount: roundMoney(paidAmount),
       unpaid_amount: roundMoney(unpaidAmount),
-      year_collected: roundMoney(yearLedger.reduce((sum, row) => sum + Number(row.amount || 0), 0)),
+      year_collected: yearCollected,
     },
     chart: { classes: classesChart },
-    paid,
-    unpaid,
-    students: rows,
+    paid: tab === 'unpaid' && pagedMode ? [] : pagedMode ? paged : paid,
+    unpaid: pagedMode ? (tab === 'unpaid' ? paged : []) : unpaid,
+    students: pagedMode ? paged : rows,
+    items: paged,
+    total: searched.length,
+    page,
+    limit,
     classes: (classes || []).map((row) => row.name).filter(Boolean),
-    payments: annotatePayments(payments),
+    payments: annotatePayments(payments.filter((row) => paged.some((student) => student.id === row.payer_id))),
     year_ledger: yearLedger,
-    pay_error: termPayRes.error?.message || yearPayRes.error?.message || null,
+    year_ledger_total: yearLedgerRes.count || yearLedger.length,
+    pay_error: termPayRes.error?.message || yearPayRes.error?.message || yearLedgerRes.error?.message || null,
   };
 }
 

@@ -439,6 +439,8 @@ const Attendance = () => {
           type: exportType,
           class: classFilter || undefined,
           q: search || undefined,
+          page: safePage,
+          limit: ATTENDANCE_PAGE_SIZE,
         },
       });
       const needle = search.toLowerCase();

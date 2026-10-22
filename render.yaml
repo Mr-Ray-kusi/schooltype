@@ -5,8 +5,11 @@ services:
   - type: web
     name: schootype-api
     runtime: node
-    plan: starter
+    # One larger instance — not starter (0.5 CPU / 512 MB). Do not set numInstances
+    # above 1 until scanner locks and the API cache live in Supabase.
+    plan: standard
     region: frankfurt
+    numInstances: 1
     buildCommand: npm install --prefix backend
     startCommand: npm start --prefix backend
     healthCheckPath: /api/health
@@ -31,6 +34,9 @@ services:
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
       - key: SUPABASE_JWT_SECRET
+        sync: false
+      # Transaction pooler URL (*.pooler.supabase.com:6543), not the direct :5432 URI.
+      - key: SUPABASE_DB_URL
         sync: false
       - key: JWT_SECRET
         sync: false

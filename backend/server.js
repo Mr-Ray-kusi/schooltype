@@ -27,6 +27,7 @@ import {
   gateProfile,
 } from './publicIdGate.js';
 import { formatParsedStudentId, parseStudentId, syncStudentIds } from './studentId.js';
+import { buildHealthPayload } from './runtimeHealth.js';
 import { purgePersonRelated } from './personPurge.js';
 import nodemailer from 'nodemailer';
 import { getPlan, getPlanFeatures, getPlansList, VALID_PLAN_IDS, hasPlanFeature, resolvePlanId } from './plans.js';
@@ -3170,21 +3171,17 @@ registerSmsBillingRoutes(app, {
 });
 
 app.get('/api/health', async (req, res) => {
-  if (String(req.query.db || '') !== '1') {
-    return res.json({ status: 'ok', timestamp: new Date().toISOString() });
-  }
-
+  const checkDb = String(req.query.db || '') === '1';
   try {
-    const dbHealth = await supabase
-      .from('schools')
-      .select('id', { count: 'exact', head: true })
-      .limit(1);
-
-    const databaseHealthy = !dbHealth.error;
-    res.json({
-      status: databaseHealthy ? 'ok' : 'degraded',
-      timestamp: new Date().toISOString(),
-    });
+    const payload = await buildHealthPayload({ checkDb });
+    if (checkDb) {
+      const dbHealth = await supabase
+        .from('schools')
+        .select('id', { count: 'exact', head: true })
+        .limit(1);
+      if (dbHealth.error) payload.status = 'degraded';
+    }
+    res.status(payload.status === 'error' ? 500 : 200).json(payload);
   } catch (error) {
     res.status(500).json({
       status: 'error',
@@ -3317,7 +3314,7 @@ app.get('/api/students', authenticateToken, enforcePlanApproval, async (req, res
     try {
       const school = await loadSchoolForStudentIds(req.user.schoolId);
       if (school?.name) {
-        const synced = await syncStudentIds(supabase, school);
+        const synced = await syncStudentIds(supabase, school, { fillOnly: true });
         if (synced.assigned.length) bumpSchoolCaches(req.user.schoolId);
       }
     } catch (idError) {
@@ -5254,7 +5251,11 @@ app.get('/api/report-cards/scores', authenticateToken, enforcePlanApproval, asyn
     }
 
     const schoolId = req.user.schoolId;
-    const cacheKey = `reports:${schoolId}`;
+    const { page, limit, from, to } = parsePagination(req);
+    const classFilter = String(req.query.class || req.query.className || '').trim();
+    const subjectFilter = String(req.query.subject || '').trim();
+    const termFilter = String(req.query.term || '').trim();
+    const cacheKey = `reports:${schoolId}:${page}:${limit}:${classFilter}:${subjectFilter}:${termFilter}`;
     const cached = cacheGet(cacheKey);
     if (cached) return res.json(cached);
 
@@ -5264,12 +5265,16 @@ app.get('/api/report-cards/scores', authenticateToken, enforcePlanApproval, asyn
       return res.status(403).json({ error: 'Report cards are not included in your plan' });
     }
 
-    const { data: scores, error } = await supabase
+    let scoreQuery = supabase
       .from('student_scores')
-      .select('*')
+      .select('*', { count: 'exact' })
       .eq('school_id', schoolId)
       .order('updated_at', { ascending: false })
-      .limit(2000);
+      .range(from, to);
+    if (classFilter && classFilter !== 'all') scoreQuery = scoreQuery.eq('class_name', classFilter);
+    if (subjectFilter && subjectFilter !== 'all') scoreQuery = scoreQuery.eq('subject', subjectFilter);
+    if (termFilter && termFilter !== 'all') scoreQuery = scoreQuery.eq('term', termFilter);
+    const { data: scores, error, count } = await scoreQuery;
 
     if (error) {
       if (isMissingColumnError(error, 'student_scores') || error.code === '42P01') {
@@ -5321,7 +5326,23 @@ app.get('/api/report-cards/scores', authenticateToken, enforcePlanApproval, asyn
       };
     });
 
-    const payload = { scores: enriched };
+    const filterRows = await supabase
+      .from('student_scores')
+      .select('class_name, subject, term')
+      .eq('school_id', schoolId)
+      .limit(400);
+    const payload = {
+      scores: enriched,
+      items: enriched,
+      total: count || 0,
+      page,
+      limit,
+      filters: {
+        classes: [...new Set((filterRows.data || []).map((row) => row.class_name).filter(Boolean))].sort(),
+        subjects: [...new Set((filterRows.data || []).map((row) => row.subject).filter(Boolean))].sort(),
+        terms: [...new Set((filterRows.data || []).map((row) => row.term).filter(Boolean))].sort(),
+      },
+    };
     cacheSet(cacheKey, payload, REPORTS_TTL_MS);
     res.json(payload);
   } catch (error) {
@@ -5631,39 +5652,9 @@ app.get('/api/attendance/export/students', authenticateToken, enforcePlanApprova
     const to = endCap < today ? endCap : today;
     const lateAfterTime = await getSchoolLateAfterTime(req.user.schoolId);
 
+    const { page, limit, from: pageFrom, to: pageTo } = parsePagination(req);
     const people = await loadSchoolPeopleForAttendance(req.user.schoolId);
     const wanted = people.filter((person) => peopleType === 'all' || person.user_type === peopleType);
-
-    let attendanceQuery = supabase
-      .from('attendance')
-      .select('user_id, user_type, date, timestamp, status')
-      .eq('school_id', req.user.schoolId)
-      .gte('date', from)
-      .lte('date', to)
-      .order('date', { ascending: true })
-      .limit(20000);
-    if (peopleType !== 'all') attendanceQuery = attendanceQuery.eq('user_type', peopleType);
-    const [schoolRes, attendanceRes] = await Promise.all([
-      supabase.from('schools').select('name').eq('id', req.user.schoolId).maybeSingle(),
-      attendanceQuery,
-    ]);
-    if (attendanceRes.error) throw attendanceRes.error;
-
-    const byPerson = new Map();
-    for (const row of attendanceRes.data || []) {
-      const punctuality =
-        row.status === 'early' || row.status === 'late'
-          ? row.status
-          : getAttendancePunctuality(row.timestamp, lateAfterTime);
-      const list = byPerson.get(row.user_id) || [];
-      list.push({
-        date: row.date,
-        timestamp: row.timestamp,
-        punctuality,
-        status: punctuality,
-      });
-      byPerson.set(row.user_id, list);
-    }
 
     const term = {
       name: period?.name || null,
@@ -5684,8 +5675,42 @@ app.get('/api/attendance/export/students', authenticateToken, enforcePlanApprova
       }
       return true;
     });
+    const pagePeople = filtered.slice(pageFrom, pageTo + 1);
+    const pageIds = pagePeople.map((person) => person.id);
 
-    const mapped = filtered.map((person) => {
+    let attendanceQuery = supabase
+      .from('attendance')
+      .select('user_id, user_type, date, timestamp, status')
+      .eq('school_id', req.user.schoolId)
+      .gte('date', from)
+      .lte('date', to)
+      .order('date', { ascending: true })
+      .limit(Math.min(400, Math.max(pageIds.length, 1) * 80));
+    if (peopleType !== 'all') attendanceQuery = attendanceQuery.eq('user_type', peopleType);
+    if (pageIds.length) attendanceQuery = attendanceQuery.in('user_id', pageIds);
+    const [schoolRes, attendanceRes] = await Promise.all([
+      supabase.from('schools').select('name').eq('id', req.user.schoolId).maybeSingle(),
+      pageIds.length ? attendanceQuery : Promise.resolve({ data: [], error: null }),
+    ]);
+    if (attendanceRes.error) throw attendanceRes.error;
+
+    const byPerson = new Map();
+    for (const row of attendanceRes.data || []) {
+      const punctuality =
+        row.status === 'early' || row.status === 'late'
+          ? row.status
+          : getAttendancePunctuality(row.timestamp, lateAfterTime);
+      const list = byPerson.get(row.user_id) || [];
+      list.push({
+        date: row.date,
+        timestamp: row.timestamp,
+        punctuality,
+        status: punctuality,
+      });
+      byPerson.set(row.user_id, list);
+    }
+
+    const mapped = pagePeople.map((person) => {
       const records = byPerson.get(person.id) || [];
       const lateDays = records.filter((row) => row.status === 'late' || row.punctuality === 'late').length;
       return {
@@ -5710,6 +5735,10 @@ app.get('/api/attendance/export/students', authenticateToken, enforcePlanApprova
       type: peopleType,
       people: mapped,
       students: mapped,
+      items: mapped,
+      total: filtered.length,
+      page,
+      limit,
     });
   } catch (error) {
     console.error('Student attendance export error:', error);

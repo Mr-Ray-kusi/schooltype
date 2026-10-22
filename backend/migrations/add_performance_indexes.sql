@@ -31,3 +31,42 @@ BEGIN
     END;
   END LOOP;
 END $$;
+
+CREATE OR REPLACE FUNCTION schooltype_performance_indexes_ready()
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT jsonb_build_object(
+    'ready', (
+      SELECT COUNT(*) >= 8
+      FROM pg_indexes
+      WHERE schemaname = 'public'
+        AND indexname IN (
+          'idx_students_school_created',
+          'idx_students_school_class',
+          'idx_students_barcode',
+          'idx_staffs_school_created',
+          'idx_staffs_barcode',
+          'idx_nonstaffs_school_created',
+          'idx_nonstaffs_barcode',
+          'idx_attendance_school_date',
+          'idx_classes_school',
+          'idx_subjects_school',
+          'idx_student_scores_school_updated'
+        )
+    ),
+    'found', (
+      SELECT COALESCE(jsonb_agg(indexname ORDER BY indexname), '[]'::jsonb)
+      FROM pg_indexes
+      WHERE schemaname = 'public'
+        AND indexname LIKE 'idx_%'
+        AND tablename IN (
+          'students', 'staffs', 'nonstaffs', 'attendance', 'messages',
+          'classes', 'subjects', 'student_scores'
+        )
+    )
+  );
+$$;
+
+GRANT EXECUTE ON FUNCTION schooltype_performance_indexes_ready() TO service_role, authenticated, anon;

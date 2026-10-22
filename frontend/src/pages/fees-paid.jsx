@@ -1,18 +1,15 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import { Copy, Plus, RefreshCw, Search } from 'lucide-react';
 import { useAuth } from '../contexts/authcontext';
 import RecordFeePaymentModal from '../components/RecordFeePaymentModal';
 import FeePaymentReceiptModal from '../components/FeePaymentReceiptModal';
+import PaginationBar from '../components/PaginationBar';
+import { LIST_PAGE_SIZE } from '../utils/listApi.js';
 
 const formatGhs = (value) =>
   `GHS ${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-const matchesSearch = (row, q) =>
-  [row.name, row.class, row.recorded_by, row.roll_number, row.barcode]
-    .filter(Boolean)
-    .some((value) => String(value).toLowerCase().includes(q));
 
 const Fees = () => {
   const { school } = useAuth();
@@ -28,21 +25,28 @@ const Fees = () => {
   const [sending, setSending] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [page, setPage] = useState(1);
 
   const load = useCallback(async () => {
     try {
-      const { data: payload } = await axios.get('/api/fees/overview');
+      const { data: payload } = await axios.get('/api/fees/overview', {
+        params: { page, limit: LIST_PAGE_SIZE, tab, q: searchTerm || undefined },
+      });
       setData(payload);
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to load fees');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [page, tab, searchTerm]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [tab, searchTerm]);
 
   const copyLink = async (path) => {
     const url = `${window.location.origin}${path}`;
@@ -94,13 +98,9 @@ const Fees = () => {
   const paid = data?.paid || [];
   const unpaid = data?.unpaid || [];
   const totals = data?.totals || {};
-  const rows = tab === 'unpaid' ? unpaid : paid;
+  const rows = data?.items || (tab === 'unpaid' ? unpaid : paid);
   const selected = (data?.students || [...paid, ...unpaid]).find((row) => row.id === selectedId) || null;
-  const filtered = useMemo(() => {
-    const q = searchTerm.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((row) => matchesSearch(row, q));
-  }, [rows, searchTerm]);
+  const filtered = rows;
 
   return (
     <div className="space-y-6">
@@ -306,6 +306,12 @@ const Fees = () => {
                   </tbody>
                 </table>
               </div>
+              <PaginationBar
+                page={data?.page || page}
+                total={data?.total || 0}
+                limit={LIST_PAGE_SIZE}
+                onPageChange={setPage}
+              />
             </>
           )}
         </div>

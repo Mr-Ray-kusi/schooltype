@@ -2,6 +2,7 @@ import { cacheGetResponse, readCachedGet } from './offlineQueue';
 
 const memory = new Map();
 const inflight = new Map();
+const MAX_MEMORY_ENTRIES = 80;
 const SNAPSHOT_KEY = 'st_get_cache';
 const SNAPSHOT_MAX = 220000;
 const SNAPSHOT_KEYS = /^(dashboard:|classes$|subjects$|notifications:unread$|students:|staff:|alumni$)/;
@@ -112,6 +113,11 @@ export async function cachedGet(key, fetcher, ttlMs = 45000) {
     try {
       const data = await fetcher();
       memory.set(key, { at: Date.now(), data });
+      while (memory.size > MAX_MEMORY_ENTRIES) {
+        const oldest = memory.keys().next().value;
+        if (oldest === undefined) break;
+        memory.delete(oldest);
+      }
       persistSnapshot();
       cacheGetResponse(key, data);
       return data;
