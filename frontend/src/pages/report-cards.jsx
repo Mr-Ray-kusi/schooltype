@@ -4,7 +4,7 @@ import toast from 'react-hot-toast';
 import { ChevronDown, ChevronRight, Download, FileText, Printer, RefreshCw, Trash2 } from 'lucide-react';
 import { useAuth } from '../contexts/authcontext';
 import { useLivePoll } from '../hooks/useLivePoll';
-import { invalidateCache, peekCache, staleGet, REPORT_CACHE_MS } from '../utils/requestCache';
+import { forceGet, invalidateCache, peekCache, staleGet, REPORT_CACHE_MS } from '../utils/requestCache';
 import PaginationBar from '../components/PaginationBar';
 import { LIST_PAGE_SIZE, fetchAllPages } from '../utils/listApi.js';
 import {
@@ -43,9 +43,9 @@ const ReportCards = () => {
   const [total, setTotal] = useState(0);
   const [filterOptions, setFilterOptions] = useState({ classes: [], subjects: [], terms: [] });
 
-  const loadScores = useCallback(async ({ silent = false } = {}) => {
+  const loadScores = useCallback(async ({ silent = false, force = false } = {}) => {
     const cacheKey = `report-cards:scores:${page}:${selectedClass}:${selectedSubject}:${selectedTerm}`;
-    if (!silent) {
+    if (!silent && !force) {
       const cached = peekCache(cacheKey);
       if (cached) {
         setScores(cached.scores || []);
@@ -55,22 +55,24 @@ const ReportCards = () => {
       }
     }
     try {
-      const data = await staleGet(
-        cacheKey,
-        async () => {
-          const res = await axios.get('/api/report-cards/scores', {
-            params: {
-              page,
-              limit: LIST_PAGE_SIZE,
-              class: selectedClass !== 'all' ? selectedClass : undefined,
-              subject: selectedSubject !== 'all' ? selectedSubject : undefined,
-              term: selectedTerm !== 'all' ? selectedTerm : undefined,
-            },
-          });
-          return res.data;
-        },
-        silent ? 0 : REPORT_CACHE_MS
-      );
+      const fetcher = async () => {
+        const res = await axios.get('/api/report-cards/scores', {
+          params: {
+            page,
+            limit: LIST_PAGE_SIZE,
+            class: selectedClass !== 'all' ? selectedClass : undefined,
+            subject: selectedSubject !== 'all' ? selectedSubject : undefined,
+            term: selectedTerm !== 'all' ? selectedTerm : undefined,
+            refresh: silent ? undefined : '1',
+          },
+        });
+        return res.data;
+      };
+      const data = silent
+        ? await staleGet(cacheKey, fetcher, 0)
+        : force
+          ? await forceGet(cacheKey, fetcher)
+          : await staleGet(cacheKey, fetcher, REPORT_CACHE_MS);
       setScores(data.scores || []);
       setTotal(Number(data.total) || 0);
       if (data.filters) setFilterOptions(data.filters);
@@ -323,10 +325,15 @@ const ReportCards = () => {
         <div className="flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto pb-1">
           <button
             type="button"
-            onClick={() => loadScores({ silent: false })}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-slate-600 px-3 py-2 text-xs text-slate-200 hover:bg-slate-800 sm:px-4 sm:py-2.5 sm:text-sm"
+            disabled={loading}
+            onClick={() => {
+              setLoading(true);
+              invalidateCache('report-cards');
+              loadScores({ silent: false, force: true });
+            }}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-slate-600 px-3 py-2 text-xs text-slate-200 hover:bg-slate-800 disabled:opacity-70 sm:px-4 sm:py-2.5 sm:text-sm"
           >
-            <RefreshCw className="h-4 w-4" />
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </button>
           <button

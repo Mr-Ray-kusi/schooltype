@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { BookOpen, Calendar, GraduationCap, ImagePlus, Plus, Save, Trash2, X } from 'lucide-react';
+import { BookOpen, Calendar, GraduationCap, ImagePlus, Plus, RefreshCw, Save, Trash2, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/authcontext';
-import { invalidateCache, peekCache, staleGet } from '../utils/requestCache';
+import { forceGet, invalidateCache, peekCache, staleGet } from '../utils/requestCache';
 import MultiSelectDropdown from '../components/MultiSelectDropdown';
 import PersonRecordTable from '../components/PersonRecordTable';
 import PaginationBar from '../components/PaginationBar';
@@ -85,9 +85,10 @@ const Setup = () => {
   const [termRows, setTermRows] = useState([]);
   const [currentTerm, setCurrentTerm] = useState(null);
   const [savingTerms, setSavingTerms] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [termModal, setTermModal] = useState(null);
 
-  const load = async () => {
+  const load = async ({ force = false } = {}) => {
     const apply = ([classData, subjectData]) => {
       setClasses(sortClasses(classData || []));
       setSubjects(subjectData);
@@ -99,16 +100,18 @@ const Setup = () => {
       setSubjectDrafts(nextSubjects);
       setCoreLabels((prev) => uniqueLabels([...prev, ...cores]));
     };
-    const cachedClasses = peekCache('classes');
-    const cachedSubjects = peekCache('subjects');
+    const cachedClasses = force ? null : peekCache('classes');
+    const cachedSubjects = force ? null : peekCache('subjects');
     if (cachedClasses || cachedSubjects) {
       apply([cachedClasses || [], cachedSubjects || []]);
       setLoading(false);
     }
     try {
+      const classFetcher = async () => (await axios.get('/api/classes')).data || [];
+      const subjectFetcher = async () => (await axios.get('/api/subjects')).data || [];
       const [classData, subjectData, termData] = await Promise.all([
-        staleGet('classes', async () => (await axios.get('/api/classes')).data || [], 45000),
-        staleGet('subjects', async () => (await axios.get('/api/subjects')).data || [], 45000),
+        force ? forceGet('classes', classFetcher) : staleGet('classes', classFetcher, 45000),
+        force ? forceGet('subjects', subjectFetcher) : staleGet('subjects', subjectFetcher, 45000),
         axios.get('/api/academic-terms').then(({ data }) => data).catch(() => ({ terms: [], current: null })),
       ]);
       apply([classData, subjectData]);
@@ -463,6 +466,24 @@ const Setup = () => {
         <p className="mt-0.5 text-sm text-slate-400">
           School image, terms, classes, fees, and subjects. Keep this tight so the school year is easy to run.
         </p>
+        <button
+          type="button"
+          disabled={refreshing}
+          onClick={async () => {
+            setRefreshing(true);
+            invalidateCache('classes');
+            invalidateCache('subjects');
+            try {
+              await load({ force: true });
+            } finally {
+              setRefreshing(false);
+            }
+          }}
+          className="mt-3 inline-flex items-center gap-2 rounded-lg border border-slate-600 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-70"
+        >
+          <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+          Refresh
+        </button>
       </div>
 
       <section className="rounded-2xl border border-slate-700/80 bg-slate-900/50 p-4">

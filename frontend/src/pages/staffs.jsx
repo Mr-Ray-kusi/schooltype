@@ -16,7 +16,7 @@ import {
   Download,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { invalidateCache, peekCache, staleGet } from '../utils/requestCache';
+import { forceGet, invalidateCache, peekCache, staleGet } from '../utils/requestCache';
 import { fetchRecord, parseListResponse, LIST_PAGE_SIZE } from '../utils/listApi.js';
 import { downloadPersonPack, downloadPeoplePacks, staffPack, nonStaffPack } from '../utils/personPackExport';
 import { buildTermAttendancePdfBytes } from '../utils/attendanceTermPdf';
@@ -60,6 +60,7 @@ const Staff = () => {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [downloadingAll, setDownloadingAll] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [showStaffModal, setShowStaffModal] = useState(false);
   const [showNonStaffModal, setShowNonStaffModal] = useState(false);
   const [viewingPerson, setViewingPerson] = useState(null);
@@ -145,7 +146,7 @@ const Staff = () => {
     }
   };
 
-  const fetchPeople = async () => {
+  const fetchPeople = async ({ force = false } = {}) => {
     const cacheKey = `staff-combined:${peopleFilter}:${page}:${debouncedSearch}`;
     const apply = (payload) => {
       const parsed = Array.isArray(payload)
@@ -154,15 +155,13 @@ const Staff = () => {
       setPeople(parsed.items);
       setTotal(parsed.total);
     };
-    const cached = peekCache(cacheKey);
+    const cached = force ? null : peekCache(cacheKey);
     if (cached) {
       apply(cached);
       setLoading(false);
     }
     try {
-      const data = await staleGet(
-        cacheKey,
-        async () => {
+      const fetcher = async () => {
           const wantStaff = canStaff && peopleFilter !== 'non-staff';
           const wantNonStaff = canNonStaff && peopleFilter !== 'staff';
           const params = { page, limit: LIST_PAGE_SIZE, q: debouncedSearch || undefined };
@@ -197,10 +196,10 @@ const Staff = () => {
             page,
             limit: LIST_PAGE_SIZE,
           };
-        },
-        45000,
-        apply
-      );
+      };
+      const data = force
+        ? await forceGet(cacheKey, fetcher)
+        : await staleGet(cacheKey, fetcher, 45000, apply);
       apply(data);
     } catch (error) {
       console.error('Error fetching staff:', error);
@@ -460,6 +459,24 @@ const Staff = () => {
           <div className="flex w-full min-w-0 flex-nowrap items-center gap-1.5 md:w-auto md:flex-wrap md:gap-2">
             <button
               type="button"
+              disabled={refreshing}
+              onClick={async () => {
+                setRefreshing(true);
+                invalidateCache('staff');
+                invalidateCache('non-staff');
+                try {
+                  await fetchPeople({ force: true });
+                } finally {
+                  setRefreshing(false);
+                }
+              }}
+              className="inline-flex min-w-0 shrink items-center justify-center gap-1 rounded-lg border border-slate-500 px-2 py-2 text-[11px] text-slate-100 hover:bg-slate-800 disabled:opacity-70 md:px-3 md:text-sm"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+            <button
+              type="button"
               onClick={async () => {
                 setDownloadingAll(true);
                 try {
@@ -531,7 +548,7 @@ const Staff = () => {
                 onClick={regeneratePortalLink}
               className="inline-flex items-center gap-1 rounded-lg border border-slate-500 px-2 py-1 text-xs text-slate-100 hover:bg-slate-700"
               >
-                <RefreshCw className="h-3.5 w-3.5" />
+                <RefreshCw className={`h-3.5 w-3.5 ${portalLoading ? 'animate-spin' : ''}`} />
               New
               </button>
           </div>
@@ -662,8 +679,8 @@ const Staff = () => {
                 <div>
                   <label className="mb-2 block text-sm font-medium text-slate-200">Access Code</label>
                   <div className="flex gap-2">
-                    <input
-                      type="text"
+                  <input
+                    type="text"
                       value={staffForm.secretCode}
                       readOnly
                       className="w-full rounded-lg border border-slate-500 bg-slate-700 px-4 py-2 font-mono text-slate-50"

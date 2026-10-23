@@ -2,14 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { buildStudentIdUrl } from '../utils/studentIdQr';
-import { invalidateCache, peekCache, staleGet } from '../utils/requestCache';
+import { forceGet, invalidateCache, peekCache, staleGet } from '../utils/requestCache';
 import { parseListResponse, fetchAllPages, fetchRecord, LIST_PAGE_SIZE } from '../utils/listApi.js';
 import { downloadPersonPack, downloadPeoplePacks, studentPack } from '../utils/personPackExport';
 import PersonRecordTable from '../components/PersonRecordTable';
 import PersonDetailModal from '../components/PersonDetailModal';
 import ConfirmPersonDeleteModal from '../components/ConfirmPersonDeleteModal';
 import PaginationBar from '../components/PaginationBar';
-import { Search, User, Download, UserPlus } from 'lucide-react';
+import { Search, User, Download, UserPlus, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/authcontext';
 import { useStaffEmbed } from '../contexts/staffEmbed';
@@ -32,6 +32,7 @@ const Students = () => {
   const [viewingStudent, setViewingStudent] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);
   const [downloadingAll, setDownloadingAll] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     const id = setTimeout(() => setDebouncedSearch(searchTerm), 300);
@@ -46,35 +47,33 @@ const Students = () => {
     fetchStudents();
   }, [page, debouncedSearch, selectedClass]);
 
-  const fetchStudents = async () => {
+  const fetchStudents = async ({ force = false } = {}) => {
     const cacheKey = `students:${page}:${debouncedSearch}:${selectedClass}`;
     const apply = (data) => {
       const parsed = parseListResponse(data);
       setStudents(parsed.items);
       setTotal(parsed.total);
     };
-    const cached = peekCache(cacheKey);
+    const cached = force ? null : peekCache(cacheKey);
     if (cached) {
       apply(cached);
       setLoading(false);
     }
     try {
-      const data = await staleGet(
-        cacheKey,
-        async () => {
-          const response = await axios.get('/api/students', {
-            params: {
-              page,
-              limit: LIST_PAGE_SIZE,
-              q: debouncedSearch || undefined,
-              class: selectedClass !== 'all' ? selectedClass : undefined,
-            },
-          });
-          return response.data;
-        },
-        45000,
-        apply
-      );
+      const fetcher = async () => {
+        const response = await axios.get('/api/students', {
+          params: {
+            page,
+            limit: LIST_PAGE_SIZE,
+            q: debouncedSearch || undefined,
+            class: selectedClass !== 'all' ? selectedClass : undefined,
+          },
+        });
+        return response.data;
+      };
+      const data = force
+        ? await forceGet(cacheKey, fetcher)
+        : await staleGet(cacheKey, fetcher, 45000, apply);
       apply(data);
     } catch (error) {
       console.error('Error fetching students:', error);
@@ -220,6 +219,23 @@ const Students = () => {
                 className="min-w-[200px] rounded-lg border border-slate-500 py-2 pl-10 pr-4 focus:ring-2 focus:ring-primary-500"
               />
             </div>
+            <button
+              type="button"
+              disabled={refreshing}
+              onClick={async () => {
+                setRefreshing(true);
+                invalidateCache('students');
+                try {
+                  await fetchStudents({ force: true });
+                } finally {
+                  setRefreshing(false);
+                }
+              }}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-500 px-3 py-2 text-sm text-slate-100 hover:bg-slate-800 disabled:opacity-70"
+            >
+              <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
             {embed.embedded ? (
               <button
                 type="button"

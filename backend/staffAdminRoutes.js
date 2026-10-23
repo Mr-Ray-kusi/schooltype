@@ -248,7 +248,7 @@ export function registerStaffAdminRoutes(app, { authenticateStaffPortal }) {
             .eq('school_id', schoolId)
             .eq('date', date)
             .order('timestamp', { ascending: false })
-            .limit(800),
+            .limit(5000),
           supabase.from('students').select('id, name, class, roll_number').eq('school_id', schoolId),
           supabase.from('staffs').select('id, name, role').eq('school_id', schoolId),
           supabase.from('nonstaffs').select('id, name, role').eq('school_id', schoolId),
@@ -321,7 +321,7 @@ export function registerStaffAdminRoutes(app, { authenticateStaffPortal }) {
           .eq('user_id', userId)
           .eq('user_type', userType)
           .order('date', { ascending: true })
-          .limit(120);
+          .limit(5000);
         if (error) throw error;
         const records = (data || []).map((row) => ({
           ...row,

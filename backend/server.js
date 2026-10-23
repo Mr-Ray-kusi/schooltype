@@ -2627,14 +2627,49 @@ const isSchoolWeekday = (ymd) => {
   return weekday !== 'Sat' && weekday !== 'Sun';
 };
 
-const dateInAcademicTerm = (ymd, terms) =>
-  (terms || []).some((term) => {
-    const start = String(term?.starts_on || '').slice(0, 10);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || ymd < start) return false;
-    const end = String(term?.ends_on || '').slice(0, 10);
-    if (/^\d{4}-\d{2}-\d{2}$/.test(end) && ymd > end) return false;
-    return true;
-  });
+const dateInAcademicTerm = (ymd, terms) => {
+  const rows = (terms || []).filter((term) =>
+    /^\d{4}-\d{2}-\d{2}$/.test(String(term?.starts_on || '').slice(0, 10))
+  );
+  if (!rows.length) return true;
+  for (const term of rows) {
+    const start = String(term.starts_on).slice(0, 10);
+    const end = String(term.ends_on || '').slice(0, 10);
+    if (ymd < start) continue;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(end) || ymd <= end) return true;
+  }
+  const lastEnd = rows
+    .map((term) => String(term.ends_on || '').slice(0, 10))
+    .filter((day) => /^\d{4}-\d{2}-\d{2}$/.test(day))
+    .sort()
+    .at(-1);
+  const nextStart = rows
+    .map((term) => String(term.starts_on).slice(0, 10))
+    .filter((day) => lastEnd && day > lastEnd)
+    .sort()[0];
+  return Boolean(lastEnd && ymd > lastEnd && (!nextStart || ymd < nextStart));
+};
+
+const attendanceWindow = (period, today) => {
+  const monthStart = `${String(today).slice(0, 7)}-01`;
+  const start = /^\d{4}-\d{2}-\d{2}$/.test(String(period?.starts_on || ''))
+    ? String(period.starts_on).slice(0, 10)
+    : monthStart;
+  const from = start <= today ? start : monthStart;
+  return { from, to: today };
+};
+
+const fetchAllQueryRows = async (buildQuery, pageSize = 1000) => {
+  const rows = [];
+  for (let from = 0; from < 50000; from += pageSize) {
+    const { data, error } = await buildQuery().range(from, from + pageSize - 1);
+    if (error) throw error;
+    const chunk = data || [];
+    rows.push(...chunk);
+    if (chunk.length < pageSize) break;
+  }
+  return rows;
+};
 
 const lateCutoffReached = (ymd, lateAfterTime, now = new Date()) => {
   const today = schoolLocalDate(now);
@@ -2719,14 +2754,16 @@ const ensureUnscannedStudentsMarkedLate = async (schoolId, ymd) => {
   const lateAfterTime = await getSchoolLateAfterTime(schoolId);
   if (!lateCutoffReached(date, lateAfterTime)) return 0;
 
-  const [people, markedRes] = await Promise.all([
+  const [people, markedRows] = await Promise.all([
     loadSchoolPeopleForAttendance(schoolId),
-    supabase.from('attendance').select('user_id, user_type').eq('school_id', schoolId).eq('date', date),
+    fetchAllQueryRows(() =>
+      supabase.from('attendance').select('user_id, user_type').eq('school_id', schoolId).eq('date', date)
+    ),
   ]);
   if (!people.length) return 0;
 
   const marked = new Set(
-    (markedRes.data || []).map((row) => `${normalizeAttendanceUserType(row.user_type)}:${row.user_id}`)
+    (markedRows || []).map((row) => `${normalizeAttendanceUserType(row.user_type)}:${row.user_id}`)
   );
   const missing = people.filter(
     (row) =>
@@ -2789,14 +2826,16 @@ const fillPersonTermLateDays = async (schoolId, userId, userType, from, to) => {
   const days = eachSchoolDay(from, last).filter((day) => lateCutoffReached(day, lateAfterTime));
   if (!days.length) return 0;
 
-  const { data: existing } = await supabase
-    .from('attendance')
-    .select('date')
-    .eq('school_id', schoolId)
-    .eq('user_id', userId)
-    .eq('user_type', userType)
-    .gte('date', from)
-    .lte('date', last);
+  const existing = await fetchAllQueryRows(() =>
+    supabase
+      .from('attendance')
+      .select('date')
+      .eq('school_id', schoolId)
+      .eq('user_id', userId)
+      .eq('user_type', userType)
+      .gte('date', from)
+      .lte('date', last)
+  );
   const have = new Set((existing || []).map((row) => String(row.date).slice(0, 10)));
   const missingDays = days.filter((day) => !have.has(day));
   if (!missingDays.length) return 0;
@@ -2828,6 +2867,71 @@ const fillPersonTermLateDays = async (schoolId, userId, userType, from, to) => {
     }
     if (error) {
       console.warn('Person term late fill failed:', error.message);
+      continue;
+    }
+    inserted += chunk.length;
+  }
+  if (inserted) bumpSchoolCaches(schoolId);
+  return inserted;
+};
+
+const fillSchoolTermAttendance = async (schoolId, from, to, people) => {
+  const roster = Array.isArray(people) ? people : [];
+  if (!schoolId || !roster.length) return 0;
+  const lateAfterTime = await getSchoolLateAfterTime(schoolId);
+  const today = schoolLocalDate();
+  const last = to < today ? to : today;
+  const days = eachSchoolDay(from, last).filter((day) => lateCutoffReached(day, lateAfterTime));
+  if (!days.length) return 0;
+
+  const existing = await fetchAllQueryRows(() =>
+    supabase
+      .from('attendance')
+      .select('user_id, user_type, date')
+      .eq('school_id', schoolId)
+      .gte('date', from)
+      .lte('date', last)
+  );
+  const have = new Set(
+    (existing || []).map(
+      (row) =>
+        `${normalizeAttendanceUserType(row.user_type)}:${row.user_id}:${String(row.date).slice(0, 10)}`
+    )
+  );
+
+  const rows = [];
+  for (const person of roster) {
+    if (!person?.id) continue;
+    const startOn = firstAttendanceDate(person.created_at);
+    const userType = normalizeAttendanceUserType(person.user_type);
+    for (const day of days) {
+      if (startOn && day < startOn) continue;
+      if (have.has(`${userType}:${person.id}:${day}`)) continue;
+      rows.push({
+        school_id: schoolId,
+        user_type: userType,
+        user_id: person.id,
+        date: day,
+        timestamp: `${day}T${lateAfterTime}:00.000Z`,
+        status: 'late',
+        user_name: person.name || null,
+        user_label: person.label || null,
+      });
+    }
+  }
+  if (!rows.length) return 0;
+
+  let inserted = 0;
+  for (let i = 0; i < rows.length; i += 80) {
+    const chunk = rows.slice(i, i + 80);
+    let { error } = await supabase.from('attendance').insert(chunk);
+    if (error && (isMissingColumnError(error, 'user_name') || isMissingColumnError(error, 'user_label'))) {
+      const stripped = chunk.map(({ user_name, user_label, ...rest }) => rest);
+      const retry = await supabase.from('attendance').insert(stripped);
+      error = retry.error;
+    }
+    if (error) {
+      console.warn('School term late fill failed:', error.message);
       continue;
     }
     inserted += chunk.length;
@@ -5315,7 +5419,7 @@ app.get('/api/report-cards/scores', authenticateToken, enforcePlanApproval, asyn
     const termFilter = String(req.query.term || '').trim();
     const cacheKey = `reports:${schoolId}:${page}:${limit}:${classFilter}:${subjectFilter}:${termFilter}`;
     const cached = cacheGet(cacheKey);
-    if (cached) return res.json(cached);
+    if (cached && String(req.query.refresh || '') !== '1') return res.json(cached);
 
     const { data: school } = await supabase.from('schools').select('*').eq('id', schoolId).maybeSingle();
     const merged = school ? mergeSchoolWithExtras(school) : null;
@@ -5552,21 +5656,16 @@ app.get('/api/attendance', authenticateToken, enforcePlanApproval, async (req, r
     const selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(String(date || '')) ? date : today;
     await ensureUnscannedStudentsMarkedLate(req.user.schoolId, selectedDate);
 
-    let query = supabase
-      .from('attendance')
-      .select('*')
-      .eq('school_id', req.user.schoolId);
-
-    if (date) {
-      query = query.eq('date', date);
-    }
-    if (type && type !== 'all') {
-      query = query.eq('user_type', type);
-    }
-
-    const { data: attendance, error } = await query.order('timestamp', { ascending: false });
-
-    if (error) throw error;
+    const attendance = await fetchAllQueryRows(() => {
+      let query = supabase
+        .from('attendance')
+        .select('*')
+        .eq('school_id', req.user.schoolId)
+        .order('timestamp', { ascending: false });
+      if (date) query = query.eq('date', date);
+      if (type && type !== 'all') query = query.eq('user_type', type);
+      return query;
+    });
 
     const people = await loadSchoolPeopleForAttendance(req.user.schoolId);
     const visibleAttendance = await pruneAttendanceBeforeEnrollment(req.user.schoolId, attendance, people);
@@ -5588,13 +5687,7 @@ app.get('/api/attendance/person/:userId', authenticateToken, enforcePlanApproval
 
     const period = await resolveFeePeriod(req.user.schoolId).catch(() => null);
     const today = schoolLocalDate();
-    const from = /^\d{4}-\d{2}-\d{2}$/.test(String(period?.starts_on || ''))
-      ? String(period.starts_on).slice(0, 10)
-      : `${today.slice(0, 7)}-01`;
-    const endCap = /^\d{4}-\d{2}-\d{2}$/.test(String(period?.ends_on || ''))
-      ? String(period.ends_on).slice(0, 10)
-      : today;
-    const to = endCap < today ? endCap : today;
+    const { from, to } = attendanceWindow(period, today);
 
     const people = await loadSchoolPeopleForAttendance(req.user.schoolId);
     const person = people.find((row) => row.id === userId && row.user_type === userType);
@@ -5613,17 +5706,18 @@ app.get('/api/attendance/person/:userId', authenticateToken, enforcePlanApproval
 
     await fillPersonTermLateDays(req.user.schoolId, userId, userType, rangeFrom, to);
 
-    const { data, error } = await supabase
-      .from('attendance')
-      .select('*')
-      .eq('school_id', req.user.schoolId)
-      .eq('user_id', userId)
-      .eq('user_type', userType)
-      .gte('date', rangeFrom)
-      .lte('date', to)
-      .order('date', { ascending: true })
-      .order('timestamp', { ascending: true });
-    if (error) throw error;
+    const data = await fetchAllQueryRows(() =>
+      supabase
+        .from('attendance')
+        .select('*')
+        .eq('school_id', req.user.schoolId)
+        .eq('user_id', userId)
+        .eq('user_type', userType)
+        .gte('date', rangeFrom)
+        .lte('date', to)
+        .order('date', { ascending: true })
+        .order('timestamp', { ascending: true })
+    );
 
     const lateAfterTime = await getSchoolLateAfterTime(req.user.schoolId);
     const records = await enrichAttendanceRows(data || [], lateAfterTime);
@@ -5636,7 +5730,7 @@ app.get('/api/attendance/person/:userId', authenticateToken, enforcePlanApproval
       term: {
         name: period?.name || null,
         starts_on: from,
-        ends_on: period?.ends_on || to,
+        ends_on: to,
         source: period?.source || null,
       },
       records,
@@ -5701,23 +5795,19 @@ app.get('/api/attendance/export/students', authenticateToken, enforcePlanApprova
             : 'student';
     const period = await resolveFeePeriod(req.user.schoolId).catch(() => null);
     const today = schoolLocalDate();
-    const from = /^\d{4}-\d{2}-\d{2}$/.test(String(period?.starts_on || ''))
-      ? String(period.starts_on).slice(0, 10)
-      : `${today.slice(0, 7)}-01`;
-    const endCap = /^\d{4}-\d{2}-\d{2}$/.test(String(period?.ends_on || ''))
-      ? String(period.ends_on).slice(0, 10)
-      : today;
-    const to = endCap < today ? endCap : today;
+    const { from, to } = attendanceWindow(period, today);
     const lateAfterTime = await getSchoolLateAfterTime(req.user.schoolId);
 
     const { page, limit, from: pageFrom, to: pageTo } = parsePagination(req);
+    const exportAll =
+      req.query.all === '1' || req.query.all === 'true' || String(req.query.limit) === 'all';
     const people = await loadSchoolPeopleForAttendance(req.user.schoolId);
     const wanted = people.filter((person) => peopleType === 'all' || person.user_type === peopleType);
 
     const term = {
       name: period?.name || null,
       starts_on: from,
-      ends_on: period?.ends_on || to,
+      ends_on: to,
       source: period?.source || null,
     };
 
@@ -5733,27 +5823,31 @@ app.get('/api/attendance/export/students', authenticateToken, enforcePlanApprova
       }
       return true;
     });
-    const pagePeople = filtered.slice(pageFrom, pageTo + 1);
+    const pagePeople = exportAll ? filtered : filtered.slice(pageFrom, pageTo + 1);
     const pageIds = pagePeople.map((person) => person.id);
 
-    let attendanceQuery = supabase
-      .from('attendance')
-      .select('user_id, user_type, date, timestamp, status')
-      .eq('school_id', req.user.schoolId)
-      .gte('date', from)
-      .lte('date', to)
-      .order('date', { ascending: true })
-      .limit(Math.min(400, Math.max(pageIds.length, 1) * 80));
-    if (peopleType !== 'all') attendanceQuery = attendanceQuery.eq('user_type', peopleType);
-    if (pageIds.length) attendanceQuery = attendanceQuery.in('user_id', pageIds);
-    const [schoolRes, attendanceRes] = await Promise.all([
-      supabase.from('schools').select('name').eq('id', req.user.schoolId).maybeSingle(),
-      pageIds.length ? attendanceQuery : Promise.resolve({ data: [], error: null }),
-    ]);
-    if (attendanceRes.error) throw attendanceRes.error;
+    await fillSchoolTermAttendance(req.user.schoolId, from, to, pagePeople);
+
+    const attendanceRows = [];
+    for (let i = 0; i < pageIds.length; i += 80) {
+      const ids = pageIds.slice(i, i + 80);
+      const chunk = await fetchAllQueryRows(() => {
+        let query = supabase
+          .from('attendance')
+          .select('user_id, user_type, date, timestamp, status')
+          .eq('school_id', req.user.schoolId)
+          .gte('date', from)
+          .lte('date', to)
+          .order('date', { ascending: true });
+        if (peopleType !== 'all') query = query.eq('user_type', peopleType);
+        return query.in('user_id', ids);
+      });
+      attendanceRows.push(...chunk);
+    }
+    const schoolRes = await supabase.from('schools').select('name').eq('id', req.user.schoolId).maybeSingle();
 
     const byPerson = new Map();
-    for (const row of attendanceRes.data || []) {
+    for (const row of attendanceRows) {
       const punctuality =
         row.status === 'early' || row.status === 'late'
           ? row.status
@@ -5851,11 +5945,13 @@ app.get('/api/attendance/summary', authenticateToken, enforcePlanApproval, async
     const cached = cacheGet(cacheKey);
     if (cached && !filled) return res.json(cached);
 
-    const [students, staff, nonStaff, attendance] = await Promise.all([
+    const [students, staff, nonStaff, attendanceRows] = await Promise.all([
       supabase.from('students').select('id', { count: 'exact', head: true }).eq('school_id', req.user.schoolId),
       supabase.from('staffs').select('id', { count: 'exact', head: true }).eq('school_id', req.user.schoolId),
       supabase.from('nonstaffs').select('id', { count: 'exact', head: true }).eq('school_id', req.user.schoolId),
-      supabase.from('attendance').select('user_type').eq('school_id', req.user.schoolId).eq('date', selectedDate),
+      fetchAllQueryRows(() =>
+        supabase.from('attendance').select('user_type').eq('school_id', req.user.schoolId).eq('date', selectedDate)
+      ),
     ]);
 
     const payload = buildAttendanceSummaryPayload(
@@ -5865,7 +5961,7 @@ app.get('/api/attendance/summary', authenticateToken, enforcePlanApproval, async
         staff: staff.count || 0,
         nonStaff: nonStaff.count || 0,
       },
-      attendance.data
+      attendanceRows
     );
     cacheSet(cacheKey, payload, DASHBOARD_TTL_MS);
     res.json(payload);

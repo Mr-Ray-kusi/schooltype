@@ -3,7 +3,7 @@ import axios from 'axios';
 import { AlertTriangle, Clock, Download, Printer, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
-import { cachedGet, invalidateCache, peekCache, staleGet } from '../utils/requestCache';
+import { cachedGet, forceGet, invalidateCache, peekCache, staleGet } from '../utils/requestCache';
 import { schoolLocalDate } from '../utils/schoolDate';
 import { useLivePoll } from '../hooks/useLivePoll';
 import { useAuth } from '../contexts/authcontext';
@@ -11,7 +11,7 @@ import { downloadAllStudentAttendanceZip, downloadTermAttendancePdf } from '../u
 import PaginationBar from '../components/PaginationBar';
 
 const ATTENDANCE_PAGE_SIZE = 5;
-const TERM_DAY_PAGE_SIZE = 4;
+const TERM_DAY_PAGE_SIZE = 8;
 
 const fieldClass =
   'h-9 min-h-9 w-full rounded-lg border border-slate-600 bg-slate-900 px-2.5 text-sm text-white outline-none focus:ring-2 focus:ring-primary-500';
@@ -212,6 +212,7 @@ const Attendance = () => {
   const [deletingKey, setDeletingKey] = useState(null);
   const [bulkBusy, setBulkBusy] = useState('');
   const [page, setPage] = useState(1);
+  const [refreshing, setRefreshing] = useState(false);
 
   const fetchLateSettings = async () => {
     try {
@@ -233,12 +234,9 @@ const Attendance = () => {
         }
       }
       try {
-        const data = await cachedGet(
-          cacheKey,
-          async () => (await axios.get(`/api/attendance?date=${selectedDate}`)).data,
-          silent ? 0 : 4000
-        );
-        setAttendanceRecords(data);
+        const fetcher = async () => (await axios.get(`/api/attendance?date=${selectedDate}`)).data;
+        const data = silent ? await cachedGet(cacheKey, fetcher, 4000) : await forceGet(cacheKey, fetcher);
+        setAttendanceRecords(Array.isArray(data) ? data : []);
       } catch (error) {
         if (!silent) console.error('Error fetching attendance:', error);
       } finally {
@@ -256,11 +254,8 @@ const Attendance = () => {
         if (cached) setSummary(cached);
       }
       try {
-        const data = await cachedGet(
-          cacheKey,
-          async () => (await axios.get(`/api/attendance/summary?date=${selectedDate}`)).data,
-          silent ? 0 : 4000
-        );
+        const fetcher = async () => (await axios.get(`/api/attendance/summary?date=${selectedDate}`)).data;
+        const data = silent ? await cachedGet(cacheKey, fetcher, 4000) : await forceGet(cacheKey, fetcher);
         setSummary(data);
       } catch (error) {
         if (!silent) console.error('Error fetching summary:', error);
@@ -364,11 +359,18 @@ const Attendance = () => {
     [filteredRecords, safePage]
   );
 
-  const refresh = () => {
-    invalidateCache('attendance');
+  const refresh = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
     setLoading(true);
-    fetchAttendance({ silent: false });
-    fetchSummary({ silent: false });
+    invalidateCache('attendance');
+    setTermCache({});
+    setOpenKey(null);
+    try {
+      await Promise.all([fetchAttendance({ silent: false }), fetchSummary({ silent: false })]);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const deletePersonRecords = async (record) => {
@@ -439,8 +441,7 @@ const Attendance = () => {
           type: exportType,
           class: classFilter || undefined,
           q: search || undefined,
-          page: safePage,
-          limit: ATTENDANCE_PAGE_SIZE,
+          all: 1,
         },
       });
       const needle = search.toLowerCase();
@@ -566,9 +567,10 @@ const Attendance = () => {
           <button
             type="button"
             onClick={refresh}
-            className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary-600 px-3 text-sm font-medium text-white hover:bg-primary-500"
+            disabled={refreshing}
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary-600 px-3 text-sm font-medium text-white hover:bg-primary-500 disabled:opacity-70"
           >
-            <RefreshCw className="h-3.5 w-3.5" />
+            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
             Refresh
           </button>
           <button

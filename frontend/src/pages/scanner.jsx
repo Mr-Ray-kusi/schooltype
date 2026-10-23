@@ -18,6 +18,7 @@ const Scanner = () => {
   const [linkLoading, setLinkLoading] = useState(true);
   const [scannerOpen, setScannerOpen] = useState(true);
   const [scannerMessage, setScannerMessage] = useState('');
+  const [regenerating, setRegenerating] = useState(false);
   const inputRef = useRef(null);
   const scanTimeoutRef = useRef(null);
 
@@ -129,12 +130,15 @@ const Scanner = () => {
     );
     if (!confirmed) return;
 
+    setRegenerating(true);
     try {
       const response = await axios.post('/api/scanner/regenerate');
       setScannerToken(response.data.token);
       toast.success('New scanner link generated — old link is now invalid');
     } catch {
       toast.error('Failed to regenerate link');
+    } finally {
+      setRegenerating(false);
     }
   };
 
@@ -194,9 +198,10 @@ const Scanner = () => {
                 <button
                   type="button"
                   onClick={regenerateLink}
-                  className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-slate-600 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800"
+                  disabled={regenerating}
+                  className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-slate-600 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-70"
                 >
-                  <RefreshCw className="h-4 w-4" />
+                  <RefreshCw className={`h-4 w-4 ${regenerating ? 'animate-spin' : ''}`} />
                   New link
                 </button>
               </div>

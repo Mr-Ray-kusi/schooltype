@@ -157,6 +157,11 @@ export async function staleGet(key, fetcher, ttlMs = 45000, onFresh) {
   return data;
 }
 
+export async function forceGet(key, fetcher) {
+  invalidateCache(key);
+  return cachedGet(key, fetcher, 0);
+}
+
 export function invalidateCache(prefix = '') {
   if (!prefix) {
     memory.clear();
