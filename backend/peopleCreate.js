@@ -57,6 +57,17 @@ export const toCsvField = (value) => {
   return parts.length ? parts.join(', ') : null;
 };
 
+export const parseRequiredSalary = (value) => {
+  const raw = String(value ?? '').trim().replace(/[,\s]/g, '');
+  const amount = Number(raw);
+  if (raw === '' || !Number.isFinite(amount) || amount <= 0) {
+    const error = new Error('Staff salary is required');
+    error.status = 400;
+    throw error;
+  }
+  return Math.round(amount * 100) / 100;
+};
+
 export const generateAccessCode = (length = 16) => {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
   const bytes = crypto.randomBytes(length);
@@ -134,6 +145,7 @@ export async function createStaff(schoolId, body) {
     error.status = 400;
     throw error;
   }
+  const salary = parseRequiredSalary(body.salary);
 
   const barcode = `${schoolId}-STAFF-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
   const accessCode = String(body.secretCode || body.secret_code || '').trim() || generateAccessCode(16);
@@ -142,6 +154,7 @@ export async function createStaff(schoolId, body) {
     school_id: schoolId,
     name,
     role,
+    salary,
     barcode,
     qr_code: barcode,
     secret_code: accessCode,

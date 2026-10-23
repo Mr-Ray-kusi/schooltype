@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { AlertTriangle, Clock, Download, Printer, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { AlertTriangle, ChevronDown, Clock, Download, Printer, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { cachedGet, forceGet, invalidateCache, peekCache, staleGet } from '../utils/requestCache';
@@ -85,7 +85,7 @@ const TermRecords = ({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-slate-900 px-3 py-3">
+    <div className="flex min-h-0 flex-col bg-slate-900 px-3 py-3">
       <div className="flex shrink-0 items-center justify-between gap-2">
         <p className="truncate text-xs text-slate-400">
           {personName}
@@ -497,11 +497,6 @@ const Attendance = () => {
     };
   };
 
-  const openRecord = openKey
-    ? pagedRecords.find((record) => personKey(record) === openKey) ||
-      filteredRecords.find((record) => personKey(record) === openKey)
-    : null;
-
   const togglePerson = async (record) => {
     if (!record?.user_id) return;
     const key = personKey(record);
@@ -679,48 +674,52 @@ const Attendance = () => {
               : 'No attendance records for this date.'}
           </div>
         ) : (
-          <div className="divide-y divide-slate-700">
+          <div className="h-full divide-y divide-slate-700 overflow-y-auto">
             {pagedRecords.map((record) => {
               const isLate = getPunctuality(record) === 'late';
               const key = personKey(record);
+              const isOpen = openKey === key;
               return (
-                <button
-                  key={record.id || key}
-                  type="button"
-                  onClick={() => togglePerson(record)}
-                  className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-slate-700/40"
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-white">{getPersonName(record)}</p>
-                    <p className="truncate text-xs text-slate-400">
-                      {record.user_type} · {getPersonLabel(record)}
-                      <span className={`ml-2 capitalize ${typeBadge(record.user_type)} rounded-full px-1.5 py-0.5`}>
-                        {record.user_type}
-                      </span>
-                    </p>
-                  </div>
-                  <div className="shrink-0 text-right">
-                    <p className="text-xs tabular-nums text-slate-300">
-                      {format(new Date(record.timestamp), 'hh:mm a')}
-                    </p>
-                    <p className={`inline-flex items-center gap-1 text-xs ${isLate ? 'text-amber-400' : 'text-emerald-400'}`}>
-                      {isLate ? <AlertTriangle className="h-3.5 w-3.5" /> : <Clock className="h-3.5 w-3.5" />}
-                      {isLate ? 'Late' : 'Early'}
-                    </p>
-                  </div>
-                </button>
+                <div key={record.id || key} className={isOpen ? 'bg-slate-900/70' : ''}>
+                  <button
+                    type="button"
+                    onClick={() => togglePerson(record)}
+                    className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-slate-700/40"
+                    aria-expanded={isOpen}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-white">{getPersonName(record)}</p>
+                      <p className="truncate text-xs text-slate-400">
+                        {record.user_type} · {getPersonLabel(record)}
+                        <span className={`ml-2 capitalize ${typeBadge(record.user_type)} rounded-full px-1.5 py-0.5`}>
+                          {record.user_type}
+                        </span>
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-3">
+                      <div className="text-right">
+                        <p className="text-xs tabular-nums text-slate-300">
+                          {format(new Date(record.timestamp), 'hh:mm a')}
+                        </p>
+                        <p className={`inline-flex items-center gap-1 text-xs ${isLate ? 'text-amber-400' : 'text-emerald-400'}`}>
+                          {isLate ? <AlertTriangle className="h-3.5 w-3.5" /> : <Clock className="h-3.5 w-3.5" />}
+                          {isLate ? 'Late' : 'Early'}
+                        </p>
+                      </div>
+                      <ChevronDown
+                        className={`h-4 w-4 text-slate-400 transition ${isOpen ? 'rotate-180' : ''}`}
+                      />
+                    </div>
+                  </button>
+                  {isOpen ? <TermRecords {...termRecordProps(record)} /> : null}
+                </div>
               );
             })}
           </div>
         )}
-        {openRecord ? (
-          <div className="absolute inset-0 z-10 overflow-hidden rounded-xl border border-slate-700">
-            <TermRecords {...termRecordProps(openRecord)} />
-          </div>
-        ) : null}
       </div>
 
-      {filteredRecords.length > 0 && !openRecord ? (
+      {filteredRecords.length > 0 ? (
         <div className="shrink-0 print:hidden">
           <PaginationBar
             page={safePage}

@@ -94,6 +94,7 @@ import { getFeeOverviewPayload, registerFeeRoutes, registerStaffFeeRoutes } from
 import { registerStaffAdminRoutes } from './staffAdminRoutes.js';
 import { inspectScoreLock, loadScoreLocks } from './scorePublishStore.js';
 import { staffPortalApiAllowed, staffPortalAsSchoolUser } from './staffSchoolAuth.js';
+import { parseRequiredSalary } from './peopleCreate.js';
 import { registerAlumniRoutes } from './alumniRoutes.js';
 import { applyTermPromotion } from './studentPromotion.js';
 import { sortClasses } from './classHierarchy.js';
@@ -288,7 +289,7 @@ const SCHOOL_AUTH_COLUMNS = [
 const STUDENT_LIST_COLUMNS =
   'id, school_id, name, class, roll_number, parent_name, parent_phone, parent_email, parent_relationship, house_address, date_of_birth, barcode, qr_code, created_at';
 const STAFF_LIST_COLUMNS =
-  'id, school_id, name, role, barcode, qr_code, secret_code, subjects, class_names, created_at';
+  'id, school_id, name, role, salary, barcode, qr_code, secret_code, subjects, class_names, created_at';
 const NONSTAFF_LIST_COLUMNS = 'id, school_id, name, role, barcode, qr_code, created_at';
 
 const wantsPhotos = (req) =>
@@ -3833,7 +3834,7 @@ app.get('/api/staff', authenticateToken, enforcePlanApproval, async (req, res) =
 
 app.post('/api/staff', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
-    const { name, role, secretCode, subjects, classNames, class_names } = req.body;
+    const { name, role, secretCode, subjects, classNames, class_names, salary } = req.body;
 
     if (!name?.trim()) {
       return res.status(400).json({ error: 'Staff name is required' });
@@ -3841,6 +3842,7 @@ app.post('/api/staff', authenticateToken, enforcePlanApproval, async (req, res) 
     if (!role?.trim()) {
       return res.status(400).json({ error: 'Staff role is required' });
     }
+    const salaryAmount = parseRequiredSalary(salary);
 
     const barcode = `${req.user.schoolId}-STAFF-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
     const accessCode = String(secretCode || '').trim() || generateStrongPassword(16);
@@ -3851,6 +3853,7 @@ app.post('/api/staff', authenticateToken, enforcePlanApproval, async (req, res) 
       school_id: req.user.schoolId,
       name: name.trim(),
       role: role.trim(),
+      salary: salaryAmount,
       barcode,
       qr_code: barcode,
       secret_code: accessCode,
@@ -3869,7 +3872,7 @@ app.post('/api/staff', authenticateToken, enforcePlanApproval, async (req, res) 
     bumpSchoolCaches(req.user.schoolId);
     res.json(mergePersonPhoto(response));
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(error.status || 500).json({ error: error.message });
   }
 });
 
@@ -3883,6 +3886,7 @@ app.put('/api/staff/:id', authenticateToken, enforcePlanApproval, async (req, re
       subjects,
       classNames,
       class_names,
+      salary,
     } = req.body;
 
     const { data: currentStaff, error: fetchError } = await supabase
@@ -3900,6 +3904,7 @@ app.put('/api/staff/:id', authenticateToken, enforcePlanApproval, async (req, re
     const updates = {};
     if (name) updates.name = name.trim();
     if (role) updates.role = role.trim();
+    updates.salary = parseRequiredSalary(salary);
     if (subjects !== undefined) updates.subjects = toCsvField(subjects);
     if (classNames !== undefined || class_names !== undefined) {
       updates.class_names = toCsvField(classNames !== undefined ? classNames : class_names);
@@ -3917,7 +3922,7 @@ app.put('/api/staff/:id', authenticateToken, enforcePlanApproval, async (req, re
     bumpSchoolCaches(req.user.schoolId);
     res.json(mergePersonPhoto(normalizeStaffRecord(staff)));
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(error.status || 500).json({ error: error.message });
   }
 });
 

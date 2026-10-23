@@ -70,9 +70,10 @@ const Staff = () => {
   const [portalToken, setPortalToken] = useState(null);
   const [portalPath, setPortalPath] = useState('');
   const [portalLoading, setPortalLoading] = useState(true);
-  const [staffForm, setStaffForm] = useState({
+  const   [staffForm, setStaffForm] = useState({
     name: '',
     role: '',
+    salary: '',
     secretCode: '',
     subjects: [],
     classNames: [],
@@ -214,6 +215,7 @@ const Staff = () => {
     setStaffForm({
       name: '',
       role: '',
+      salary: '',
       secretCode: generateStrongPassword(16),
       subjects: [],
       classNames: [],
@@ -228,9 +230,15 @@ const Staff = () => {
 
   const handleStaffSubmit = async (e) => {
     e.preventDefault();
+    const salaryAmount = Number(String(staffForm.salary || '').replace(/[,\s]/g, ''));
+    if (!Number.isFinite(salaryAmount) || salaryAmount <= 0) {
+      toast.error('Staff salary is required');
+      return;
+    }
     try {
       const payload = {
         ...staffForm,
+        salary: salaryAmount,
         subjects: staffForm.subjects.join(', '),
         classNames: staffForm.classNames.join(', '),
         secretCode: staffForm.secretCode || generateSecretCode(),
@@ -370,6 +378,7 @@ const Staff = () => {
       setStaffForm({
         name: person.name,
         role: person.role || '',
+        salary: person.salary != null && person.salary !== '' ? String(person.salary) : '',
         secretCode: person.secretCode || person.secret_code || generateSecretCode(),
         subjects: parseCsvList(person.subjects),
         classNames: parseCsvList(person.classNames || person.class_names),
@@ -575,6 +584,17 @@ const Staff = () => {
               ? [
                   { group: 'Assignment', label: 'Type', value: 'Staff' },
                   { group: 'Assignment', label: 'Role', value: viewingStaff.role },
+                  {
+                    group: 'Assignment',
+                    label: 'Salary',
+                    value:
+                      viewingStaff.salary != null && viewingStaff.salary !== ''
+                        ? `GHS ${Number(viewingStaff.salary).toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}`
+                        : '',
+                  },
                   { group: 'Assignment', label: 'Subjects', value: viewingStaff.subjects },
                   {
                     group: 'Assignment',
@@ -656,6 +676,20 @@ const Staff = () => {
                     className="w-full px-4 py-2 border border-slate-500 rounded-lg text-slate-50"
                     required
                     placeholder="e.g., John Doe"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-200 mb-2">Monthly salary (GHS) *</label>
+                  <input
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    value={staffForm.salary}
+                    onChange={(e) => setStaffForm({ ...staffForm, salary: e.target.value })}
+                    className="w-full px-4 py-2 border border-slate-500 rounded-lg text-slate-50"
+                    required
+                    placeholder="e.g., 2500"
                   />
                 </div>
 

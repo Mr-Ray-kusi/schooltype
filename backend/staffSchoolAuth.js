@@ -17,6 +17,8 @@ const ACADEMIC_PREFIXES = [
   '/api/alumni',
   '/api/school/branding',
   '/api/staff-portal/session/admin',
+  '/api/staff-portal/link',
+  '/api/staff-portal/regenerate',
 ];
 
 const isWalletMove = (path) =>
