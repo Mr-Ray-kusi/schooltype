@@ -168,6 +168,7 @@ export function studentPack(student, qrValue) {
     details: {
       Name: student.name,
       Class: student.class || '',
+      Gender: student.gender || '',
       'Student ID': student.roll_number || '',
       'Date of birth': student.date_of_birth || '',
       'Parent name': student.parent_name || '',

@@ -57,6 +57,15 @@ export const toCsvField = (value) => {
   return parts.length ? parts.join(', ') : null;
 };
 
+export const parseRequiredGender = (value) => {
+  const raw = String(value || '').trim().toLowerCase();
+  if (raw === 'male' || raw === 'm' || raw === 'boy') return 'Male';
+  if (raw === 'female' || raw === 'f' || raw === 'girl') return 'Female';
+  const error = new Error('Student gender is required');
+  error.status = 400;
+  throw error;
+};
+
 export const parseRequiredSalary = (value) => {
   const raw = String(value ?? '').trim().replace(/[,\s]/g, '');
   const amount = Number(raw);
@@ -93,6 +102,7 @@ export async function createStudent(schoolId, body) {
     error.status = 400;
     throw error;
   }
+  const gender = parseRequiredGender(body.gender);
 
   const barcode = `${schoolId}-STU-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
   const { data: school } = await supabase.from('schools').select('id, name').eq('id', schoolId).maybeSingle();
@@ -104,6 +114,7 @@ export async function createStudent(schoolId, body) {
     school_id: schoolId,
     name,
     class: className,
+    gender,
     parent_name: String(body.parentName || body.parent_name || '').trim() || null,
     parent_relationship: String(body.parentRelationship || body.parent_relationship || '').trim() || null,
     parent_email: String(body.parentEmail || body.parent_email || '').trim() || null,
@@ -118,6 +129,7 @@ export async function createStudent(schoolId, body) {
 
   const { data, error } = await insertWithOptionalColumns('students', record, [
     'photo_url',
+    'gender',
     'parent_phone',
     'parent_name',
     'parent_relationship',

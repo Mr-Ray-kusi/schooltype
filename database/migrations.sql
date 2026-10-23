@@ -16,6 +16,7 @@ ALTER TABLE students ADD COLUMN IF NOT EXISTS date_of_birth DATE;
 ALTER TABLE students ADD COLUMN IF NOT EXISTS monthly_fee NUMERIC DEFAULT 0;
 ALTER TABLE students ADD COLUMN IF NOT EXISTS fee_status TEXT DEFAULT 'unpaid';
 ALTER TABLE students ADD COLUMN IF NOT EXISTS skills TEXT;
+ALTER TABLE students ADD COLUMN IF NOT EXISTS gender TEXT;
 
 -- Subscription payments (school pays platform)
 CREATE TABLE IF NOT EXISTS subscription_payments (

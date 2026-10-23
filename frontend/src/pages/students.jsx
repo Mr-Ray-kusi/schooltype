@@ -150,6 +150,7 @@ const Students = () => {
         parentPhone: editingStudent.parent_phone,
         houseAddress: editingStudent.house_address,
         dateOfBirth: editingStudent.date_of_birth,
+        gender: editingStudent.gender,
         rollNumber: editingStudent.roll_number,
       });
       invalidateCache('students');
@@ -283,6 +284,7 @@ const Students = () => {
           accent="sky"
           fields={[
             { group: 'School', label: 'Student ID', value: viewingStudent?.roll_number },
+            { group: 'School', label: 'Gender', value: viewingStudent?.gender },
             {
               group: 'School',
               label: 'Date of birth',
@@ -339,6 +341,16 @@ const Students = () => {
                     <option key={cls} value={cls} />
                   ))}
                 </datalist>
+                <select
+                  value={editingStudent.gender || ''}
+                  onChange={(e) => setEditingStudent({ ...editingStudent, gender: e.target.value })}
+                  className="w-full px-4 py-2 border border-slate-500 rounded-lg"
+                  required
+                >
+                  <option value="">Gender</option>
+                  <option value="Male">Male</option>
+                  <option value="Female">Female</option>
+                </select>
                 <input
                   type="date"
                   value={editingStudent.date_of_birth ? String(editingStudent.date_of_birth).slice(0, 10) : ''}

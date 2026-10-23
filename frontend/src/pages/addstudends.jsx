@@ -33,6 +33,7 @@ const AddStudent = ({ onClose } = {}) => {
     parentPhone: '',
     houseAddress: '',
     dateOfBirth: '',
+    gender: '',
   });
 
   const handleSubmit = async (e) => {
@@ -43,6 +44,10 @@ const AddStudent = ({ onClose } = {}) => {
     }
     if (!formData.parentPhone.trim()) {
       toast.error('Parent phone number is required for SMS');
+      return;
+    }
+    if (!formData.gender) {
+      toast.error('Student gender is required');
       return;
     }
     setLoading(true);
@@ -171,6 +176,23 @@ const AddStudent = ({ onClose } = {}) => {
                     No classes yet. Add them in Setup before enrolling students.
                   </p>
                 )}
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-slate-200">
+                  Gender <span className="text-sky-400">*</span>
+                </label>
+                <select
+                  name="gender"
+                  value={formData.gender}
+                  onChange={handleChange}
+                  required
+                  className={fieldClass}
+                >
+                  <option value="">Select gender</option>
+                  <option value="Male">Male</option>
+                  <option value="Female">Female</option>
+                </select>
               </div>
 
               <div>

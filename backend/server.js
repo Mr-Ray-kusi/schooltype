@@ -93,8 +93,9 @@ import {
 import { getFeeOverviewPayload, registerFeeRoutes, registerStaffFeeRoutes } from './feeRoutes.js';
 import { registerStaffAdminRoutes } from './staffAdminRoutes.js';
 import { inspectScoreLock, loadScoreLocks } from './scorePublishStore.js';
-import { staffPortalApiAllowed, staffPortalAsSchoolUser } from './staffSchoolAuth.js';
-import { parseRequiredSalary } from './peopleCreate.js';
+import { isProtectedStaffRole, staffPortalApiAllowed, staffPortalAsSchoolUser } from './staffSchoolAuth.js';
+import { parseRequiredGender, parseRequiredSalary } from './peopleCreate.js';
+import { notifyParentsOfAbsence } from './absentNotify.js';
 import { registerAlumniRoutes } from './alumniRoutes.js';
 import { applyTermPromotion } from './studentPromotion.js';
 import { sortClasses } from './classHierarchy.js';
@@ -287,7 +288,7 @@ const SCHOOL_AUTH_COLUMNS = [
 ];
 
 const STUDENT_LIST_COLUMNS =
-  'id, school_id, name, class, roll_number, parent_name, parent_phone, parent_email, parent_relationship, house_address, date_of_birth, barcode, qr_code, created_at';
+  'id, school_id, name, class, gender, roll_number, parent_name, parent_phone, parent_email, parent_relationship, house_address, date_of_birth, barcode, qr_code, created_at';
 const STAFF_LIST_COLUMNS =
   'id, school_id, name, role, salary, barcode, qr_code, secret_code, subjects, class_names, created_at';
 const NONSTAFF_LIST_COLUMNS = 'id, school_id, name, role, barcode, qr_code, created_at';
@@ -831,6 +832,7 @@ const insertStudentRecord = async (record) => {
   const payload = fillIdentityCodes({ ...record });
   const optionalColumns = [
     'photo_url',
+    'gender',
     'parent_phone',
     'parent_name',
     'parent_relationship',
@@ -877,6 +879,7 @@ const updateStudentRecord = async (id, schoolId, updates) => {
   const payload = { ...updates };
   const optionalColumns = [
     'photo_url',
+    'gender',
     'parent_phone',
     'parent_name',
     'parent_relationship',
@@ -2297,7 +2300,7 @@ const enrichAttendanceRows = async (attendance, lateAfterTime = '08:00') => {
     }
 
     const punctuality =
-      record.status === 'early' || record.status === 'late'
+      record.status === 'absent' || record.status === 'early' || record.status === 'late'
         ? record.status
         : getAttendancePunctuality(record.timestamp, lateAfterTime);
 
@@ -2672,11 +2675,35 @@ const fetchAllQueryRows = async (buildQuery, pageSize = 1000) => {
   return rows;
 };
 
+const ABSENT_AFTER_LATE_MINUTES = 120;
+
 const lateCutoffReached = (ymd, lateAfterTime, now = new Date()) => {
   const today = schoolLocalDate(now);
   if (ymd > today) return false;
   if (ymd < today) return true;
   return getAttendancePunctuality(now, lateAfterTime) === 'late';
+};
+
+const absentCutoffReached = (ymd, lateAfterTime, now = new Date()) => {
+  const today = schoolLocalDate(now);
+  if (ymd > today) return false;
+  if (ymd < today) return lateCutoffReached(ymd, lateAfterTime, now);
+  const [cutH, cutM] = normalizeLateAfterTime(lateAfterTime).split(':').map(Number);
+  const clock = schoolLocalHms(now);
+  return clock.hour * 60 + clock.minute >= cutH * 60 + cutM + ABSENT_AFTER_LATE_MINUTES;
+};
+
+const autoAttendanceStatus = (ymd, lateAfterTime, userType, now = new Date()) => {
+  if (normalizeAttendanceUserType(userType) === 'student' && absentCutoffReached(ymd, lateAfterTime, now)) {
+    return 'absent';
+  }
+  if (lateCutoffReached(ymd, lateAfterTime, now)) return 'late';
+  return null;
+};
+
+const isAutoAttendanceStamp = (timestamp, ymd, lateAfterTime) => {
+  const expected = `${ymd}T${normalizeLateAfterTime(lateAfterTime)}:00.000Z`;
+  return String(timestamp || '') === expected;
 };
 
 const normalizeAttendanceUserType = (value) => {
@@ -2745,47 +2772,7 @@ const loadSchoolPeopleForAttendance = async (schoolId) => {
   return [...students, ...staff, ...nonStaff];
 };
 
-const ensureUnscannedStudentsMarkedLate = async (schoolId, ymd) => {
-  const date = String(ymd || '').slice(0, 10);
-  if (!schoolId || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !isSchoolWeekday(date)) return 0;
-
-  const terms = await listAcademicTerms(schoolId).catch(() => []);
-  if (!dateInAcademicTerm(date, terms)) return 0;
-
-  const lateAfterTime = await getSchoolLateAfterTime(schoolId);
-  if (!lateCutoffReached(date, lateAfterTime)) return 0;
-
-  const [people, markedRows] = await Promise.all([
-    loadSchoolPeopleForAttendance(schoolId),
-    fetchAllQueryRows(() =>
-      supabase.from('attendance').select('user_id, user_type').eq('school_id', schoolId).eq('date', date)
-    ),
-  ]);
-  if (!people.length) return 0;
-
-  const marked = new Set(
-    (markedRows || []).map((row) => `${normalizeAttendanceUserType(row.user_type)}:${row.user_id}`)
-  );
-  const missing = people.filter(
-    (row) =>
-      row.id &&
-      !marked.has(`${row.user_type}:${row.id}`) &&
-      canHaveAttendanceOn(row.created_at, date)
-  );
-  if (!missing.length) return 0;
-
-  const stamp = `${date}T${lateAfterTime}:00.000Z`;
-  const rows = missing.map((person) => ({
-    school_id: schoolId,
-    user_type: person.user_type,
-    user_id: person.id,
-    date,
-    timestamp: stamp,
-    status: 'late',
-    user_name: person.name || null,
-    user_label: person.label || null,
-  }));
-
+const insertAttendanceChunks = async (rows) => {
   let inserted = 0;
   for (let i = 0; i < rows.length; i += 80) {
     const chunk = rows.slice(i, i + 80);
@@ -2797,14 +2784,129 @@ const ensureUnscannedStudentsMarkedLate = async (schoolId, ymd) => {
       error = retry.error;
     }
     if (error) {
-      console.warn('Auto-late attendance insert failed:', error.message);
+      console.warn('Auto attendance insert failed:', error.message);
       continue;
     }
     inserted += (data || []).length || chunk.length;
   }
-
-  if (inserted) bumpSchoolCaches(schoolId);
   return inserted;
+};
+
+const notifyNewAbsences = async (schoolId, studentIds) => {
+  const ids = [...new Set((studentIds || []).filter(Boolean))];
+  if (!ids.length) return;
+  const today = schoolLocalDate();
+  const { data: school } = await supabase.from('schools').select('id, name').eq('id', schoolId).maybeSingle();
+  let { data: students, error } = await supabase
+    .from('students')
+    .select('id, name, class, parent_phone, parent_email')
+    .eq('school_id', schoolId)
+    .in('id', ids);
+  if (error && (isMissingColumnError(error, 'parent_phone') || isMissingColumnError(error, 'parent_email'))) {
+    const retry = await supabase.from('students').select('id, name, class, parent_phone, parent_email').eq('school_id', schoolId).in('id', ids);
+    students = retry.data;
+    error = retry.error;
+  }
+  if (error) {
+    console.warn('Absence notify lookup failed:', error.message);
+    return;
+  }
+  await notifyParentsOfAbsence({
+    schoolId,
+    schoolName: school?.name,
+    students: (students || []).filter((row) => ids.includes(row.id)),
+    sendEmail: async ({ to, subject, text, html }) => sendAuthEmail({ to, subject, text, html }),
+  }).catch((err) => console.warn('Absence parent notify failed:', err.message));
+  void today;
+};
+
+const ensureUnscannedStudentsMarkedLate = async (schoolId, ymd) => {
+  const date = String(ymd || '').slice(0, 10);
+  if (!schoolId || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !isSchoolWeekday(date)) return 0;
+
+  const terms = await listAcademicTerms(schoolId).catch(() => []);
+  if (!dateInAcademicTerm(date, terms)) return 0;
+
+  const lateAfterTime = await getSchoolLateAfterTime(schoolId);
+  if (!lateCutoffReached(date, lateAfterTime)) return 0;
+  const markAbsent = absentCutoffReached(date, lateAfterTime);
+
+  const [people, markedRows] = await Promise.all([
+    loadSchoolPeopleForAttendance(schoolId),
+    fetchAllQueryRows(() =>
+      supabase
+        .from('attendance')
+        .select('id, user_id, user_type, status, timestamp')
+        .eq('school_id', schoolId)
+        .eq('date', date)
+    ),
+  ]);
+  if (!people.length) return 0;
+
+  const marked = new Map(
+    (markedRows || []).map((row) => [
+      `${normalizeAttendanceUserType(row.user_type)}:${row.user_id}`,
+      row,
+    ])
+  );
+  const stamp = `${date}T${lateAfterTime}:00.000Z`;
+  const toInsert = [];
+  const convertIds = [];
+  const insertAbsentIds = [];
+  const convertStudentIds = [];
+
+  for (const person of people) {
+    if (!person.id || !canHaveAttendanceOn(person.created_at, date)) continue;
+    const key = `${person.user_type}:${person.id}`;
+    const existing = marked.get(key);
+    const wanted = autoAttendanceStatus(date, lateAfterTime, person.user_type);
+    if (!wanted) continue;
+
+    if (!existing) {
+      toInsert.push({
+        school_id: schoolId,
+        user_type: person.user_type,
+        user_id: person.id,
+        date,
+        timestamp: stamp,
+        status: wanted,
+        user_name: person.name || null,
+        user_label: person.label || null,
+      });
+      if (wanted === 'absent' && person.user_type === 'student') insertAbsentIds.push(person.id);
+      continue;
+    }
+
+    if (
+      markAbsent &&
+      person.user_type === 'student' &&
+      String(existing.status || '').toLowerCase() === 'late' &&
+      isAutoAttendanceStamp(existing.timestamp, date, lateAfterTime)
+    ) {
+      convertIds.push(existing.id);
+      convertStudentIds.push(person.id);
+    }
+  }
+
+  if (convertIds.length) {
+    const { error } = await supabase
+      .from('attendance')
+      .update({ status: 'absent' })
+      .eq('school_id', schoolId)
+      .in('id', convertIds);
+    if (error) {
+      console.warn('Auto-absent update failed:', error.message);
+      convertStudentIds.length = 0;
+    }
+  }
+
+  const inserted = toInsert.length ? await insertAttendanceChunks(toInsert) : 0;
+  const newlyAbsentIds = [...insertAbsentIds, ...convertStudentIds];
+  if (inserted || convertIds.length) bumpSchoolCaches(schoolId);
+  if (newlyAbsentIds.length && date === schoolLocalDate()) {
+    await notifyNewAbsences(schoolId, newlyAbsentIds);
+  }
+  return inserted + newlyAbsentIds.length;
 };
 
 const eachSchoolDay = (from, to) => {
@@ -2852,7 +2954,7 @@ const fillPersonTermLateDays = async (schoolId, userId, userType, from, to) => {
     user_id: userId,
     date: day,
     timestamp: `${day}T${lateAfterTime}:00.000Z`,
-    status: 'late',
+    status: autoAttendanceStatus(day, lateAfterTime, userType) || 'late',
     user_name: person?.name || null,
     user_label: person?.label || null,
   }));
@@ -2914,7 +3016,7 @@ const fillSchoolTermAttendance = async (schoolId, from, to, people) => {
         user_id: person.id,
         date: day,
         timestamp: `${day}T${lateAfterTime}:00.000Z`,
-        status: 'late',
+        status: autoAttendanceStatus(day, lateAfterTime, userType) || 'late',
         user_name: person.name || null,
         user_label: person.label || null,
       });
@@ -3484,6 +3586,7 @@ app.post('/api/students', authenticateToken, enforcePlanApproval, async (req, re
       parentRelationship,
       houseAddress,
       dateOfBirth,
+      gender,
       rollNumber,
       photo,
     } = req.body;
@@ -3497,6 +3600,7 @@ app.post('/api/students', authenticateToken, enforcePlanApproval, async (req, re
     if (!parentPhone?.trim()) {
       return res.status(400).json({ error: 'Parent phone number is required for SMS' });
     }
+    const studentGender = parseRequiredGender(gender);
 
     void photo;
     void rollNumber;
@@ -3511,6 +3615,7 @@ app.post('/api/students', authenticateToken, enforcePlanApproval, async (req, re
       school_id: req.user.schoolId,
       name: name.trim(),
       class: className,
+      gender: studentGender,
       parent_name: parentName?.trim() || null,
       parent_relationship: parentRelationship?.trim() || null,
       parent_email: parentEmail?.trim() || null,
@@ -3530,7 +3635,7 @@ app.post('/api/students', authenticateToken, enforcePlanApproval, async (req, re
     bumpSchoolCaches(req.user.schoolId);
     res.status(201).json(mergeStudentPhoto(student));
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(error.status || 500).json({ error: error.message });
   }
 });
 
@@ -3569,6 +3674,7 @@ app.put('/api/students/:id', authenticateToken, enforcePlanApproval, async (req,
       house_address,
       dateOfBirth,
       date_of_birth,
+      gender,
       rollNumber,
       roll_number,
     } = req.body;
@@ -3591,6 +3697,7 @@ app.put('/api/students/:id', authenticateToken, enforcePlanApproval, async (req,
     if (nextHouse !== undefined) updates.house_address = nextHouse;
     const nextDob = dateOfBirth !== undefined ? dateOfBirth : date_of_birth;
     if (nextDob !== undefined) updates.date_of_birth = nextDob || null;
+    if (gender !== undefined) updates.gender = parseRequiredGender(gender);
     const nextRoll = rollNumber !== undefined ? rollNumber : roll_number;
     const parsedRoll = parseStudentId(nextRoll);
     if (parsedRoll) updates.roll_number = formatParsedStudentId(parsedRoll);
@@ -3602,7 +3709,7 @@ app.put('/api/students/:id', authenticateToken, enforcePlanApproval, async (req,
     bumpSchoolCaches(req.user.schoolId);
     res.json(mergeStudentPhoto(student));
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(error.status || 500).json({ error: error.message });
   }
 });
 
@@ -3899,6 +4006,16 @@ app.put('/api/staff/:id', authenticateToken, enforcePlanApproval, async (req, re
     if (fetchError || !currentStaff) {
       return res.status(404).json({ error: 'Staff member not found' });
     }
+    if (req.user.staffPortal && isProtectedStaffRole(currentStaff.role)) {
+      return res.status(403).json({
+        error: 'Only the school account can edit the administrator or accountant.',
+      });
+    }
+    if (req.user.staffPortal && role && isProtectedStaffRole(role)) {
+      return res.status(403).json({
+        error: 'Only the school account can assign the administrator or accountant role.',
+      });
+    }
 
     const generateSecretCode = () => generateStrongPassword(16);
     const updates = {};
@@ -3945,6 +4062,19 @@ app.get('/api/staff/:id', authenticateToken, enforcePlanApproval, async (req, re
 app.delete('/api/staff/:id', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
     const { id } = req.params;
+    if (req.user.staffPortal) {
+      const { data: currentStaff } = await supabase
+        .from('staffs')
+        .select('role')
+        .eq('id', id)
+        .eq('school_id', req.user.schoolId)
+        .maybeSingle();
+      if (isProtectedStaffRole(currentStaff?.role)) {
+        return res.status(403).json({
+          error: 'Only the school account can delete the administrator or accountant.',
+        });
+      }
+    }
     await purgePersonRelated(supabase, {
       schoolId: req.user.schoolId,
       personId: id,
@@ -4488,7 +4618,7 @@ const markAttendanceForSchool = async (schoolId, attendanceCode) => {
     .maybeSingle();
 
   if (existingAttendance) {
-    if (String(existingAttendance.status || '').toLowerCase() === 'late') {
+    if (['late', 'absent'].includes(String(existingAttendance.status || '').toLowerCase())) {
       const updates = { timestamp: now.toISOString(), status: punctuality, user_name: userName || null, user_label: userLabel || null };
       let { error: updateError } = await supabase
         .from('attendance')
@@ -5727,7 +5857,8 @@ app.get('/api/attendance/person/:userId', authenticateToken, enforcePlanApproval
     const lateAfterTime = await getSchoolLateAfterTime(req.user.schoolId);
     const records = await enrichAttendanceRows(data || [], lateAfterTime);
     const lateDays = records.filter((row) => row.status === 'late' || row.punctuality === 'late').length;
-    const earlyDays = records.length - lateDays;
+    const absentDays = records.filter((row) => row.status === 'absent' || row.punctuality === 'absent').length;
+    const earlyDays = records.length - lateDays - absentDays;
 
     res.json({
       user_id: userId,
@@ -5743,6 +5874,7 @@ app.get('/api/attendance/person/:userId', authenticateToken, enforcePlanApproval
         days: records.length,
         early: earlyDays,
         late: lateDays,
+        absent: absentDays,
       },
     });
   } catch (error) {
@@ -5854,7 +5986,7 @@ app.get('/api/attendance/export/students', authenticateToken, enforcePlanApprova
     const byPerson = new Map();
     for (const row of attendanceRows) {
       const punctuality =
-        row.status === 'early' || row.status === 'late'
+        row.status === 'absent' || row.status === 'early' || row.status === 'late'
           ? row.status
           : getAttendancePunctuality(row.timestamp, lateAfterTime);
       const list = byPerson.get(row.user_id) || [];
@@ -5870,6 +6002,7 @@ app.get('/api/attendance/export/students', authenticateToken, enforcePlanApprova
     const mapped = pagePeople.map((person) => {
       const records = byPerson.get(person.id) || [];
       const lateDays = records.filter((row) => row.status === 'late' || row.punctuality === 'late').length;
+      const absentDays = records.filter((row) => row.status === 'absent' || row.punctuality === 'absent').length;
       return {
         id: person.id,
         name: person.name,
@@ -5880,8 +6013,9 @@ app.get('/api/attendance/export/students', authenticateToken, enforcePlanApprova
         records,
         summary: {
           days: records.length,
-          early: records.length - lateDays,
+          early: records.length - lateDays - absentDays,
           late: lateDays,
+          absent: absentDays,
         },
       };
     });
@@ -6962,6 +7096,24 @@ if (!isVercel()) {
     };
     setTimeout(runReminders, 15000);
     setInterval(runReminders, 24 * 60 * 60 * 1000);
+
+    const sweepAbsences = async () => {
+      const today = schoolLocalDate();
+      const { data: schools, error } = await supabase.from('schools').select('id').limit(400);
+      if (error) {
+        console.warn('Absence sweep school list failed:', error.message);
+        return;
+      }
+      for (const school of schools || []) {
+        try {
+          await ensureUnscannedStudentsMarkedLate(school.id, today);
+        } catch (err) {
+          console.warn(`Absence sweep failed for ${school.id}:`, err.message);
+        }
+      }
+    };
+    setTimeout(() => sweepAbsences().catch(() => {}), 25000);
+    setInterval(() => sweepAbsences().catch(() => {}), 10 * 60 * 1000);
 
     server.on('error', (err) => {
       if (err.code === 'EADDRINUSE') {

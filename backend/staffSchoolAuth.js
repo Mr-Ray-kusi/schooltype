@@ -1,5 +1,13 @@
 import { isSchoolHeadRole } from './staffAdminRoutes.js';
 
+export function isProtectedStaffRole(role) {
+  const value = String(role || '')
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .trim();
+  return isSchoolHeadRole(role) || value === 'accountant';
+}
+
 const pathOnly = (req) => String(req.originalUrl || req.path || '').split('?')[0];
 
 const starts = (path, prefix) => path === prefix || path.startsWith(`${prefix}/`);

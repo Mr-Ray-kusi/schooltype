@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { isSchoolHeadRole } from '../staffAdminRoutes.js';
 import { inspectScoreLock, scoreLockKey } from '../scorePublishStore.js';
-import { staffPortalApiAllowed } from '../staffSchoolAuth.js';
+import { parseRequiredGender } from '../peopleCreate.js';
+import { isProtectedStaffRole, staffPortalApiAllowed } from '../staffSchoolAuth.js';
 
 test('the administrator role is the head of school in the staff portal', () => {
   assert.equal(isSchoolHeadRole('Administrator'), true);
@@ -24,6 +25,18 @@ test('published reports lock teachers unless the administrator allows one', () =
   assert.equal(allowed.canEdit, true);
   assert.equal(open.published, false);
   assert.equal(open.canEdit, true);
+});
+
+test('student gender must be male or female', () => {
+  assert.equal(parseRequiredGender('male'), 'Male');
+  assert.equal(parseRequiredGender('Female'), 'Female');
+  assert.throws(() => parseRequiredGender(''), /required/i);
+});
+
+test('administrator and accountant records are protected from other staff', () => {
+  assert.equal(isProtectedStaffRole('Administrator'), true);
+  assert.equal(isProtectedStaffRole('Accountant'), true);
+  assert.equal(isProtectedStaffRole('Teacher'), false);
 });
 
 test('staff administrator can use academic APIs and not wallet transfers', () => {

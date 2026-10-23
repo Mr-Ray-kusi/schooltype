@@ -55,8 +55,22 @@ const recordMatchesSearch = (record, query) => {
 
 const getPunctuality = (record) =>
   record.punctuality ||
-  (record.status === 'early' || record.status === 'late' ? record.status : null) ||
+  (record.status === 'absent' || record.status === 'early' || record.status === 'late'
+    ? record.status
+    : null) ||
   'early';
+
+const statusTone = (status) => {
+  if (status === 'absent') return 'text-rose-400';
+  if (status === 'late') return 'text-amber-400';
+  return 'text-emerald-400';
+};
+
+const statusLabel = (status) => {
+  if (status === 'absent') return 'Absent';
+  if (status === 'late') return 'Late';
+  return 'Early';
+};
 
 const personKey = (record) => `${record.user_type || 'student'}:${record.user_id || record.id}`;
 
@@ -92,7 +106,9 @@ const TermRecords = ({
           {personLabel ? ` · ${personLabel}` : ''}
           {data?.term?.name ? ` · ${data.term.name}` : ''}
           {data?.summary
-            ? ` · ${data.summary.days} days · ${data.summary.early} early · ${data.summary.late} late`
+            ? ` · ${data.summary.days} days · ${data.summary.early} early · ${data.summary.late} late${
+                data.summary.absent ? ` · ${data.summary.absent} absent` : ''
+              }`
             : ''}
         </p>
         <div className="flex shrink-0 gap-2">
@@ -161,17 +177,17 @@ const TermRecords = ({
             </thead>
             <tbody>
               {pagedDays.map((row) => {
-                const late = getPunctuality(row) === 'late';
+                const status = getPunctuality(row);
                 return (
                   <tr key={row.id || row.date} className="border-t border-slate-800">
                     <td className="px-2 py-1 text-slate-200">
                       {row.date ? format(new Date(`${row.date}T12:00:00`), 'EEE d MMM') : '—'}
                     </td>
                     <td className="px-2 py-1 tabular-nums text-slate-300">
-                      {row.timestamp ? format(new Date(row.timestamp), 'hh:mm a') : '—'}
+                      {status === 'absent' ? '—' : row.timestamp ? format(new Date(row.timestamp), 'hh:mm a') : '—'}
                     </td>
-                    <td className={`px-2 py-1 ${late ? 'text-amber-400' : 'text-emerald-400'}`}>
-                      {late ? 'Late' : 'Early'}
+                    <td className={`px-2 py-1 ${statusTone(status)}`}>
+                      {statusLabel(status)}
                     </td>
                   </tr>
                 );
@@ -345,6 +361,10 @@ const Attendance = () => {
 
   const lateCount = useMemo(
     () => filteredRecords.filter((record) => getPunctuality(record) === 'late').length,
+    [filteredRecords]
+  );
+  const absentCount = useMemo(
+    () => filteredRecords.filter((record) => getPunctuality(record) === 'absent').length,
     [filteredRecords]
   );
 
@@ -545,6 +565,7 @@ const Attendance = () => {
             {' · '}
             {filteredRecords.length} marked
             {lateCount > 0 ? ` · ${lateCount} late` : ''}
+            {absentCount > 0 ? ` · ${absentCount} absent` : ''}
             {summaryItems.length
               ? ` · ${summaryItems
                   .map((item) => `${item.label} ${item.data.present}/${item.data.total}`)
@@ -676,7 +697,7 @@ const Attendance = () => {
         ) : (
           <div className="h-full divide-y divide-slate-700 overflow-y-auto">
             {pagedRecords.map((record) => {
-              const isLate = getPunctuality(record) === 'late';
+              const status = getPunctuality(record);
               const key = personKey(record);
               const isOpen = openKey === key;
               return (
@@ -701,9 +722,13 @@ const Attendance = () => {
                         <p className="text-xs tabular-nums text-slate-300">
                           {format(new Date(record.timestamp), 'hh:mm a')}
                         </p>
-                        <p className={`inline-flex items-center gap-1 text-xs ${isLate ? 'text-amber-400' : 'text-emerald-400'}`}>
-                          {isLate ? <AlertTriangle className="h-3.5 w-3.5" /> : <Clock className="h-3.5 w-3.5" />}
-                          {isLate ? 'Late' : 'Early'}
+                        <p className={`inline-flex items-center gap-1 text-xs ${statusTone(status)}`}>
+                          {status === 'late' || status === 'absent' ? (
+                            <AlertTriangle className="h-3.5 w-3.5" />
+                          ) : (
+                            <Clock className="h-3.5 w-3.5" />
+                          )}
+                          {statusLabel(status)}
                         </p>
                       </div>
                       <ChevronDown

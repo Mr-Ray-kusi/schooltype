@@ -6,6 +6,7 @@ import ConfirmPersonDeleteModal from '../components/ConfirmPersonDeleteModal';
 import PaginationBar from '../components/PaginationBar';
 import { buildPersonIdUrl } from '../utils/studentIdQr';
 import { useAuth } from '../contexts/authcontext';
+import { useStaffEmbed } from '../contexts/staffEmbed';
 import {
   Search,
   Plus,
@@ -49,8 +50,25 @@ const asNonStaffRow = (item) => ({
   kind: 'non-staff',
 });
 
+const isProtectedStaffPerson = (person) => {
+  if (person?.kind !== 'staff') return false;
+  const role = String(person.role || '')
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .trim();
+  return (
+    role === 'accountant' ||
+    role === 'administrator' ||
+    role === 'headteacher' ||
+    role === 'head teacher' ||
+    role === 'headmistress' ||
+    role === 'headmaster'
+  );
+};
+
 const Staff = () => {
   const { includesPlanFeature, school } = useAuth();
+  const embed = useStaffEmbed();
   const canStaff = includesPlanFeature('staff');
   const canNonStaff = includesPlanFeature('non-staff');
   const [people, setPeople] = useState([]);
@@ -338,6 +356,10 @@ const Staff = () => {
   };
 
   const handleDelete = async (person) => {
+    if (embed.embedded && isProtectedStaffPerson(person)) {
+      toast.error('Only the school account can delete the administrator or accountant.');
+      return;
+    }
     const isStaff = person.kind === 'staff';
     try {
       if (isStaff) {
@@ -371,6 +393,10 @@ const Staff = () => {
   };
 
   const handleEdit = (person) => {
+    if (embed.embedded && isProtectedStaffPerson(person)) {
+      toast.error('Only the school account can edit the administrator or accountant.');
+      return;
+    }
     setViewingPerson(null);
     if (person.kind === 'staff') {
       fetchSetupOptions();
@@ -614,8 +640,16 @@ const Staff = () => {
                 ]
           }
           onClose={() => setViewingPerson(null)}
-          onEdit={() => handleEdit(viewingPerson)}
-          onDelete={() => setPendingDelete(viewingPerson)}
+          onEdit={
+            embed.embedded && isProtectedStaffPerson(viewingPerson)
+              ? undefined
+              : () => handleEdit(viewingPerson)
+          }
+          onDelete={
+            embed.embedded && isProtectedStaffPerson(viewingPerson)
+              ? undefined
+              : () => setPendingDelete(viewingPerson)
+          }
           onDownload={async () => {
             if (!viewingPerson) return;
             await downloadPersonDetails(viewingPerson);
