@@ -466,6 +466,7 @@ const AccountantFees = ({ schoolName, authHeaders, readOnly = false }) => {
           month={data?.month}
           requestConfig={requestConfig}
           submitUrl="/api/staff-portal/session/fees/manual"
+          momoCheckoutUrl="/api/staff-portal/session/fees/checkout"
           onClose={() => setShowManual(false)}
           onSaved={() => {
             setLoading(true);

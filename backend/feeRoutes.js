@@ -965,6 +965,61 @@ export async function recordManualSchoolFee({ schoolId, studentId, amount, metho
   };
 }
 
+async function startOfficeMomoCheckout({ schoolId, studentId, amount, month, phone, provider, email }) {
+  const { data: student, error } = await supabase
+    .from('students')
+    .select('*')
+    .eq('id', studentId)
+    .eq('school_id', schoolId)
+    .maybeSingle();
+  if (error || !student) {
+    const err = new Error('Student not found');
+    err.status = 404;
+    throw err;
+  }
+
+  const period = month ? await getFeePeriodByKey(schoolId, String(month)) : await resolveFeePeriod(schoolId);
+  const [classFee, { data: school }] = await Promise.all([
+    getClassFeeAmount(schoolId, student.class),
+    supabase.from('schools').select('id, name, email').eq('id', schoolId).maybeSingle(),
+  ]);
+  const feeAmount = resolveStudentFeeAmount(student, classFee);
+  const balance = await loadFeeBalance(student, feeAmount, period.key);
+  if (balance.fully_paid) {
+    const err = new Error(`There is no outstanding payment to make for ${period.name || 'this term'}.`);
+    err.status = 409;
+    err.code = 'FULLY_PAID';
+    throw err;
+  }
+
+  const phoneLocal = normalizeGhanaPhone(phone || student.parent_phone);
+  if (!/^0\d{9}$/.test(phoneLocal)) {
+    const err = new Error('Enter the parent Ghana MoMo number, like 0551234567.');
+    err.status = 400;
+    throw err;
+  }
+
+  if (phoneLocal !== String(student.parent_phone || '').trim()) {
+    await supabase.from('students').update({ parent_phone: phoneLocal }).eq('id', student.id).eq('school_id', schoolId);
+  }
+
+  const requested = Number(amount);
+  const payAmount =
+    Number.isFinite(requested) && requested > 0 ? requested : balance.outstanding || feeAmount;
+
+  return startFeePayment({
+    student: { ...student, parent_phone: phoneLocal },
+    school,
+    amount: payAmount,
+    month: period.key,
+    termName: period.name,
+    email: student.parent_email || school?.email || email,
+    method: 'momo',
+    phone: phoneLocal,
+    provider: provider || momoProviderFromGhanaPhone(phoneLocal),
+  });
+}
+
 async function receiptDetailsForPayment(reference) {
   const resolved = await resolveFeePayment(reference);
   const payload = resolved.payload || {};
@@ -1670,14 +1725,30 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
           code: 'ALREADY_PAID',
         });
       }
+      const payMethod = normalizePayMethod(req.body?.method) || 'momo';
+      if (payMethod === 'momo') {
+        const checkout = await startOfficeMomoCheckout({
+          schoolId: req.user.schoolId,
+          studentId: student.id,
+          amount: req.body?.amount,
+          month: req.body?.month || month,
+          phone: req.body?.phone,
+          provider: req.body?.provider,
+          email: student.parent_email || req.user.email,
+        });
+        return res.json({
+          ...checkout,
+          pay_url: `${getFrontendBaseUrl()}/pay/${encodeURIComponent(student.barcode)}`,
+        });
+      }
       const checkout = await startFeePayment({
         student,
         school,
-        amount: balance.outstanding || amount,
+        amount: Number(req.body?.amount) > 0 ? Number(req.body.amount) : balance.outstanding || amount,
         month,
         termName: period.name,
         email: student.parent_email || req.user.email,
-        method: req.body?.method || 'bank',
+        method: payMethod,
         phone: req.body?.phone,
         provider: req.body?.provider,
       });
@@ -1718,6 +1789,33 @@ export function registerStaffFeeRoutes(app, { authenticateStaffPortal }) {
       } catch (err) {
         console.error('Accountant fee overview error:', err);
         res.status(500).json({ error: err.message || 'Failed to load fees' });
+      }
+    }
+  );
+
+  app.post(
+    '/api/staff-portal/session/fees/checkout',
+    authenticateStaffPortal,
+    requireAccountant,
+    async (req, res) => {
+      try {
+        const checkout = await startOfficeMomoCheckout({
+          schoolId: req.staffPortal.schoolId,
+          studentId: String(req.body?.studentId || '').trim(),
+          amount: req.body?.amount,
+          month: req.body?.month,
+          phone: req.body?.phone,
+          provider: req.body?.provider,
+          email: req.staffPortal.email,
+        });
+        res.json(checkout);
+      } catch (err) {
+        if (err.code === 'FULLY_PAID' || err.status === 409) {
+          return res.status(409).json({ error: err.message, code: 'FULLY_PAID' });
+        }
+        if (err.code?.startsWith('PAYSTACK') || err.status) return handlePaystackError(res, err);
+        console.error('Accountant MoMo checkout error:', err);
+        res.status(500).json({ error: err.message || 'Failed to send the MoMo prompt' });
       }
     }
   );
