@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import toast from 'react-hot-toast';
-import { BookOpen, GraduationCap, LogOut, Save, Users } from 'lucide-react';
+import { BookOpen, GraduationCap, LogOut, Pencil, Save, Users } from 'lucide-react';
 import AdministratorSchool from '../components/AdministratorSchool';
 import Fees from './fees-paid';
 import SchoolWallet from './school-wallet';
@@ -48,6 +48,8 @@ const StaffPortal = () => {
   const [savingAll, setSavingAll] = useState(false);
   const [promotionResult, setPromotionResult] = useState(null);
   const [scoreLock, setScoreLock] = useState({ published: false, canEdit: true });
+  const [hasSavedScores, setHasSavedScores] = useState(false);
+  const [editingSaved, setEditingSaved] = useState(false);
   const [schoolRecord, setSchoolRecord] = useState(null);
   const [financeTab, setFinanceTab] = useState('fees');
 
@@ -180,6 +182,18 @@ const StaffPortal = () => {
           };
         }
         setDraftScores(nextDraft);
+        const selectedKey = normalizeClassKey(className);
+        const inClass = (studentsRes.data || []).filter(
+          (student) => !selectedKey || normalizeClassKey(student.class) === selectedKey
+        );
+        const complete =
+          inClass.length > 0 &&
+          inClass.every((student) => {
+            const draft = nextDraft[student.id];
+            return draft && draft.score !== '' && draft.score != null && Number.isFinite(Number(draft.score));
+          });
+        setHasSavedScores(complete);
+        setEditingSaved(false);
       } catch (err) {
         toast.error(err.response?.data?.error || 'Failed to load portal data');
         if (err.response?.status === 401) clearSession();
@@ -317,8 +331,11 @@ const StaffPortal = () => {
       setPromotionResult(data?.promotions || null);
       if (data?.failed?.length) {
         toast.error(data.message || `Saved with ${data.failed.length} errors`);
+        setEditingSaved(true);
       } else {
         toast.success(data?.message || `Saved ${classStudents.length} scores`);
+        setHasSavedScores(true);
+        setEditingSaved(false);
       }
       await loadTeacherData(selectedSubject, selectedClass, term);
     } catch (err) {
@@ -408,6 +425,8 @@ const StaffPortal = () => {
   );
   const wideLayout = isAccountant || isAdministrator;
   const scoresLocked = Boolean(scoreLock?.published && !scoreLock?.canEdit);
+  const viewingSaved = hasSavedScores && !editingSaved && !scoresLocked;
+  const fieldsLocked = savingAll || scoresLocked || viewingSaved;
   const portalAuth = {
     token: sessionToken,
     school: schoolRecord || {
@@ -563,7 +582,9 @@ const StaffPortal = () => {
                         Scores · {selectedSubject} · {selectedClass}
                       </h2>
                       <p className="mt-1 text-xs text-slate-400">
-                        Enter a mark for every student, then save once.
+                        {viewingSaved
+                          ? 'These marks are saved. Click Edit to change them.'
+                          : 'Enter a mark for every student, then save once.'}
                         {classStudents.length > 0
                           ? ` ${markedCount}/${classStudents.length} entered.`
                           : ''}
@@ -579,15 +600,26 @@ const StaffPortal = () => {
                         </p>
                       ) : null}
                     </div>
-                    <button
-                      type="button"
-                      onClick={saveAllScores}
-                      disabled={!allMarksEntered || savingAll || scoresLocked}
-                      className="inline-flex items-center justify-center gap-1.5 rounded-full bg-sky-500 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      <Save className="h-3.5 w-3.5" />
-                      {savingAll ? 'Saving…' : 'Save all'}
-                    </button>
+                    {viewingSaved ? (
+                      <button
+                        type="button"
+                        onClick={() => setEditingSaved(true)}
+                        className="inline-flex items-center justify-center gap-1.5 rounded-full border border-sky-400/70 bg-sky-500/10 px-4 py-2 text-sm font-semibold text-sky-100 hover:bg-sky-500/20"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                        Edit
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={saveAllScores}
+                        disabled={!allMarksEntered || savingAll || scoresLocked}
+                        className="inline-flex items-center justify-center gap-1.5 rounded-full bg-sky-500 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <Save className="h-3.5 w-3.5" />
+                        {savingAll ? 'Saving…' : 'Save all'}
+                      </button>
+                    )}
                   </div>
                   {promotionResult &&
                   (promotionResult.promoted?.length ||
@@ -655,7 +687,7 @@ const StaffPortal = () => {
                               }
                               className="w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-sm lg:w-24"
                               placeholder="Score"
-                              disabled={savingAll || scoresLocked}
+                              disabled={fieldsLocked}
                             />
                             <input
                               type="number"
@@ -668,7 +700,7 @@ const StaffPortal = () => {
                               }
                               className="w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-sm lg:w-24"
                               placeholder="Max"
-                              disabled={savingAll || scoresLocked}
+                              disabled={fieldsLocked}
                             />
                             <select
                               value={draft.attitude || ''}
@@ -679,7 +711,7 @@ const StaffPortal = () => {
                                 }))
                               }
                               className="w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-sm lg:w-36"
-                              disabled={savingAll || scoresLocked}
+                              disabled={fieldsLocked}
                             >
                               <option value="">Attitude</option>
                               {ATTITUDES.map((item) => (
