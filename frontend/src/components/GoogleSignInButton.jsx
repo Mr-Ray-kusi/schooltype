@@ -45,7 +45,7 @@ const GoogleIcon = () => (
   </svg>
 );
 
-export default function GoogleSignInButton({ label = 'Continue with Google', disabled, onCredential }) {
+export default function GoogleSignInButton({ label = 'Continue with Google', disabled, onCredential, className = '' }) {
   const [busy, setBusy] = useState(false);
   const clientIdRef = useRef('');
 
@@ -115,7 +115,10 @@ export default function GoogleSignInButton({ label = 'Continue with Google', dis
       type="button"
       onClick={handleClick}
       disabled={disabled || busy}
-      className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-neutral-600 bg-[#1a1a1a] py-2.5 text-sm font-medium text-white hover:bg-[#222] disabled:opacity-50"
+      className={
+        className ||
+        'inline-flex w-full items-center justify-center gap-2 rounded-xl border border-neutral-600 bg-[#1a1a1a] py-2.5 text-sm font-medium text-white hover:bg-[#222] disabled:opacity-50'
+      }
     >
       <GoogleIcon />
       {busy ? 'Connecting to Google…' : label}

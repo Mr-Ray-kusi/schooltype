@@ -3,8 +3,7 @@ import { useNavigate, Link, useSearchParams, Navigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAuth, getPostAuthPath } from '../contexts/authcontext';
 import { getPlan, formatPlanPriceGhs } from '../constants/plans';
-import { User, Mail, ImagePlus, ShieldCheck } from 'lucide-react';
-import AuthSplitLayout, { AuthBrandMark, AuthField, AUTH_ORANGE } from '../components/AuthSplitLayout';
+import AuthSplitLayout, { AuthField } from '../components/AuthSplitLayout';
 import GoogleSignInButton from '../components/GoogleSignInButton';
 import { openPaystackCheckout } from '../utils/paystackCheckout';
 
@@ -71,14 +70,14 @@ const Signup = () => {
   const openPaystack = (data) => {
     if (!data?.authorization_url) return false;
     const opened = openPaystackCheckout(data);
-    if (opened) toast.success('Choose MoMo, card, or bank on Paystack. MoMo sends a PIN to the phone.');
+    if (opened) toast.success('Choose MoMo, card, or bank on Paystack.');
     return opened;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!privacyAccepted) {
-      toast.error('Please accept the privacy notice to create an account.');
+      toast.error('Please accept the Privacy notice to create an account.');
       return;
     }
     setLoading(true);
@@ -104,78 +103,89 @@ const Signup = () => {
     }
   };
 
+  const planPrice = formatPlanPriceGhs(selectedPlan);
+
   return (
-    <AuthSplitLayout mode="signup">
-      <AuthBrandMark />
-      <div className="mt-6">
-        <h1 className="text-[2rem] font-bold leading-tight text-white">Join the crew</h1>
-        <p className="mt-2 text-sm text-neutral-400">
-          Pay for {selectedPlan.name} — {formatPlanPriceGhs(selectedPlan)} / year, then your school account is created
-          and unlocked.
-        </p>
-        <Link to="/plans" className="mt-1 inline-block text-xs hover:underline" style={{ color: AUTH_ORANGE }}>
-          Change plan
-        </Link>
-      </div>
+    <AuthSplitLayout mode="signup" planName={selectedPlan.name} planPrice={planPrice}>
+      <p className="mk-kicker">Step 2 of 2</p>
+      <h1 className="mt-3 font-serif text-3xl font-bold text-[var(--mk-ink)]">Create account</h1>
+      <p className="mt-2 text-sm text-[var(--mk-muted)]">
+        {selectedPlan.name}, {planPrice} per year
+      </p>
 
       <form onSubmit={handleSubmit} className="mt-8 space-y-4">
         <AuthField
           label="School name"
-          icon={User}
           name="schoolName"
           value={formData.schoolName}
           onChange={handleChange}
           required
           placeholder="Bright Future Academy"
         />
+        <AuthField
+          label="Administrator email"
+          type="email"
+          name="email"
+          value={formData.email}
+          onChange={handleChange}
+          required
+          placeholder="admin@school.com"
+        />
 
         <div>
-          <span className="mb-1.5 block text-[13px] font-medium text-neutral-300">
-            School logo <span className="font-normal text-neutral-500">(optional)</span>
+          <span className="mb-1.5 block text-sm font-semibold text-[var(--mk-ink)]">
+            School logo <span className="font-normal text-[var(--mk-muted)]">(image, max 2MB, optional)</span>
           </span>
           {logoPreview ? (
-            <div className="flex items-center gap-3 rounded-xl border border-[#3f3f3f] bg-[#1a1a1a] px-3 py-2">
-              <img src={logoPreview} alt="Logo preview" className="h-11 w-11 rounded-lg object-cover" />
-              <button type="button" onClick={handleRemoveLogo} className="text-sm text-red-400 hover:text-red-300">
+            <div className="flex items-center gap-3 border border-[var(--mk-line)] bg-[var(--mk-paper)] px-3 py-2">
+              <img src={logoPreview} alt="Logo preview" className="h-11 w-11 object-cover" />
+              <button type="button" onClick={handleRemoveLogo} className="text-sm font-semibold text-[var(--mk-clay)]">
                 Remove
               </button>
             </div>
           ) : (
-            <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-[#3f3f3f] bg-[#1a1a1a] px-3 py-3 text-sm text-neutral-400 transition hover:border-[#3498DB]/50">
-              <ImagePlus className="h-4 w-4 text-neutral-500" />
-              <span>Upload a logo</span>
+            <label className="flex cursor-pointer items-center gap-3 border border-dashed border-[var(--mk-line)] bg-[var(--mk-paper)] px-3 py-3 text-sm text-[var(--mk-muted)]">
+              <span>Upload a school logo</span>
               <input type="file" accept="image/*" onChange={handleLogoChange} className="hidden" />
             </label>
           )}
         </div>
 
-        <label className="flex items-start gap-3 rounded-xl border border-[#3f3f3f] bg-[#1a1a1a] px-3 py-3 text-xs text-neutral-300">
+        <label className="flex items-start gap-3 text-sm text-[var(--mk-ink)]">
           <input
             type="checkbox"
             checked={privacyAccepted}
             onChange={(e) => setPrivacyAccepted(e.target.checked)}
-            className="mt-0.5 h-4 w-4 shrink-0 accent-[#3498DB]"
+            className="mk-check mt-0.5 h-4 w-4 shrink-0"
             required
           />
           <span>
-            I have read the{' '}
-            <Link to="/privacy" className="font-medium hover:underline" style={{ color: AUTH_ORANGE }}>
-              privacy notice
+            I agree to the{' '}
+            <Link to="/privacy" className="font-semibold text-[var(--mk-forest)] underline-offset-2 hover:underline">
+              Privacy notice
             </Link>
-            . Schooltype will use this email to create and operate my school account.
           </span>
         </label>
+
+        <button
+          type="submit"
+          disabled={loading || !privacyAccepted}
+          className="mk-btn mk-btn-primary w-full disabled:opacity-50"
+        >
+          {loading ? 'Opening Paystack…' : 'Continue to payment'}
+        </button>
 
         <GoogleSignInButton
           label="Sign up with Google"
           disabled={loading || !privacyAccepted}
+          className="mk-google-btn"
           onCredential={async ({ accessToken }) => {
             if (!formData.schoolName.trim()) {
               toast.error('Enter your school name first, then continue with Google.');
               return;
             }
             if (!privacyAccepted) {
-              toast.error('Please accept the privacy notice to create an account.');
+              toast.error('Please accept the Privacy notice to create an account.');
               return;
             }
             const data = await loginWithGoogle({
@@ -190,52 +200,20 @@ const Signup = () => {
             navigate(getPostAuthPath(data.school), { replace: true });
           }}
         />
-
-        <div className="relative my-2 text-center text-[11px] uppercase tracking-[0.14em] text-neutral-500">
-          <span className="absolute inset-x-0 top-1/2 h-px bg-neutral-700" />
-          <span className="relative bg-[#121212] px-3">or continue with email</span>
-        </div>
-
-        <AuthField
-          label="Email"
-          icon={Mail}
-          type="email"
-          name="email"
-          value={formData.email}
-          onChange={handleChange}
-          required
-          placeholder="admin@school.com"
-        />
-
-        <div className="rounded-xl border border-[#3f3f3f] bg-[#1a1a1a] px-3 py-3 text-xs text-neutral-400">
-          <p className="flex items-center gap-2 font-medium text-neutral-300">
-            <ShieldCheck className="h-4 w-4 text-[#3498DB]" />
-            Pay on Paystack, then verify email
-          </p>
-          <p className="mt-1 pl-6">
-            Paystack collects MoMo, card, or bank details. After payment we email a link so you can verify and choose a
-            password.
-          </p>
-        </div>
-
-        <button
-          type="submit"
-          disabled={loading || !privacyAccepted}
-          className="auth-accent mt-2 w-full rounded-xl py-3.5 text-sm font-semibold text-white transition disabled:opacity-50"
-        >
-          {loading ? 'Opening Paystack…' : 'Pay & create account'}
-        </button>
       </form>
 
-      <p className="mt-6 text-center text-sm text-neutral-400">
-        Already registered?{' '}
-        <Link to="/login" className="font-semibold hover:underline" style={{ color: AUTH_ORANGE }}>
-          Sign in
-        </Link>
+      <p className="mt-6 text-sm leading-relaxed text-[var(--mk-muted)]">
+        Payment is MoMo, card, or bank on Paystack. The account is created only after payment succeeds.
+        A verification email is sent so the administrator can choose a password. There is no password
+        field on this screen.
       </p>
-      <p className="mt-3 text-center text-xs text-neutral-500">
-        <Link to="/privacy" className="hover:underline">
-          Privacy notice
+      <p className="mt-5 text-sm">
+        <Link to="/plans" className="font-semibold text-[var(--mk-forest)] underline-offset-2 hover:underline">
+          Back to plans
+        </Link>
+        <span className="px-2 text-[var(--mk-line)]">·</span>
+        <Link to="/login" className="font-semibold text-[var(--mk-forest)] underline-offset-2 hover:underline">
+          Already have an account? Sign in
         </Link>
       </p>
     </AuthSplitLayout>

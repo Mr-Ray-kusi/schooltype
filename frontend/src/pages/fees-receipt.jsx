@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
-import { Download } from 'lucide-react';
 import { downloadFeeReceiptPdf, formatGhs } from '../utils/feeReceiptPdf';
+import MarketingChrome from '../components/MarketingChrome';
 
 const FeesReceipt = () => {
   const [params] = useSearchParams();
@@ -69,76 +69,57 @@ const FeesReceipt = () => {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-950 px-5 py-10 text-white">
-      <div className="w-full max-w-md rounded-3xl border border-slate-700 bg-slate-900/80 p-8 text-center">
-        <p className="text-xs uppercase tracking-[0.2em] text-sky-300/80">School fees</p>
-        {loading ? (
-          <p className="mt-6 text-slate-300">Confirming payment…</p>
-        ) : error ? (
-          <p className="mt-6 text-rose-300">{error}</p>
-        ) : (
-          <>
-            <h1 className="mt-4 text-3xl font-bold">
-              {success
-                ? hasBalance
-                  ? 'Payment received'
-                  : 'Fully paid'
-                : result.status === 'failed' || result.status === 'timeout'
-                  ? 'Payment not complete'
-                  : 'Waiting for confirmation'}
-            </h1>
-            <p className="mt-2 text-sm text-slate-400">
-              {result.school_name ? `${result.school_name} · ` : ''}
-              {result.student_name || 'Student'}
-              {result.class_name ? ` · ${result.class_name}` : ''}
-            </p>
-            <p className="mt-1 text-xs text-slate-500">
-              {result.period_label || result.term_name || result.payment_month || ''}
-            </p>
-            <p className="mt-6 text-4xl font-bold tabular-nums">{formatGhs(result.amount)}</p>
-            <p className="mt-2 text-xs uppercase tracking-wide text-slate-500">
-              This payment · {result.channel || 'Paystack'} · {reference}
-            </p>
-            {success ? (
-              <dl className="mt-6 grid grid-cols-3 gap-2 rounded-2xl border border-slate-700 bg-slate-950/50 p-3 text-left text-xs">
-                <div>
-                  <dt className="text-slate-500">Fee billed</dt>
-                  <dd className="mt-1 text-sm text-white">{formatGhs(result.fee_amount)}</dd>
-                </div>
-                <div>
-                  <dt className="text-slate-500">Total paid</dt>
-                  <dd className="mt-1 text-sm text-emerald-300">{formatGhs(result.paid_amount)}</dd>
-                </div>
-                <div>
-                  <dt className="text-slate-500">Outstanding</dt>
-                  <dd className={`mt-1 text-sm ${hasBalance ? 'text-amber-300' : 'text-emerald-300'}`}>
-                    {hasBalance ? formatGhs(outstanding) : 'None'}
-                  </dd>
-                </div>
-              </dl>
-            ) : null}
-            {hasBalance ? (
-              <p className="mt-4 text-sm text-amber-200">
-                A balance of {formatGhs(outstanding)} is still due for this period.
-              </p>
-            ) : null}
-            {success ? (
-              <button
-                type="button"
-                onClick={savePdf}
-                className="mt-6 inline-flex items-center gap-2 rounded-full bg-sky-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-sky-400"
-              >
-                <Download className="h-4 w-4" />
-                Download PDF receipt
-              </button>
-            ) : null}
-          </>
-        )}
-        <Link to="/fees" className="mt-8 inline-block text-sm text-sky-400 hover:text-sky-300">
-          Pay another fee
-        </Link>
+    <MarketingChrome active="fees">
+      <div className="mk-page">
+        <div className="mx-auto w-full max-w-lg">
+          <div className="mk-card p-8">
+            {loading ? (
+              <p className="text-[var(--mk-muted)]">Confirming payment…</p>
+            ) : error ? (
+              <p className="text-[var(--mk-clay)]">{error}</p>
+            ) : (
+              <>
+                <h1 className="font-serif text-3xl font-bold">
+                  {success ? 'Payment successful' : 'Payment not complete'}
+                </h1>
+                <dl className="mt-6 space-y-3 text-sm">
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-[var(--mk-muted)]">Student name</dt>
+                    <dd className="font-semibold">{result.student_name || 'Student'}</dd>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-[var(--mk-muted)]">Amount</dt>
+                    <dd className="font-semibold">{formatGhs(result.amount)}</dd>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-[var(--mk-muted)]">Reference</dt>
+                    <dd className="font-semibold">{reference}</dd>
+                  </div>
+                </dl>
+                {hasBalance ? (
+                  <p className="mt-4 text-sm text-[var(--mk-muted)]">
+                    A balance of {formatGhs(outstanding)} is still due for this period.
+                  </p>
+                ) : null}
+                {success ? (
+                  <button type="button" onClick={savePdf} className="mk-btn mk-btn-primary mt-6">
+                    Download receipt
+                  </button>
+                ) : null}
+              </>
+            )}
+            <div className="mt-8 flex flex-wrap gap-4 text-sm">
+              <Link to="/" className="font-semibold text-[var(--mk-forest)] underline-offset-2 hover:underline">
+                Back to home
+              </Link>
+              <Link to="/fees" className="font-semibold text-[var(--mk-forest)] underline-offset-2 hover:underline">
+                Pay fees
+              </Link>
+            </div>
+          </div>
+        </div>
       </div>
-    </div>
+    </MarketingChrome>
   );
 };
 
