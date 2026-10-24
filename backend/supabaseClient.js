@@ -2,7 +2,8 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
-import { getTenantStore } from './tenantContext.js';
+import { disableTenantJwt, getTenantStore } from './tenantContext.js';
+import { isJwtAuthError, noteJwtClockRejection } from './jwtClock.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({
@@ -47,6 +48,15 @@ export const supabase = platform
       },
     })
   : null;
+
+export async function withSchoolDb(run) {
+  const first = await run(supabase);
+  if (!first?.error || !isJwtAuthError(first.error)) return first;
+  noteJwtClockRejection(first.error.message || first.error.code);
+  disableTenantJwt(first.error.message || first.error.code);
+  if (!platform || platform === supabase) return first;
+  return run(platform);
+}
 
 if (platform && serviceKey && !process.env.SUPABASE_JWT_SECRET) {
   console.warn(

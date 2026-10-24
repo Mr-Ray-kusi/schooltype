@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Menu, X } from 'lucide-react';
+import { ArrowUpRight, Globe, Menu, X } from 'lucide-react';
+import { SOCIAL_LINKS } from '../constants/socials';
 
 export const MARKETING_NAV = [
   { id: 'home', label: 'Home', href: '/#home' },
@@ -175,19 +176,53 @@ export default function MarketingChrome({
       <main>{children}</main>
 
       <footer className="mk-footer">
-        <div className="mk-footer-inner">
-          <div>
-            <p className="mk-brand-name">SCHOOLTYPE</p>
-            <p className="mk-brand-tag">Connect. Track. Manage.</p>
+        <div className="mk-footer-shell">
+          <div className="mk-footer-top">
+            <div>
+              <p className="mk-brand-name">SCHOOLTYPE</p>
+              <p className="mk-brand-tag">Connect. Track. Manage.</p>
+            </div>
+            <nav className="mk-footer-links" aria-label="Footer">
+              <Link to="/#about">About</Link>
+              <Link to="/#features">Features</Link>
+              <Link to="/fees">Fees payment</Link>
+              <Link to="/#security">Security</Link>
+              <Link to="/login">Sign in</Link>
+              <Link to="/plans">Get started</Link>
+            </nav>
           </div>
-          <nav className="mk-footer-links" aria-label="Footer">
-            <Link to="/fees">Fees payment</Link>
-            <Link to="/privacy">Privacy</Link>
-            <Link to="/login">Sign in</Link>
-            <Link to="/plans">Get started</Link>
-            <Link to="/#about">About</Link>
-            <Link to="/#security">Security</Link>
-          </nav>
+
+          <div className="mk-footer-meta">
+            <p>© 2026 SCHOOLTYPE. All rights reserved.</p>
+            <p className="mk-footer-locale">
+              <Globe className="h-3.5 w-3.5" strokeWidth={1.75} />
+              Ghana and English
+            </p>
+          </div>
+
+          <div className="mk-footer-bottom">
+            <nav className="mk-footer-links" aria-label="Legal">
+              <Link to="/privacy">Privacy</Link>
+              <Link to="/terms">Terms</Link>
+              <Link to="/refunds">Refunds</Link>
+              <Link to="/cookies">Cookies</Link>
+              <Link to="/image-licensing">Image licensing</Link>
+              <Link to="/sitemap">Sitemap</Link>
+            </nav>
+            <nav className="mk-footer-social" aria-label="Social">
+              {SOCIAL_LINKS.map((item) => (
+                <a
+                  key={item.label}
+                  href={item.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {item.label}
+                  <ArrowUpRight className="h-3.5 w-3.5" strokeWidth={2.2} />
+                </a>
+              ))}
+            </nav>
+          </div>
         </div>
       </footer>
     </div>

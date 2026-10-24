@@ -46,10 +46,10 @@ export default class ErrorBoundary extends React.Component {
               localStorage.removeItem('token');
               localStorage.removeItem('school');
               localStorage.removeItem('tokenExpiresAt');
-              window.location.href = '/login';
+              window.location.href = '/';
             }}
           >
-            {chunkError ? 'Reload page' : 'Clear session and go to login'}
+            {chunkError ? 'Reload page' : 'Clear session and go home'}
           </button>
         </div>
       );

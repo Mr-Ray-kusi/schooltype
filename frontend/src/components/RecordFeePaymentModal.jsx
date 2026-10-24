@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import { parseListResponse } from '../utils/listApi.js';
@@ -12,8 +12,17 @@ const fieldClass =
 const METHODS = [
   { id: 'cash', label: 'Cash at school' },
   { id: 'momo', label: 'MoMo' },
-  { id: 'bank', label: 'Bank' },
 ];
+
+const matchStudent = (row, query) => {
+  const q = String(query || '').trim().toLowerCase();
+  if (!q) return false;
+  const hay = [row.name, row.roll_number, row.barcode, row.class]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return hay.includes(q) || hay.replace(/[^a-z0-9]/g, '').includes(q.replace(/[^a-z0-9]/g, ''));
+};
 
 const RecordFeePaymentModal = ({
   students,
@@ -24,38 +33,72 @@ const RecordFeePaymentModal = ({
   submitUrl = '/api/fees/manual',
 }) => {
   const [studentId, setStudentId] = useState('');
+  const [query, setQuery] = useState('');
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState('cash');
   const [reference, setReference] = useState('');
   const [saving, setSaving] = useState(false);
   const [picker, setPicker] = useState(students || []);
+  const [open, setOpen] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const boxRef = useRef(null);
 
   useEffect(() => {
+    const onDoc = (event) => {
+      if (!boxRef.current?.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
+
+  useEffect(() => {
+    const term = query.trim();
+    if (term.length < 1) {
+      setPicker(students || []);
+      return undefined;
+    }
     let cancelled = false;
-    axios
-      .get('/api/students', { params: { page: 1, limit: 50 }, ...(requestConfig || {}) })
-      .then(({ data }) => {
+    const id = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const { data } = await axios.get('/api/students', {
+          params: { page: 1, limit: 20, q: term },
+          ...(requestConfig || {}),
+        });
         if (cancelled) return;
         const parsed = parseListResponse(data);
-        setPicker(parsed.items.length ? parsed.items : students || []);
-      })
-      .catch(() => {
-        if (!cancelled) setPicker(students || []);
-      });
+        const remote = parsed.items || [];
+        const local = (students || []).filter((row) => matchStudent(row, term));
+        const seen = new Set(remote.map((row) => row.id));
+        setPicker([...remote, ...local.filter((row) => !seen.has(row.id))]);
+      } catch {
+        if (!cancelled) setPicker((students || []).filter((row) => matchStudent(row, term)));
+      } finally {
+        if (!cancelled) setSearching(false);
+      }
+    }, 250);
     return () => {
       cancelled = true;
+      clearTimeout(id);
     };
-  }, [students, requestConfig]);
+  }, [query, students, requestConfig]);
 
   const selected = useMemo(
-    () => (picker || []).find((row) => row.id === studentId) || null,
-    [picker, studentId]
+    () => (picker || []).find((row) => row.id === studentId) || (students || []).find((row) => row.id === studentId) || null,
+    [picker, students, studentId]
   );
+
+  const pickStudent = (row) => {
+    setStudentId(row.id);
+    setQuery(`${row.name}${row.roll_number || row.barcode ? ` · ${row.roll_number || row.barcode}` : ''}`);
+    setOpen(false);
+    if (row?.outstanding > 0) setAmount(String(row.outstanding));
+  };
 
   const submit = async (event) => {
     event.preventDefault();
     if (!studentId) {
-      toast.error('Select a student.');
+      toast.error('Search and select a student.');
       return;
     }
     if (!(Number(amount) > 0)) {
@@ -95,9 +138,7 @@ const RecordFeePaymentModal = ({
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="text-2xl font-semibold text-white">Record a payment</h2>
-            <p className="mt-1 text-sm text-slate-400">
-              Use this when a parent pays in person or at the bank / MoMo.
-            </p>
+            <p className="mt-1 text-sm text-slate-400">Use this when a parent pays in person or with MoMo.</p>
           </div>
           <button
             type="button"
@@ -110,26 +151,46 @@ const RecordFeePaymentModal = ({
 
         <label className="mt-6 block text-sm font-medium text-slate-300">
           Student
-          <select
-            className={`${fieldClass} mt-2`}
-            value={studentId}
-            onChange={(e) => {
-              const nextId = e.target.value;
-              const next = (picker || []).find((row) => row.id === nextId);
-              setStudentId(nextId);
-              if (next?.outstanding > 0) setAmount(String(next.outstanding));
-            }}
-            required
-          >
-            <option value="">Select student</option>
-            {(picker || []).map((row) => (
-              <option key={row.id} value={row.id}>
-                {row.name}
-                {row.class ? ` · ${row.class}` : ''}
-                {row.outstanding > 0 ? ` · left ${formatGhs(row.outstanding)}` : ''}
-              </option>
-            ))}
-          </select>
+          <div ref={boxRef} className="relative mt-2">
+            <input
+              className={fieldClass}
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setStudentId('');
+                setOpen(true);
+              }}
+              onFocus={() => setOpen(true)}
+              placeholder="Search by name or student ID"
+              autoComplete="off"
+              required={!studentId}
+            />
+            {open && query.trim() ? (
+              <ul className="absolute z-10 mt-1 max-h-56 w-full overflow-auto rounded-xl border border-slate-700 bg-slate-950 py-1 shadow-xl">
+                {searching ? (
+                  <li className="px-4 py-3 text-sm text-slate-400">Searching…</li>
+                ) : picker.length === 0 ? (
+                  <li className="px-4 py-3 text-sm text-slate-400">No student matches that name or ID.</li>
+                ) : (
+                  picker.map((row) => (
+                    <li key={row.id}>
+                      <button
+                        type="button"
+                        onClick={() => pickStudent(row)}
+                        className="flex w-full flex-col px-4 py-2 text-left text-sm text-white hover:bg-slate-800"
+                      >
+                        <span>{row.name}</span>
+                        <span className="text-xs text-slate-400">
+                          {[row.roll_number || row.barcode, row.class].filter(Boolean).join(' · ')}
+                          {row.outstanding > 0 ? ` · left ${formatGhs(row.outstanding)}` : ''}
+                        </span>
+                      </button>
+                    </li>
+                  ))
+                )}
+              </ul>
+            ) : null}
+          </div>
         </label>
 
         {selected ? (
@@ -164,7 +225,7 @@ const RecordFeePaymentModal = ({
 
         <fieldset className="mt-4">
           <legend className="text-sm font-medium text-slate-300">How they paid</legend>
-          <div className="mt-2 grid grid-cols-3 gap-2">
+          <div className="mt-2 grid grid-cols-2 gap-2">
             {METHODS.map((item) => (
               <button
                 key={item.id}
@@ -188,7 +249,7 @@ const RecordFeePaymentModal = ({
             className={`${fieldClass} mt-2`}
             value={reference}
             onChange={(e) => setReference(e.target.value)}
-            placeholder="Bank slip, MoMo ID, or receipt number"
+            placeholder="MoMo ID or receipt number"
           />
         </label>
 

@@ -5,7 +5,8 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import { supabase, platformSupabase } from './supabaseClient.js';
-import { createTenantClient, runWithTenant } from './tenantContext.js';
+import { createTenantClient, disableTenantJwt, runWithTenant } from './tenantContext.js';
+import { isJwtAuthError, noteJwtClockRejection, syncJwtClock } from './jwtClock.js';
 import { readAccessToken, setSessionCookie, clearSessionCookie } from './cookieAuth.js';
 import {
   createAuthSession,
@@ -109,6 +110,7 @@ import {
   hashEmailVerificationToken,
   buildVerifyEmailUrl,
   buildVerificationEmail,
+  buildPasswordResetEmail,
   isSchoolEmailVerified,
   needsPasswordSetup,
   PASSWORD_SETUP_MARKER,
@@ -359,8 +361,20 @@ const queryPagedRows = async (table, { schoolId, from, to, q, orFilter, columns,
   if (result.error && isNullFilters?.some((column) => isMissingColumnError(result.error, column))) {
     result = await applyFilters(supabase.from(table).select(selectColumns, { count: 'exact' }), true);
   }
+  if (result.error && isMissingColumnError(result.error, 'extra_fees') && String(selectColumns).includes('extra_fees')) {
+    result = await applyFilters(
+      supabase.from(table).select(String(selectColumns).replace(/,?\s*extra_fees/, ''), { count: 'exact' })
+    );
+  }
+  if (result.error && (noteJwtClockRejection(result.error.message) || isJwtAuthError(result.error))) {
+    disableTenantJwt(result.error.message);
+    result = await applyFilters(schoolMaster().from(table).select(selectColumns, { count: 'exact' }));
+  }
   if (result.error) {
     result = await applyFilters(supabase.from(table).select('*', { count: 'exact' }));
+  }
+  if (result.error && isJwtAuthError(result.error)) {
+    result = await applyFilters(schoolMaster().from(table).select('*', { count: 'exact' }));
   }
   if (result.error) return result;
 
@@ -1608,8 +1622,10 @@ app.get('/api/auth/verify-email', async (req, res) => {
       });
     }
 
+    const alreadyHasPassword = Boolean(school.password_hash) && !needsPasswordSetup(school);
+    const tokenPurpose = alreadyHasPassword ? 'reset_password' : 'set_password';
     const issueSetupToken = (schoolRow) =>
-      jwt.sign({ schoolId: schoolRow.id, email: schoolRow.email, purpose: 'set_password' }, JWT_SECRET, {
+      jwt.sign({ schoolId: schoolRow.id, email: schoolRow.email, purpose: tokenPurpose }, JWT_SECRET, {
         expiresIn: '2h',
       });
 
@@ -1624,11 +1640,11 @@ app.get('/api/auth/verify-email', async (req, res) => {
       });
     }
 
-    // A live verification token means signup is not finished — always collect a password.
-    // (Token is cleared only after set-password succeeds.)
+    // Signup still needs a first password. A reset must not lock the current password
+    // until the new one is saved.
     const { data: updated, error: updateError } = await updateSchoolRecord(school.id, {
       email_verified: true,
-      initial_password: PASSWORD_SETUP_MARKER,
+      ...(alreadyHasPassword ? {} : { initial_password: PASSWORD_SETUP_MARKER }),
     });
 
     if (updateError) {
@@ -1646,9 +1662,13 @@ app.get('/api/auth/verify-email', async (req, res) => {
       verified: true,
       alreadyVerified: school.email_verified === true,
       needsPasswordSetup: true,
+      reset: alreadyHasPassword,
+      purpose: tokenPurpose,
       setupToken: issueSetupToken(verifiedSchool),
       email: verifiedSchool.email || school.email,
-      message: 'Email verified. Choose a password to finish creating your account.',
+      message: alreadyHasPassword
+        ? 'Email confirmed. Choose a new password for this school.'
+        : 'Email verified. Choose a password to finish creating your account.',
     });
   } catch (error) {
     console.error('Verify email error:', error);
@@ -1681,7 +1701,8 @@ app.post('/api/auth/set-password', async (req, res) => {
       });
     }
 
-    if (payload?.purpose !== 'set_password' || !payload?.schoolId) {
+    const isReset = payload?.purpose === 'reset_password';
+    if ((payload?.purpose !== 'set_password' && !isReset) || !payload?.schoolId) {
       return res.status(400).json({ error: 'Invalid setup token', code: 'INVALID_TOKEN' });
     }
 
@@ -1703,13 +1724,12 @@ app.post('/api/auth/set-password', async (req, res) => {
       });
     }
 
-    // Allow password set whenever a valid setup token was issued after email verify.
-    // Only block if account already has a real password and is fully finished (no setup marker, no pending token).
+    // Signup tokens cannot overwrite a finished account. Reset tokens can.
     const setupFinished =
       !needsPasswordSetup(school) &&
       !school.email_verification_token &&
       school.email_verified === true;
-    if (setupFinished) {
+    if (!isReset && setupFinished) {
       return res.status(400).json({
         error: 'Password is already set. Please sign in.',
         code: 'PASSWORD_ALREADY_SET',
@@ -1730,6 +1750,14 @@ app.post('/api/auth/set-password', async (req, res) => {
       return res.status(500).json({ error: 'Could not save password. Please try again.' });
     }
 
+    if (isReset) {
+      try {
+        await revokeSchoolSessions(school.id);
+      } catch {
+        // Session table may not exist yet.
+      }
+    }
+
     const ready = await syncPaidPlanFromLedger(
       updated || { ...school, password_hash: hashedPassword, initial_password: null }
     );
@@ -1739,7 +1767,7 @@ app.post('/api/auth/set-password', async (req, res) => {
       token: session.token,
       expiresIn: session.expiresIn,
       school: formatSchool(ready),
-      message: 'Password saved. You are signed in.',
+      message: isReset ? 'Password updated. You are signed in.' : 'Password saved. You are signed in.',
     });
   } catch (error) {
     console.error('Set password error:', error);
@@ -1822,6 +1850,81 @@ app.post('/api/auth/resend-verification', async (req, res) => {
     res.json(generic);
   } catch (error) {
     console.error('Resend verification error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/auth/forgot-password', async (req, res) => {
+  try {
+    const email = req.body.email?.trim().toLowerCase();
+    if (!email) {
+      return res.status(400).json({ error: 'Enter the school email used to create this account.' });
+    }
+
+    const clientIp = getClientIp(req);
+    const resendCheck = await checkResendAllowed(email, clientIp);
+    if (!resendCheck.allowed) return sendAuthRateLimited(res, resendCheck);
+    await recordResendAttempt(email, clientIp);
+
+    const school = await findSchoolByEmail(email);
+    if (!school || getSchoolRole(school) === 'super_admin' || String(school.email || '').trim().toLowerCase() !== email) {
+      return res.status(404).json({
+        error: 'No school account uses that email. Enter the exact school email from signup.',
+        code: 'SCHOOL_EMAIL_NOT_FOUND',
+      });
+    }
+
+    if (!emailReady || !emailTransporter) {
+      return res.status(503).json({
+        error: 'Email is not configured on the server.',
+        code: 'EMAIL_NOT_CONFIGURED',
+      });
+    }
+
+    const { rawToken, tokenHash, expiresAt } = createEmailVerificationToken();
+    const { error: updateError } = await updateSchoolRecord(school.id, {
+      email_verification_token: tokenHash,
+      email_verification_expires_at: expiresAt,
+    });
+    if (updateError) {
+      console.error('Forgot password update failed:', updateError);
+      return res.status(500).json({ error: 'Could not start a password reset. Try again.' });
+    }
+
+    const resetUrl = buildVerifyEmailUrl(rawToken);
+    const recipientEmail = String(school.email || email).trim().toLowerCase();
+    const mail = needsPasswordSetup(school)
+      ? buildVerificationEmail({
+          schoolName: school.name,
+          email: recipientEmail,
+          verifyUrl: resetUrl,
+        })
+      : buildPasswordResetEmail({
+          schoolName: school.name,
+          email: recipientEmail,
+          resetUrl,
+        });
+
+    try {
+      await sendAuthEmail({
+        to: recipientEmail,
+        subject: mail.subject,
+        text: mail.text,
+        html: mail.html,
+      });
+    } catch (mailError) {
+      console.error('Forgot password email failed:', mailError.message);
+      return res.status(500).json({ error: 'Failed to send the reset email. Try again later.' });
+    }
+
+    res.json({
+      ok: true,
+      sent: true,
+      email: recipientEmail,
+      message: 'A reset link was sent to that school email.',
+    });
+  } catch (error) {
+    console.error('Forgot password error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -3564,7 +3667,7 @@ app.get('/api/students', authenticateToken, enforcePlanApproval, async (req, res
       from,
       to,
       q,
-      orFilter: q ? `name.ilike.%${safe}%,roll_number.ilike.%${safe}%` : '',
+      orFilter: q ? `name.ilike.%${safe}%,roll_number.ilike.%${safe}%,barcode.ilike.%${safe}%` : '',
       columns: STUDENT_LIST_COLUMNS,
       includePhotos,
       eqFilters: classFilter && classFilter !== 'all' ? { class: classFilter } : undefined,
@@ -6707,6 +6810,8 @@ async function initializeDatabase() {
       );
       return false;
     }
+
+    await syncJwtClock();
 
     // Perform a lightweight test query to verify Supabase connectivity.
     const { data, error } = await supabase.from('schools').select('id').limit(1);

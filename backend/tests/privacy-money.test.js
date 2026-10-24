@@ -46,6 +46,9 @@ test('tenant JWT carries only that school_id', () => {
   assert.equal(payload.school_id, 'school-a');
   assert.notEqual(payload.school_id, 'school-b');
   assert.equal(payload.role, 'authenticated');
+  assert.equal(typeof payload.iat, 'number');
+  assert.ok(payload.iat <= Math.floor(Date.now() / 1000));
+  assert.ok(payload.exp > Math.floor(Date.now() / 1000));
 });
 
 test('a failed payment does not create a school', () => {

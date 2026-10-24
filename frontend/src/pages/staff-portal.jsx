@@ -134,13 +134,14 @@ const StaffPortal = () => {
     );
   };
 
-  const clearSession = () => {
+  const clearSession = ({ leavePortal = false } = {}) => {
     sessionStorage.removeItem(SESSION_KEY);
     setSessionToken(null);
     setStaff(null);
     setStudents([]);
     setDraftScores({});
     setSchoolRecord(null);
+    if (leavePortal) window.location.assign('/');
   };
 
   useEffect(() => {
@@ -175,7 +176,6 @@ const StaffPortal = () => {
           nextDraft[row.student_id] = {
             score: row.score ?? '',
             maxScore: row.max_score ?? 100,
-            remark: row.remark || '',
             attitude: row.attitude || '',
           };
         }
@@ -302,13 +302,12 @@ const StaffPortal = () => {
           className: selectedClass,
           term,
           entries: classStudents.map((student) => {
-            const draft = draftScores[student.id] || { score: '', maxScore: 100, remark: '', attitude: '' };
+            const draft = draftScores[student.id] || { score: '', maxScore: 100, attitude: '' };
             return {
               studentId: student.id,
               className: selectedClass || student.class,
               score: draft.score,
               maxScore: draft.maxScore,
-              remark: draft.remark,
               attitude: draft.attitude || null,
             };
           }),
@@ -439,7 +438,7 @@ const StaffPortal = () => {
           </div>
           <button
             type="button"
-            onClick={clearSession}
+            onClick={() => clearSession({ leavePortal: true })}
             className="inline-flex items-center gap-2 rounded-full border border-slate-600 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800"
           >
             <LogOut className="h-4 w-4" />
@@ -630,7 +629,6 @@ const StaffPortal = () => {
                         const draft = draftScores[student.id] || {
                           score: '',
                           maxScore: 100,
-                          remark: '',
                           attitude: '',
                         };
                         return (
@@ -690,19 +688,6 @@ const StaffPortal = () => {
                                 </option>
                               ))}
                             </select>
-                            <input
-                              type="text"
-                              value={draft.remark}
-                              onChange={(e) =>
-                                setDraftScores((prev) => ({
-                                  ...prev,
-                                  [student.id]: { ...draft, remark: e.target.value },
-                                }))
-                              }
-                              className="w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-sm lg:w-40"
-                              placeholder="Remark"
-                              disabled={savingAll || scoresLocked}
-                            />
                           </div>
                         );
                       })

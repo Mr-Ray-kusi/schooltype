@@ -3,7 +3,7 @@ import { useNavigate, Link, useSearchParams, Navigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAuth, getPostAuthPath } from '../contexts/authcontext';
 import { getPlan, formatPlanPriceGhs } from '../constants/plans';
-import AuthSplitLayout, { AuthField } from '../components/AuthSplitLayout';
+import MarketingChrome from '../components/MarketingChrome';
 import GoogleSignInButton from '../components/GoogleSignInButton';
 import { openPaystackCheckout } from '../utils/paystackCheckout';
 
@@ -106,7 +106,9 @@ const Signup = () => {
   const planPrice = formatPlanPriceGhs(selectedPlan);
 
   return (
-    <AuthSplitLayout mode="signup" planName={selectedPlan.name} planPrice={planPrice}>
+    <MarketingChrome>
+      <div className="mk-page">
+        <div className="mx-auto max-w-xl">
       <p className="mk-kicker">Step 2 of 2</p>
       <h1 className="mt-3 font-serif text-3xl font-bold text-[var(--mk-ink)]">Create account</h1>
       <p className="mt-2 text-sm text-[var(--mk-muted)]">
@@ -114,23 +116,29 @@ const Signup = () => {
       </p>
 
       <form onSubmit={handleSubmit} className="mt-8 space-y-4">
-        <AuthField
-          label="School name"
-          name="schoolName"
-          value={formData.schoolName}
-          onChange={handleChange}
-          required
-          placeholder="Bright Future Academy"
-        />
-        <AuthField
-          label="Administrator email"
-          type="email"
-          name="email"
-          value={formData.email}
-          onChange={handleChange}
-          required
-          placeholder="admin@school.com"
-        />
+        <label className="block text-sm font-semibold">
+          School name
+          <input
+            className="mk-field mt-1.5"
+            name="schoolName"
+            value={formData.schoolName}
+            onChange={handleChange}
+            required
+            placeholder="Bright Future Academy"
+          />
+        </label>
+        <label className="block text-sm font-semibold">
+          Administrator email
+          <input
+            className="mk-field mt-1.5"
+            type="email"
+            name="email"
+            value={formData.email}
+            onChange={handleChange}
+            required
+            placeholder="admin@school.com"
+          />
+        </label>
 
         <div>
           <span className="mb-1.5 block text-sm font-semibold text-[var(--mk-ink)]">
@@ -216,7 +224,9 @@ const Signup = () => {
           Already have an account? Sign in
         </Link>
       </p>
-    </AuthSplitLayout>
+        </div>
+      </div>
+    </MarketingChrome>
   );
 };
 

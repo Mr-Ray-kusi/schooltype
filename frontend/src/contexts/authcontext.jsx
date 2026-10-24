@@ -34,6 +34,7 @@ const isAuthRoute = (url = '') =>
   url.includes('/api/auth/google') ||
   url.includes('/api/auth/verify-email') ||
   url.includes('/api/auth/resend-verification') ||
+  url.includes('/api/auth/forgot-password') ||
   url.includes('/api/auth/set-password') ||
   url.includes('/api/auth/complete-signup') ||
   url.includes('/api/auth/signup-charge');

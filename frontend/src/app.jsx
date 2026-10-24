@@ -10,6 +10,7 @@ const Login = lazyWithRetry(() => import('./pages/login'));
 const Signup = lazyWithRetry(() => import('./pages/sigup'));
 const VerifyEmail = lazyWithRetry(() => import('./pages/verify-email'));
 const Privacy = lazyWithRetry(() => import('./pages/privacy'));
+const Legal = lazyWithRetry(() => import('./pages/legal'));
 const Plans = lazyWithRetry(() => import('./pages/plans'));
 const SelectPlan = lazyWithRetry(() => import('./pages/select-plan'));
 const SignupComplete = lazyWithRetry(() => import('./pages/signup-complete'));
@@ -71,7 +72,7 @@ const SchoolAdminRoute = () => {
     return <Outlet />;
   }
   if (loading) return <LoadingScreen />;
-  if (!token) return <Navigate to="/login" />;
+  if (!token) return <Navigate to="/" />;
   if (!school) return <LoadingScreen />;
   if (school?.role === 'super_admin') return <Navigate to="/super-admin" />;
   if (!isSchoolPaid(school)) return <Navigate to="/select-plan" />;
@@ -99,7 +100,7 @@ const SuperAdminRoute = () => {
     return <Outlet />;
   }
   if (loading) return <LoadingScreen />;
-  if (!token) return <Navigate to="/login" />;
+  if (!token) return <Navigate to="/" />;
   if (!school) return <LoadingScreen />;
   if (school?.role !== 'super_admin') return <Navigate to="/dashboard" />;
   return <Outlet />;
@@ -116,7 +117,7 @@ const FinanceRoute = ({ feature }) => {
     return <Outlet />;
   }
   if (loading) return <LoadingScreen />;
-  if (!token) return <Navigate to="/login" />;
+  if (!token) return <Navigate to="/" />;
   if (isSuperAdmin || school?.role === 'super_admin') return <Outlet />;
   if (!school) return <LoadingScreen />;
   if (!isSchoolPaid(school)) return <Navigate to="/select-plan" />;
@@ -134,7 +135,7 @@ const SelectPlanRoute = ({ children }) => {
     return children;
   }
   if (loading) return <LoadingScreen />;
-  if (!token) return <Navigate to="/login" />;
+  if (!token) return <Navigate to="/" />;
   if (!school) return <LoadingScreen />;
   if (school?.role === 'super_admin') return <Navigate to="/super-admin" />;
   if (isSchoolPaid(school)) return <Navigate to="/dashboard" />;
@@ -151,6 +152,11 @@ function App() {
               <Route path="/" element={<Home />} />
               <Route path="/login" element={<Login />} />
               <Route path="/privacy" element={<Privacy />} />
+              <Route path="/terms" element={<Legal />} />
+              <Route path="/refunds" element={<Legal />} />
+              <Route path="/cookies" element={<Legal />} />
+              <Route path="/image-licensing" element={<Legal />} />
+              <Route path="/sitemap" element={<Legal />} />
               <Route path="/plans" element={<Plans />} />
               <Route path="/signup" element={<Signup />} />
               <Route path="/signup/complete" element={<SignupComplete />} />

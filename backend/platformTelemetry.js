@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { supabase } from './supabaseClient.js';
+import { platformSupabase as supabase } from './supabaseClient.js';
 import { isSuccessfulFeeStatus, roundMoney } from './feePayments.js';
 
 const MEMORY_CAP = 8000;

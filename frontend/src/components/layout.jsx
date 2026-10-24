@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Link, useNavigate, useLocation, Outlet } from 'react-router-dom';
+import { Link, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from '../contexts/authcontext';
 import {
   LayoutDashboard,
@@ -44,7 +44,6 @@ const Layout = ({ children }) => {
   const { school, logout, isSuperAdmin, hasFeature, includesPlanFeature, isPlanApproved, token } =
     useAuth();
   const { liteMode, toggleLiteMode } = useLiteMode();
-  const navigate = useNavigate();
   const location = useLocation();
   usePlatformTelemetry();
 
@@ -83,13 +82,13 @@ const Layout = ({ children }) => {
 
   const handleLogout = async () => {
     await logout();
-    navigate('/');
+    window.location.assign('/');
   };
 
   const handleLogoutAll = async () => {
     await logout({ everywhere: true });
     toast.success('Signed out on every device for this school');
-    navigate('/');
+    window.location.assign('/');
   };
 
   const schoolNavSections = [

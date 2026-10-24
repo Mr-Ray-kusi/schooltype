@@ -14,6 +14,7 @@ const VerifyEmail = () => {
   const [message, setMessage] = useState('');
   const [email, setEmail] = useState('');
   const [setupToken, setSetupToken] = useState('');
+  const [isReset, setIsReset] = useState(false);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [saving, setSaving] = useState(false);
@@ -35,8 +36,9 @@ const VerifyEmail = () => {
         // Always collect a password when the API issues a setup token.
         if (data.setupToken) {
           setSetupToken(data.setupToken);
+          setIsReset(Boolean(data.reset));
           setStatus('set_password');
-          toast.success('Email verified — choose a password');
+          toast.success(data.reset ? 'Email confirmed — choose a new password' : 'Email verified — choose a password');
         } else if (data.needsPasswordSetup) {
           setStatus('error');
           setMessage('Email verified, but password setup failed to start. Please resend the email.');
@@ -100,7 +102,7 @@ const VerifyEmail = () => {
       } else if (data.school) {
         localStorage.setItem('school', JSON.stringify(data.school));
       }
-      toast.success('Account ready');
+      toast.success(isReset ? 'Password updated' : 'Account ready');
       navigate(getPostAuthPath(data.school), { replace: true });
     } catch (error) {
       toast.error(error.response?.data?.error || 'Could not save password');
@@ -138,7 +140,9 @@ const VerifyEmail = () => {
             <div className="mt-8 space-y-5 text-left">
               <div className="text-center">
                 <CheckCircle2 className="mx-auto h-10 w-10 text-emerald-400" />
-                <h1 className="mt-4 font-display text-2xl font-bold">Choose a password</h1>
+                <h1 className="mt-4 font-display text-2xl font-bold">
+                  {isReset ? 'Choose a new password' : 'Choose a password'}
+                </h1>
                 <p className="mt-2 text-sm text-slate-300">{message}</p>
                 {email && <p className="mt-1 text-xs text-slate-500">{email}</p>}
               </div>
@@ -171,7 +175,7 @@ const VerifyEmail = () => {
                   disabled={saving}
                   className="w-full rounded-full bg-sky-500 py-3 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-50"
                 >
-                  {saving ? 'Saving…' : 'Finish account setup'}
+                  {saving ? 'Saving…' : isReset ? 'Save new password' : 'Finish account setup'}
                 </button>
               </form>
             </div>

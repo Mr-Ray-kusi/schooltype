@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { supabase } from './supabaseClient.js';
+import { withSchoolDb } from './supabaseClient.js';
 import { academicPeriodFromDate } from './classHierarchy.js';
 
 function currentFeeMonth() {
@@ -54,12 +54,14 @@ export function formatPeriodLabel(period) {
 
 export async function listAcademicTerms(schoolId) {
   if (!schoolId) return [];
-  const { data, error } = await supabase
-    .from('academic_terms')
-    .select('*')
-    .eq('school_id', schoolId)
-    .order('sort_order', { ascending: true })
-    .order('starts_on', { ascending: true });
+  const { data, error } = await withSchoolDb((db) =>
+    db
+      .from('academic_terms')
+      .select('*')
+      .eq('school_id', schoolId)
+      .order('sort_order', { ascending: true })
+      .order('starts_on', { ascending: true })
+  );
   if (error) {
     if (isMissingTable(error)) return [];
     throw error;
@@ -93,7 +95,7 @@ export async function replaceAcademicTerms(schoolId, terms) {
     }
   }
 
-  const removed = await supabase.from('academic_terms').delete().eq('school_id', schoolId);
+  const removed = await withSchoolDb((db) => db.from('academic_terms').delete().eq('school_id', schoolId));
   if (removed.error) {
     if (isMissingTable(removed.error)) {
       const err = new Error(
@@ -106,7 +108,7 @@ export async function replaceAcademicTerms(schoolId, terms) {
   }
 
   if (!cleaned.length) return [];
-  const { data, error } = await supabase.from('academic_terms').insert(cleaned).select('*');
+  const { data, error } = await withSchoolDb((db) => db.from('academic_terms').insert(cleaned).select('*'));
   if (error) throw error;
   return data || cleaned;
 }

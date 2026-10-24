@@ -576,7 +576,6 @@ function normalizeManualMethod(method) {
   const value = String(method || '').toLowerCase();
   if (value === 'cash') return 'cash';
   if (value === 'momo' || value === 'mobile_money') return 'momo';
-  if (value === 'bank' || value === 'bank_transfer') return 'bank';
   return '';
 }
 
@@ -897,7 +896,7 @@ export async function recordManualSchoolFee({ schoolId, studentId, amount, metho
     throw err;
   }
   if (!payMethod) {
-    const err = new Error('Select cash, MoMo, or bank.');
+    const err = new Error('Select cash at school or MoMo.');
     err.status = 400;
     throw err;
   }
@@ -1599,7 +1598,7 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
         return res.status(400).json({ error: 'Enter an amount of at least GHS 0.01.' });
       }
       if (req.body?.method != null && !method) {
-        return res.status(400).json({ error: 'Select cash, MoMo, or bank.' });
+        return res.status(400).json({ error: 'Select cash at school or MoMo.' });
       }
 
       const updated = await updateManualFeePayment({
@@ -1765,7 +1764,7 @@ export function registerStaffFeeRoutes(app, { authenticateStaffPortal }) {
           return res.status(400).json({ error: 'Enter an amount of at least GHS 0.01.' });
         }
         if (req.body?.method != null && !method) {
-          return res.status(400).json({ error: 'Select cash, MoMo, or bank.' });
+          return res.status(400).json({ error: 'Select cash at school or MoMo.' });
         }
 
         const updated = await updateManualFeePayment({

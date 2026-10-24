@@ -78,6 +78,7 @@ const Students = () => {
       apply(data);
     } catch (error) {
       console.error('Error fetching students:', error);
+      toast.error(error.response?.data?.error || 'Could not load students');
     } finally {
       setLoading(false);
     }
