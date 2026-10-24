@@ -268,6 +268,19 @@ function publicStudentSummary(student, school, amount, month, balance, period) {
   };
 }
 
+function isValidPaystackEmail(value) {
+  const email = String(value || '').trim().toLowerCase();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function feeChargeEmail(student, school, extra) {
+  for (const value of [extra, student?.parent_email, school?.email]) {
+    if (isValidPaystackEmail(value)) return String(value).trim().toLowerCase();
+  }
+  const id = String(student?.id || 'payer').replace(/[^a-zA-Z0-9]/g, '').slice(0, 24) || 'payer';
+  return `fees.${id}@schootype.app`;
+}
+
 async function loadFeeBalance(student, amount, month) {
   const payments = await listStudentFeePayments({
     schoolId: student.school_id,
@@ -1117,7 +1130,7 @@ async function startFeePayment({
   };
 
   const chargeArgs = {
-    email: email || school?.email || `fees+${student.id}@schootype.app`,
+    email: feeChargeEmail(student, school, email),
     amountMinor: toMinorUnits(payAmount),
     currency: 'GHS',
     reference,
