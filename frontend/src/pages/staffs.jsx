@@ -621,12 +621,16 @@ const Staff = () => {
                           })}`
                         : '',
                   },
-                  { group: 'Assignment', label: 'Subjects', value: viewingStaff.subjects },
-                  {
-                    group: 'Assignment',
-                    label: 'Classes',
-                    value: viewingStaff.classNames || viewingStaff.class_names,
-                  },
+                  ...(String(viewingStaff.role || '').toLowerCase() === 'teacher'
+                    ? [
+                        { group: 'Assignment', label: 'Subjects', value: viewingStaff.subjects },
+                        {
+                          group: 'Assignment',
+                          label: 'Classes',
+                          value: viewingStaff.classNames || viewingStaff.class_names,
+                        },
+                      ]
+                    : []),
                   {
                     group: 'Access',
                     label: 'Access code',

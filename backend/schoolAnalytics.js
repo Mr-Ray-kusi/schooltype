@@ -212,7 +212,7 @@ export async function getSchoolAnalytics(schoolId, options = {}) {
       async () => {
         const first = await supabase
           .from('students')
-          .select('id, name, class, monthly_fee')
+          .select('id, name, class, monthly_fee, extra_fees')
           .eq('school_id', schoolId);
         if (!first.error) return first;
         return supabase.from('students').select('id, name, class, monthly_fee').eq('school_id', schoolId);

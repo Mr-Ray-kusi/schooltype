@@ -1,6 +1,7 @@
 import { qrValueToPngBlob } from './qrCodeExport';
 import { createZipBlob } from './zipStore';
 import { buildPersonIdUrl } from './studentIdQr';
+import { formatExtraFees } from './extraFees';
 
 const safeFolder = (name) =>
   String(name || 'person')
@@ -176,6 +177,7 @@ export function studentPack(student, qrValue) {
       'Parent phone': student.parent_phone || '',
       'Parent email': student.parent_email || '',
       Address: student.house_address || '',
+      'Extra charges': formatExtraFees(student.extra_fees || student.extraFees),
       Barcode: barcode,
     },
   };
@@ -192,8 +194,12 @@ export function staffPack(member, qrValue) {
       Role: member.role || '',
       Salary: member.salary != null && member.salary !== '' ? `GHS ${member.salary}` : '',
       'Access code': member.secretCode || member.secret_code || '',
-      Subjects: member.subjects || '',
-      Classes: member.classNames || member.class_names || '',
+      ...(String(member.role || '').toLowerCase() === 'teacher'
+        ? {
+            Subjects: member.subjects || '',
+            Classes: member.classNames || member.class_names || '',
+          }
+        : {}),
       Barcode: barcode,
     },
   };

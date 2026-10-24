@@ -9,9 +9,12 @@ import {
   MapPin,
   Calendar,
   ArrowLeft,
+  Plus,
+  X,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { invalidateCache } from '../utils/requestCache';
+import { EXTRA_FEE_REASONS, emptyExtraFee, extraFeesPayload } from '../utils/extraFees';
 
 const fieldClass =
   'w-full rounded-xl border border-slate-600/80 bg-slate-950/60 px-4 py-3 text-sm text-white placeholder:text-slate-500 outline-none transition focus:border-sky-500/60 focus:ring-2 focus:ring-sky-500/30';
@@ -34,6 +37,7 @@ const AddStudent = ({ onClose } = {}) => {
     houseAddress: '',
     dateOfBirth: '',
     gender: '',
+    extraFees: [],
   });
 
   const handleSubmit = async (e) => {
@@ -53,7 +57,10 @@ const AddStudent = ({ onClose } = {}) => {
     setLoading(true);
 
     try {
-      const { data } = await axios.post('/api/students', formData);
+      const { data } = await axios.post('/api/students', {
+        ...formData,
+        extraFees: extraFeesPayload(formData.extraFees),
+      });
       invalidateCache('students');
       invalidateCache('dashboard');
       if (data?.warning) {
@@ -312,6 +319,85 @@ const AddStudent = ({ onClose } = {}) => {
                 </div>
               </div>
             </div>
+          </section>
+
+          <section className="rounded-3xl border border-slate-700/80 bg-slate-900/50 p-6 md:p-8">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                  Extra charges (optional)
+                </h2>
+                <p className="mt-2 text-sm text-slate-400">
+                  Add school bus, lunch, hostel, or another cost on top of the class school fee.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  setFormData({
+                    ...formData,
+                    extraFees: [...(formData.extraFees || []), emptyExtraFee()],
+                  })
+                }
+                className="inline-flex items-center gap-1.5 rounded-full border border-slate-600 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add extra
+              </button>
+            </div>
+            {(formData.extraFees || []).length ? (
+              <div className="mt-5 space-y-3">
+                {formData.extraFees.map((row, index) => (
+                  <div key={`extra-${index}`} className="grid gap-3 sm:grid-cols-[1fr_8rem_auto]">
+                    <select
+                      value={row.label}
+                      onChange={(e) => {
+                        const extraFees = formData.extraFees.map((item, i) =>
+                          i === index ? { ...item, label: e.target.value } : item
+                        );
+                        setFormData({ ...formData, extraFees });
+                      }}
+                      className={fieldClass}
+                    >
+                      {EXTRA_FEE_REASONS.map((reason) => (
+                        <option key={reason} value={reason}>
+                          {reason}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      value={row.amount}
+                      onChange={(e) => {
+                        const extraFees = formData.extraFees.map((item, i) =>
+                          i === index ? { ...item, amount: e.target.value } : item
+                        );
+                        setFormData({ ...formData, extraFees });
+                      }}
+                      className={fieldClass}
+                      placeholder="Amount"
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setFormData({
+                          ...formData,
+                          extraFees: formData.extraFees.filter((_, i) => i !== index),
+                        })
+                      }
+                      className="inline-flex h-12 items-center justify-center rounded-xl border border-slate-600 px-3 text-slate-300 hover:bg-slate-800"
+                      aria-label="Remove extra charge"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-4 text-sm text-slate-500">No extra charge. Class school fees still apply.</p>
+            )}
           </section>
 
           <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">

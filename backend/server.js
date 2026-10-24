@@ -95,6 +95,7 @@ import { registerStaffAdminRoutes } from './staffAdminRoutes.js';
 import { inspectScoreLock, loadScoreLocks } from './scorePublishStore.js';
 import { isProtectedStaffRole, staffPortalApiAllowed, staffPortalAsSchoolUser } from './staffSchoolAuth.js';
 import { parseRequiredGender, parseRequiredSalary } from './peopleCreate.js';
+import { extraFeesJson } from './feePayments.js';
 import { notifyParentsOfAbsence } from './absentNotify.js';
 import { registerAlumniRoutes } from './alumniRoutes.js';
 import { applyTermPromotion } from './studentPromotion.js';
@@ -288,7 +289,7 @@ const SCHOOL_AUTH_COLUMNS = [
 ];
 
 const STUDENT_LIST_COLUMNS =
-  'id, school_id, name, class, gender, roll_number, parent_name, parent_phone, parent_email, parent_relationship, house_address, date_of_birth, barcode, qr_code, created_at';
+  'id, school_id, name, class, gender, extra_fees, roll_number, parent_name, parent_phone, parent_email, parent_relationship, house_address, date_of_birth, barcode, qr_code, created_at';
 const STAFF_LIST_COLUMNS =
   'id, school_id, name, role, salary, barcode, qr_code, secret_code, subjects, class_names, created_at';
 const NONSTAFF_LIST_COLUMNS = 'id, school_id, name, role, barcode, qr_code, created_at';
@@ -833,6 +834,7 @@ const insertStudentRecord = async (record) => {
   const optionalColumns = [
     'photo_url',
     'gender',
+    'extra_fees',
     'parent_phone',
     'parent_name',
     'parent_relationship',
@@ -880,6 +882,7 @@ const updateStudentRecord = async (id, schoolId, updates) => {
   const optionalColumns = [
     'photo_url',
     'gender',
+    'extra_fees',
     'parent_phone',
     'parent_name',
     'parent_relationship',
@@ -3587,6 +3590,8 @@ app.post('/api/students', authenticateToken, enforcePlanApproval, async (req, re
       houseAddress,
       dateOfBirth,
       gender,
+      extraFees,
+      extra_fees,
       rollNumber,
       photo,
     } = req.body;
@@ -3616,6 +3621,7 @@ app.post('/api/students', authenticateToken, enforcePlanApproval, async (req, re
       name: name.trim(),
       class: className,
       gender: studentGender,
+      extra_fees: extraFeesJson(extraFees || extra_fees),
       parent_name: parentName?.trim() || null,
       parent_relationship: parentRelationship?.trim() || null,
       parent_email: parentEmail?.trim() || null,
@@ -3675,6 +3681,8 @@ app.put('/api/students/:id', authenticateToken, enforcePlanApproval, async (req,
       dateOfBirth,
       date_of_birth,
       gender,
+      extraFees,
+      extra_fees,
       rollNumber,
       roll_number,
     } = req.body;
@@ -3698,6 +3706,9 @@ app.put('/api/students/:id', authenticateToken, enforcePlanApproval, async (req,
     const nextDob = dateOfBirth !== undefined ? dateOfBirth : date_of_birth;
     if (nextDob !== undefined) updates.date_of_birth = nextDob || null;
     if (gender !== undefined) updates.gender = parseRequiredGender(gender);
+    if (extraFees !== undefined || extra_fees !== undefined) {
+      updates.extra_fees = extraFeesJson(extraFees !== undefined ? extraFees : extra_fees);
+    }
     const nextRoll = rollNumber !== undefined ? rollNumber : roll_number;
     const parsedRoll = parseStudentId(nextRoll);
     if (parsedRoll) updates.roll_number = formatParsedStudentId(parsedRoll);

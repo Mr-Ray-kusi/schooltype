@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { supabase } from './supabaseClient.js';
+import { extraFeesJson } from './feePayments.js';
 import { syncStudentIds } from './studentId.js';
 
 const isMissingColumnError = (error, column) => {
@@ -115,6 +116,7 @@ export async function createStudent(schoolId, body) {
     name,
     class: className,
     gender,
+    extra_fees: extraFeesJson(body.extraFees || body.extra_fees),
     parent_name: String(body.parentName || body.parent_name || '').trim() || null,
     parent_relationship: String(body.parentRelationship || body.parent_relationship || '').trim() || null,
     parent_email: String(body.parentEmail || body.parent_email || '').trim() || null,
@@ -130,6 +132,7 @@ export async function createStudent(schoolId, body) {
   const { data, error } = await insertWithOptionalColumns('students', record, [
     'photo_url',
     'gender',
+    'extra_fees',
     'parent_phone',
     'parent_name',
     'parent_relationship',

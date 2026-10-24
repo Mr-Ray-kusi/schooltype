@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { resolveStudentFeeAmount } from '../feePayments.js';
 import { attachFeePayLink, toE164 } from '../smsProvider.js';
 import { buildOwingFeeSmsBodies, groupOwingParents } from '../feeReminderSms.js';
 
@@ -29,6 +30,12 @@ test('owing fee SMS groups each parent phone with that child pay link', () => {
   assert.match(bodies[kofiPhone], /\/pay\/sch-kofi/);
   assert.match(bodies[kofiPhone], /\/pay\/sch-ama/);
   assert.doesNotMatch(bodies[kofiPhone], /\{pay_link\}/);
+});
+
+test('extra student charges sit on top of the class school fee', () => {
+  assert.equal(resolveStudentFeeAmount({ extra_fees: [{ label: 'School bus', amount: 150 }] }, 800), 950);
+  assert.equal(resolveStudentFeeAmount({ monthly_fee: 1200 }, 800), 1200);
+  assert.equal(resolveStudentFeeAmount({}, 800), 800);
 });
 
 test('fee reminder copy drops the generic /fees page when a student link is added', () => {

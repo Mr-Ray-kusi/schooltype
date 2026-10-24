@@ -44,6 +44,8 @@ test('staff administrator can use academic APIs and not wallet transfers', () =>
   assert.equal(staffPortalApiAllowed(admin, { method: 'POST', path: '/api/students' }).ok, true);
   assert.equal(staffPortalApiAllowed(admin, { method: 'PUT', path: '/api/classes/1' }).ok, true);
   assert.equal(staffPortalApiAllowed(admin, { method: 'GET', path: '/api/attendance' }).ok, true);
+  assert.equal(staffPortalApiAllowed(admin, { method: 'GET', path: '/api/alumni' }).ok, true);
+  assert.equal(staffPortalApiAllowed(admin, { method: 'POST', path: '/api/alumni/complete' }).ok, true);
   assert.equal(staffPortalApiAllowed(admin, { method: 'POST', path: '/api/scanner/regenerate' }).ok, true);
   assert.equal(staffPortalApiAllowed(admin, { method: 'GET', path: '/api/staff-portal/link' }).ok, true);
   assert.equal(staffPortalApiAllowed(admin, { method: 'POST', path: '/api/staff-portal/regenerate' }).ok, true);

@@ -37,10 +37,47 @@ export async function getClassFeeAmount(schoolId, className) {
   return Number(named?.fee_amount) || 0;
 }
 
+export function parseExtraFees(value) {
+  if (!value) return [];
+  let rows = value;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    try {
+      rows = JSON.parse(trimmed);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .map((row) => {
+      const label = String(row?.label || row?.reason || row?.name || '').trim();
+      const amount = Number(row?.amount ?? row?.fee);
+      if (!label || !Number.isFinite(amount) || amount <= 0) return null;
+      return { label, amount: roundMoney(amount) };
+    })
+    .filter(Boolean);
+}
+
+export function extraFeesTotal(student) {
+  return roundMoney(
+    parseExtraFees(student?.extra_fees ?? student?.extraFees).reduce((sum, row) => sum + row.amount, 0)
+  );
+}
+
+export function extraFeesJson(value) {
+  const rows = parseExtraFees(value);
+  return rows.length ? JSON.stringify(rows) : null;
+}
+
 export function resolveStudentFeeAmount(student, classFee) {
+  const extra = extraFeesTotal(student);
+  const classAmount = Number(classFee) || 0;
+  if (extra > 0) return roundMoney(classAmount + extra);
   const personal = Number(student?.monthly_fee);
   if (Number.isFinite(personal) && personal > 0) return personal;
-  return Number(classFee) || 0;
+  return classAmount;
 }
 
 export function roundMoney(value) {
@@ -120,13 +157,23 @@ export async function listStudentFeePayments({ schoolId, studentId, month }) {
 
 export async function refreshStudentFeeStatus({ schoolId, studentId, month }) {
   if (!schoolId || !studentId) return null;
-  const { data: student } = await supabase
+  let { data: student, error } = await supabase
     .from('students')
-    .select('id, monthly_fee, class')
+    .select('id, monthly_fee, extra_fees, class')
     .eq('id', studentId)
     .eq('school_id', schoolId)
     .maybeSingle();
-  if (!student) return null;
+  if (error && String(error.message || '').toLowerCase().includes('extra_fees')) {
+    const retry = await supabase
+      .from('students')
+      .select('id, monthly_fee, class')
+      .eq('id', studentId)
+      .eq('school_id', schoolId)
+      .maybeSingle();
+    student = retry.data;
+    error = retry.error;
+  }
+  if (error || !student) return null;
   const classFee = await getClassFeeAmount(schoolId, student.class);
   const feeAmount = resolveStudentFeeAmount(student, classFee);
   const payments = await listStudentFeePayments({

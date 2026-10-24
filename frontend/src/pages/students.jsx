@@ -15,6 +15,7 @@ import { useAuth } from '../contexts/authcontext';
 import { useStaffEmbed } from '../contexts/staffEmbed';
 import AddStudent from './addstudends';
 import { buildTermAttendancePdfBytes } from '../utils/attendanceTermPdf';
+import { EXTRA_FEE_REASONS, emptyExtraFee, extraFeesPayload, formatExtraFees, parseExtraFees } from '../utils/extraFees';
 
 const Students = () => {
   const { school } = useAuth();
@@ -129,7 +130,10 @@ const Students = () => {
 
   const handleEdit = (student) => {
     setViewingStudent(null);
-    setEditingStudent(student);
+    setEditingStudent({
+      ...student,
+      extraFees: parseExtraFees(student.extra_fees || student.extraFees),
+    });
   };
 
   const openStudent = async (student) => {
@@ -151,6 +155,7 @@ const Students = () => {
         houseAddress: editingStudent.house_address,
         dateOfBirth: editingStudent.date_of_birth,
         gender: editingStudent.gender,
+        extraFees: extraFeesPayload(editingStudent.extraFees),
         rollNumber: editingStudent.roll_number,
       });
       invalidateCache('students');
@@ -297,6 +302,11 @@ const Students = () => {
             { group: 'Family', label: 'Parent phone', value: viewingStudent?.parent_phone },
             { group: 'Family', label: 'Parent email', value: viewingStudent?.parent_email },
             { group: 'Family', label: 'House address', value: viewingStudent?.house_address },
+            {
+              group: 'Fees',
+              label: 'Extra charges',
+              value: formatExtraFees(viewingStudent?.extra_fees || viewingStudent?.extraFees),
+            },
           ]}
           onClose={() => setViewingStudent(null)}
           onEdit={() => handleEdit(viewingStudent)}
@@ -399,6 +409,72 @@ const Students = () => {
                   placeholder="House address"
                   rows={2}
                 />
+                <div className="rounded-lg border border-slate-600 p-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className="text-sm font-medium text-slate-200">Extra charges</p>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setEditingStudent({
+                          ...editingStudent,
+                          extraFees: [...(editingStudent.extraFees || []), emptyExtraFee()],
+                        })
+                      }
+                      className="text-xs text-sky-300 hover:text-sky-200"
+                    >
+                      Add
+                    </button>
+                  </div>
+                  {(editingStudent.extraFees || []).map((row, index) => (
+                    <div key={`edit-extra-${index}`} className="mb-2 grid grid-cols-[1fr_6rem_auto] gap-2">
+                      <select
+                        value={row.label}
+                        onChange={(e) => {
+                          const extraFees = editingStudent.extraFees.map((item, i) =>
+                            i === index ? { ...item, label: e.target.value } : item
+                          );
+                          setEditingStudent({ ...editingStudent, extraFees });
+                        }}
+                        className="w-full px-2 py-2 border border-slate-500 rounded-lg"
+                      >
+                        {EXTRA_FEE_REASONS.map((reason) => (
+                          <option key={reason} value={reason}>
+                            {reason}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        value={row.amount}
+                        onChange={(e) => {
+                          const extraFees = editingStudent.extraFees.map((item, i) =>
+                            i === index ? { ...item, amount: e.target.value } : item
+                          );
+                          setEditingStudent({ ...editingStudent, extraFees });
+                        }}
+                        className="w-full px-2 py-2 border border-slate-500 rounded-lg"
+                        placeholder="GHS"
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setEditingStudent({
+                            ...editingStudent,
+                            extraFees: editingStudent.extraFees.filter((_, i) => i !== index),
+                          })
+                        }
+                        className="text-xs text-rose-300"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                  {!(editingStudent.extraFees || []).length ? (
+                    <p className="text-xs text-slate-500">No extra charge beyond the class fee.</p>
+                  ) : null}
+                </div>
                 <input
                   type="text"
                   value={editingStudent.roll_number || 'Assigned on save'}

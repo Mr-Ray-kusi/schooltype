@@ -608,10 +608,10 @@ export async function getFeeOverviewPayload(schoolId, query = {}) {
   const TERM_PAY_COLUMNS =
     'id, payer_id, payer_name, payer_class, amount, status, channel, payment_method, recorded_by, payment_reference, payment_month, created_at';
 
-  const [{ data: students, error: studentError }, { data: classes }, termPayRes, yearPayRes] = await Promise.all([
+  let [{ data: students, error: studentError }, { data: classes }, termPayRes, yearPayRes] = await Promise.all([
     supabase
       .from('students')
-      .select('id, name, class, roll_number, barcode, parent_phone, monthly_fee, fee_status')
+      .select('id, name, class, roll_number, barcode, parent_phone, monthly_fee, extra_fees, fee_status')
       .eq('school_id', schoolId)
       .order('name', { ascending: true }),
     supabase.from('classes').select('id, name, fee_amount').eq('school_id', schoolId),
@@ -629,6 +629,15 @@ export async function getFeeOverviewPayload(schoolId, query = {}) {
       .gte('created_at', `${year}-01-01`)
       .limit(2000),
   ]);
+  if (studentError && String(studentError.message || '').toLowerCase().includes('extra_fees')) {
+    const retry = await supabase
+      .from('students')
+      .select('id, name, class, roll_number, barcode, parent_phone, monthly_fee, fee_status')
+      .eq('school_id', schoolId)
+      .order('name', { ascending: true });
+    students = retry.data;
+    studentError = retry.error;
+  }
   if (studentError) throw studentError;
 
   const payments = termPayRes.data || [];

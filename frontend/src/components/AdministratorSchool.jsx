@@ -7,11 +7,13 @@ import Staff from '../pages/staffs';
 import Setup from '../pages/classes';
 import Attendance from '../pages/attendance';
 import Scanner from '../pages/scanner';
+import Alumni from '../pages/alumni';
 import { StaffEmbedProvider } from '../contexts/staffEmbed';
 import { downloadStudentReportCardsPdf, downloadSubjectRankingsPdf } from '../utils/reportCardPdf';
 
 const NAV = [
   { id: 'students', label: 'Students' },
+  { id: 'alumni', label: 'Alumni' },
   { id: 'staff', label: 'Staff' },
   { id: 'setup', label: 'Setup' },
   { id: 'attendance', label: 'Attendance' },
@@ -143,6 +145,7 @@ const AdministratorSchool = ({ schoolName, authHeaders }) => {
 
         <div className={`min-w-0 flex-1 ${tab === 'attendance' ? 'min-h-0' : ''}`}>
           {tab === 'students' ? <Students /> : null}
+          {tab === 'alumni' ? <Alumni /> : null}
           {tab === 'staff' ? <Staff /> : null}
           {tab === 'setup' ? <Setup /> : null}
           {tab === 'attendance' ? (
