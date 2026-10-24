@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Check } from 'lucide-react';
 import { PLAN_LIST, formatPlanPriceGhs } from '../constants/plans';
 import MarketingChrome from '../components/MarketingChrome';
 
@@ -47,14 +46,6 @@ const Plans = () => {
                     {formatPlanPriceGhs(plan)} <span className="text-base font-sans font-semibold text-[var(--mk-muted)]">per year</span>
                   </p>
                   <p className="mk-lead mt-3 text-sm">{plan.description}</p>
-                  <ul className="mt-6 flex-1 space-y-2.5">
-                    {plan.features.map((feature) => (
-                      <li key={feature} className="flex items-start gap-2 text-sm text-[var(--mk-ink)]">
-                        <Check className="mt-0.5 h-4 w-4 shrink-0 text-[var(--mk-forest)]" />
-                        {feature}
-                      </li>
-                    ))}
-                  </ul>
                 </button>
               );
             })}
