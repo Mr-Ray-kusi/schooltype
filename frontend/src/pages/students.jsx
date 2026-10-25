@@ -146,7 +146,7 @@ const Students = () => {
   const handleUpdate = async (e) => {
     e.preventDefault();
     try {
-      await axios.put(`/api/students/${editingStudent.id}`, {
+      const { data } = await axios.put(`/api/students/${editingStudent.id}`, {
         name: editingStudent.name,
         class: editingStudent.class,
         parentName: editingStudent.parent_name,
@@ -162,9 +162,12 @@ const Students = () => {
       invalidateCache('students');
       invalidateCache('dashboard');
       setEditingStudent(null);
-      fetchStudents();
+      if (data) setViewingStudent(data);
+      toast.success('Student updated');
+      fetchStudents({ force: true });
     } catch (error) {
       console.error('Error updating student:', error);
+      toast.error(error.response?.data?.error || 'Could not save gender or extra charges');
     }
   };
 
@@ -508,9 +511,15 @@ const Students = () => {
             columns={[
               { key: 'name', header: 'Student' },
               { key: 'class', header: 'Class' },
+              { key: 'gender', header: 'Gender' },
               { key: 'roll_number', header: 'Student ID' },
               { key: 'parent_name', header: 'Parent' },
               { key: 'parent_phone', header: 'Phone' },
+              {
+                key: 'extra_fees',
+                header: 'Extra charges',
+                render: (row) => formatExtraFees(row.extra_fees || row.extraFees) || '—',
+              },
             ]}
           />
         </div>
@@ -530,7 +539,7 @@ const Students = () => {
           <AddStudent
             onClose={() => {
               setShowAdd(false);
-              fetchStudents();
+              fetchStudents({ force: true });
             }}
           />
         </div>

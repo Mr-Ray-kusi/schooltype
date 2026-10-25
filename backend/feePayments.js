@@ -68,6 +68,11 @@ export function extraFeesTotal(student) {
 
 export function extraFeesJson(value) {
   const rows = parseExtraFees(value);
+  return rows.length ? rows : null;
+}
+
+export function extraFeesText(value) {
+  const rows = parseExtraFees(value);
   return rows.length ? JSON.stringify(rows) : null;
 }
 

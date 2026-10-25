@@ -29,7 +29,8 @@ import {
 } from './publicIdGate.js';
 import { formatParsedStudentId, parseStudentId, syncStudentIds } from './studentId.js';
 import { buildHealthPayload } from './runtimeHealth.js';
-import { pingDbPooler } from './dbPooler.js';
+import { pingDbPooler, ensureStudentProfileColumns } from './dbPooler.js';
+import { mergeStudentFieldList, mergeStudentFields, writeStudentProfileFields } from './studentFieldStore.js';
 import { purgePersonRelated } from './personPurge.js';
 import nodemailer from 'nodemailer';
 import { getPlan, getPlanFeatures, getPlansList, VALID_PLAN_IDS, hasPlanFeature, resolvePlanId } from './plans.js';
@@ -380,6 +381,7 @@ const queryPagedRows = async (table, { schoolId, from, to, q, orFilter, columns,
 
   let rows = result.data || [];
   if (!includePhotos) rows = rows.map(withoutPhotoUrl);
+  if (table === 'students') rows = await mergeStudentFieldList(rows, schoolId);
   return { ...result, data: rows };
 };
 
@@ -867,6 +869,11 @@ const insertStudentRecord = async (record) => {
       return { data, error: null };
     }
 
+    if (payload.extra_fees != null && Array.isArray(payload.extra_fees) && String(error.message || '').toLowerCase().includes('extra_fees')) {
+      payload.extra_fees = JSON.stringify(payload.extra_fees);
+      continue;
+    }
+
     const missingColumn = optionalColumns.find(
       (column) => payload[column] !== undefined && isMissingColumnError(error, column)
     );
@@ -917,6 +924,11 @@ const updateStudentRecord = async (id, schoolId, updates) => {
 
     if (!error) {
       return { data, error: null };
+    }
+
+    if (payload.extra_fees != null && Array.isArray(payload.extra_fees) && String(error.message || '').toLowerCase().includes('extra_fees')) {
+      payload.extra_fees = JSON.stringify(payload.extra_fees);
+      continue;
     }
 
     const missingColumn = optionalColumns.find(
@@ -3741,8 +3753,12 @@ app.post('/api/students', authenticateToken, enforcePlanApproval, async (req, re
 
     if (error) throw error;
 
+    await writeStudentProfileFields(req.user.schoolId, student.id, {
+      gender: studentGender,
+      extra_fees: extraFeesJson(extraFees || extra_fees),
+    });
     bumpSchoolCaches(req.user.schoolId);
-    res.status(201).json(mergeStudentPhoto(student));
+    res.status(201).json(mergeStudentPhoto(await mergeStudentFields(student, req.user.schoolId)));
   } catch (error) {
     res.status(error.status || 500).json({ error: error.message });
   }
@@ -3758,7 +3774,7 @@ app.get('/api/students/:id', authenticateToken, enforcePlanApproval, async (req,
       .maybeSingle();
     if (error) throw error;
     if (!student) return res.status(404).json({ error: 'Student not found' });
-    res.json(mergeStudentPhoto(student));
+    res.json(mergeStudentPhoto(await mergeStudentFields(student, req.user.schoolId)));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -3820,8 +3836,12 @@ app.put('/api/students/:id', authenticateToken, enforcePlanApproval, async (req,
 
     if (error) throw error;
 
+    await writeStudentProfileFields(req.user.schoolId, id, {
+      gender: updates.gender,
+      extra_fees: updates.extra_fees,
+    });
     bumpSchoolCaches(req.user.schoolId);
-    res.json(mergeStudentPhoto(student));
+    res.json(mergeStudentPhoto(await mergeStudentFields(student, req.user.schoolId)));
   } catch (error) {
     res.status(error.status || 500).json({ error: error.message });
   }
@@ -6812,6 +6832,12 @@ async function initializeDatabase() {
     }
 
     await syncJwtClock();
+    const profileCols = await ensureStudentProfileColumns();
+    if (profileCols.ok) {
+      console.log('Student gender and extra charges columns are ready');
+    } else if (profileCols.error) {
+      console.warn('Could not add student gender/extra charges columns:', profileCols.error.message);
+    }
 
     // Perform a lightweight test query to verify Supabase connectivity.
     const { data, error } = await supabase.from('schools').select('id').limit(1);

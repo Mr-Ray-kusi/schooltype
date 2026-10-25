@@ -21,6 +21,7 @@ import { settleSmsPayment, refundSchoolAndPlatformUnits, quoteSmsForPhones } fro
 import { buildOwingFeeSmsBodies, groupOwingParents } from './feeReminderSms.js';
 import { makeWalletReference } from './schoolWalletStore.js';
 import { supabase } from './supabaseClient.js';
+import { mergeStudentFieldList } from './studentFieldStore.js';
 import { isSchoolHeadRole } from './staffAdminRoutes.js';
 import {
   getClassFeeAmount,
@@ -651,6 +652,7 @@ export async function getFeeOverviewPayload(schoolId, query = {}) {
     studentError = retry.error;
   }
   if (studentError) throw studentError;
+  students = await mergeStudentFieldList(students || [], schoolId);
 
   const payments = termPayRes.data || [];
   const yearPayments = yearPayRes.data || [];

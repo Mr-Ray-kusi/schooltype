@@ -89,6 +89,40 @@ async function tryConnect(Client, connectionString) {
   }
 }
 
+export async function ensureStudentProfileColumns() {
+  const raw = rawDbUrl();
+  if (!raw) return { ok: false, skipped: true };
+  let pg;
+  try {
+    pg = await import('pg');
+  } catch {
+    return { ok: false, skipped: true };
+  }
+  const Client = pg.default?.Client || pg.Client;
+  const { url } = normalizePoolerUrl(raw);
+  const options = await connectOptions(url);
+  const client = new Client(options);
+  try {
+    await client.connect();
+    await client.query('ALTER TABLE students ADD COLUMN IF NOT EXISTS gender TEXT');
+    await client.query('ALTER TABLE students ADD COLUMN IF NOT EXISTS extra_fees TEXT');
+    try {
+      await client.query("NOTIFY pgrst, 'reload schema'");
+    } catch {
+      // schema reload is best-effort
+    }
+    await client.end();
+    return { ok: true };
+  } catch (error) {
+    try {
+      await client.end();
+    } catch {
+      // already closed
+    }
+    return { ok: false, error: safeError(error) };
+  }
+}
+
 export async function pingDbPooler() {
   const info = describeDbPooler();
   const raw = rawDbUrl();

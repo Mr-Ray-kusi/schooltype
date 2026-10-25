@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { supabase } from './supabaseClient.js';
 import { extraFeesJson } from './feePayments.js';
+import { mergeStudentFields, writeStudentProfileFields } from './studentFieldStore.js';
 import { syncStudentIds } from './studentId.js';
 
 const isMissingColumnError = (error, column) => {
@@ -27,6 +28,14 @@ const insertWithOptionalColumns = async (table, record, optionalColumns) => {
   for (let attempt = 0; attempt <= optionalColumns.length + 4; attempt++) {
     const { data, error } = await supabase.from(table).insert([payload]).select().single();
     if (!error) return { data, error: null };
+    if (
+      payload.extra_fees != null &&
+      Array.isArray(payload.extra_fees) &&
+      String(error.message || '').toLowerCase().includes('extra_fees')
+    ) {
+      payload.extra_fees = JSON.stringify(payload.extra_fees);
+      continue;
+    }
     const missingColumn = optionalColumns.find(
       (column) => payload[column] !== undefined && isMissingColumnError(error, column)
     );
@@ -144,7 +153,11 @@ export async function createStudent(schoolId, body) {
     'qr_code',
   ]);
   if (error) throw error;
-  return data;
+  await writeStudentProfileFields(schoolId, data.id, {
+    gender,
+    extra_fees: record.extra_fees,
+  });
+  return mergeStudentFields(data, schoolId);
 }
 
 export async function createStaff(schoolId, body) {
