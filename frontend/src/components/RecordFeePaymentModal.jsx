@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import { parseListResponse } from '../utils/listApi.js';
+import { displayStudentId } from '../utils/displayStudentId';
+import { isTerminalMomoStatus } from '../utils/momoCharge';
 
 const formatGhs = (value) =>
   `GHS ${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -112,7 +114,8 @@ const RecordFeePaymentModal = ({
 
   const pickStudent = (row) => {
     setStudentId(row.id);
-    setQuery(`${row.name}${row.roll_number || row.barcode ? ` · ${row.roll_number || row.barcode}` : ''}`);
+    const schoolId = displayStudentId(row);
+    setQuery(`${row.name}${schoolId ? ` · ${schoolId}` : ''}`);
     setOpen(false);
     setPhone(row.parent_phone || '');
     if (row?.outstanding > 0) setAmount(String(row.outstanding));
@@ -170,7 +173,7 @@ const RecordFeePaymentModal = ({
           setSaving(false);
           return;
         }
-        if (data.status === 'cancelled' || data.status === 'failed' || data.status === 'timeout') {
+        if (data.status === 'cancelled' || isTerminalMomoStatus(data)) {
           abortMomo(data.display_text || 'The parent did not confirm this MoMo payment.');
           return;
         }
@@ -230,7 +233,7 @@ const RecordFeePaymentModal = ({
         finishSuccess(data, data.amount);
         return;
       }
-      if (data.status === 'cancelled' || data.status === 'failed' || data.status === 'timeout') {
+      if (isTerminalMomoStatus(data)) {
         toast.error(data.display_text || 'The parent did not confirm this MoMo payment.');
         setSaving(false);
         return;
@@ -396,7 +399,7 @@ const RecordFeePaymentModal = ({
                       >
                         <span>{row.name}</span>
                         <span className="text-xs text-slate-400">
-                          {[row.roll_number || row.barcode, row.class].filter(Boolean).join(' · ')}
+                          {[displayStudentId(row), row.class].filter(Boolean).join(' · ')}
                           {row.outstanding > 0 ? ` · left ${formatGhs(row.outstanding)}` : ''}
                         </span>
                       </button>
@@ -528,6 +531,7 @@ const RecordFeePaymentModal = ({
                   ? 'Send MoMo prompt'
                   : 'Save payment'}
           </button>
+          
           <button
             type="button"
             onClick={() => {

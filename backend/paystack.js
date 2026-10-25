@@ -388,6 +388,26 @@ export function isPaystackFailedStatus(status) {
   return value === 'failed' || value === 'timeout' || value === 'reversed';
 }
 
+const HARD_MOMO_DECLINE =
+  /insufficient|invalid (number|phone|mobile|account)|not registered|do not honor|incorrect pin|wrong pin|limit exceeded|blocked|unregistered/;
+
+export function chargeMessage(charge) {
+  return `${charge?.display_text || ''} ${charge?.gateway_response || ''} ${charge?._paystack_message || ''}`.trim();
+}
+
+export function isHardPaystackDecline(charge) {
+  const text = chargeMessage(charge).toLowerCase();
+  return Boolean(text) && HARD_MOMO_DECLINE.test(text);
+}
+
+export function isTransientPaystackFailure(charge) {
+  const status = String(charge?.status || '').toLowerCase();
+  if (status !== 'failed' && status !== 'timeout') return false;
+  if (isPaystackUserCancelled(charge)) return false;
+  if (isHardPaystackDecline(charge)) return false;
+  return true;
+}
+
 export function isPaystackUserCancelled(charge) {
   const status = String(charge?.status || '').toLowerCase();
   if (

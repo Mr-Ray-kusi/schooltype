@@ -43,6 +43,21 @@ export function codeChoices(name) {
   return choices.length ? choices : ['SCH'];
 }
 
+export function isInternalAttendanceCode(value) {
+  return /-(STU|STAFF|NONSTAFF)-/i.test(String(value || ''));
+}
+
+export function displayStudentId(person) {
+  const roll = String(person?.roll_number || person?.rollNumber || '').trim();
+  if (roll && !isInternalAttendanceCode(roll)) return roll;
+  return '';
+}
+
+export function needsSchoolStudentId(value) {
+  const roll = String(value || '').trim();
+  return !roll || isInternalAttendanceCode(roll);
+}
+
 export function parseStudentId(value) {
   const raw = String(value || '')
     .trim()
@@ -118,7 +133,7 @@ export function assignMissingIds(students, code) {
   const assigned = [];
   const working = (students || []).map((row) => ({ ...row }));
   const missing = working
-    .filter((row) => row?.id && !String(row.roll_number || '').trim())
+    .filter((row) => row?.id && needsSchoolStudentId(row.roll_number))
     .slice()
     .sort(
       (a, b) =>

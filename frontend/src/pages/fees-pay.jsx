@@ -3,6 +3,8 @@ import { Link, useParams } from 'react-router-dom';
 import axios from 'axios';
 import { ArrowLeft, Building2, CreditCard, Landmark, Loader2, Smartphone } from 'lucide-react';
 import MarketingChrome from '../components/MarketingChrome';
+import { displayStudentId } from '../utils/displayStudentId';
+import { isTerminalMomoStatus } from '../utils/momoCharge';
 
 const MOMO_PROVIDERS = [
   { id: 'mtn', label: 'MTN MoMo' },
@@ -44,7 +46,7 @@ const FeesPay = () => {
   const [step, setStep] = useState(barcode ? 2 : 1);
   const [schools, setSchools] = useState([]);
   const [schoolId, setSchoolId] = useState('');
-  const [studentId, setStudentId] = useState(barcode || '');
+  const [studentId, setStudentId] = useState('');
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState('momo');
   const [phone, setPhone] = useState('');
@@ -105,7 +107,7 @@ const FeesPay = () => {
         if (cancelled) return;
         setInfo(data);
         setSchoolId(data.school_id || '');
-        setStudentId(data.barcode || barcode);
+        setStudentId(displayStudentId(data));
         setAmount(data.outstanding > 0 ? String(data.outstanding) : data.amount > 0 ? String(data.amount) : '');
         setStep(2);
       } catch (err) {
@@ -127,12 +129,16 @@ const FeesPay = () => {
     const reference = momoPrompt?.reference;
     if (!reference) return undefined;
 
-    const remaining = Math.max(0, 30000 - (Date.now() - (momoWaitStartedAtRef.current || Date.now())));
+    const startedAt = momoWaitStartedAtRef.current || Date.now();
+    if (!momoWaitStartedAtRef.current) momoWaitStartedAtRef.current = startedAt;
+    const remaining = Math.max(0, 180000 - (Date.now() - startedAt));
     const timeout = momoPrompt.needs_code
       ? null
-      : window.setTimeout(() => {
-          abortPayment('MoMo PIN was not confirmed. Tap Continue to payment to start again.');
-        }, remaining);
+      : remaining > 0
+        ? window.setTimeout(() => {
+            abortPayment('The phone confirmation is taking too long. Tap Continue to payment to start again.');
+          }, remaining)
+        : null;
 
     let cancelled = false;
     const poll = async () => {
@@ -159,14 +165,10 @@ const FeesPay = () => {
           setPaying(false);
           return;
         }
-        if (data.status === 'cancelled') {
+        if (data.status === 'cancelled' || isTerminalMomoStatus(data)) {
           abortPayment(
             data.display_text || 'Payment was cancelled on the phone. Tap Continue to payment to start again.'
           );
-          return;
-        }
-        if (data.status === 'failed' || data.status === 'timeout') {
-          abortPayment(data.display_text || 'Payment failed. Tap Continue to payment to start again.');
           return;
         }
         if (data.display_text) {
@@ -179,7 +181,7 @@ const FeesPay = () => {
       }
     };
     poll();
-    const interval = window.setInterval(poll, 800);
+    const interval = window.setInterval(poll, 2500);
     return () => {
       cancelled = true;
       window.clearInterval(interval);
@@ -202,6 +204,7 @@ const FeesPay = () => {
         studentId: studentId.trim(),
       });
       setInfo(data);
+      setStudentId(displayStudentId(data) || studentId.trim());
       setAmount(data.outstanding > 0 ? String(data.outstanding) : data.amount > 0 ? String(data.amount) : '');
       setStep(2);
     } catch (err) {
@@ -249,10 +252,7 @@ const FeesPay = () => {
           window.location.href = data.authorization_url;
           return;
         }
-        if (
-          !data.needs_code &&
-          (data.status === 'cancelled' || data.status === 'failed' || data.status === 'timeout')
-        ) {
+        if (!data.needs_code && isTerminalMomoStatus(data)) {
           setPaying(false);
           setStep(2);
           setError(
@@ -429,7 +429,7 @@ const FeesPay = () => {
                       setStudentId(e.target.value);
                       setInfo(null);
                     }}
-                    placeholder="Student ID"
+                    placeholder="BFA-AS-2026-014"
                     required
                   />
                 </label>
@@ -450,7 +450,7 @@ const FeesPay = () => {
                     </div>
                     <div className="flex justify-between gap-4">
                       <dt className="text-[var(--mk-muted)]">Student ID</dt>
-                      <dd>{info.barcode || info.roll_number || studentId}</dd>
+                      <dd>{displayStudentId(info) || studentId || '—'}</dd>
                     </div>
                     <div className="flex justify-between gap-4">
                       <dt className="text-[var(--mk-muted)]">Fee amount</dt>

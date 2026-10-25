@@ -4,8 +4,10 @@ import {
   assignMissingIds,
   chooseSchoolCode,
   classEnrollmentPosition,
+  displayStudentId,
   enrollmentYear,
   formatStudentId,
+  isInternalAttendanceCode,
   nextIdAfter,
   parseStudentId,
   schoolCodeFromName,
@@ -49,11 +51,25 @@ test('blank students get a unique pair and a class position, not a school-wide r
     { id: 'b', class: 'JHS 2', roll_number: null, created_at: '2026-03-01' },
     { id: 'c', class: 'JHS 1', roll_number: '', created_at: '2025-09-01' },
     { id: 'd', class: 'JHS 2', roll_number: '12', created_at: '2024-01-01' },
+    {
+      id: 'e',
+      class: 'JHS 2',
+      roll_number: 'f45151f7-cba8-46dc-865c-5e32e22d0228-STU-1792620267070-49a5dd15',
+      created_at: '2026-04-01',
+    },
   ];
   const assigned = assignMissingIds(rows, 'BFA');
   assert.equal(assigned.find((row) => row.id === 'c').roll_number, 'BFA-AB-2025-001');
   assert.equal(assigned.find((row) => row.id === 'b').roll_number, 'BFA-AC-2026-003');
   assert.equal(rows.find((row) => row.id === 'd').roll_number, '12');
+  assert.match(assigned.find((row) => row.id === 'e').roll_number, /^BFA-[A-Z]{2}-2026-\d{3}$/);
+  assert.equal(
+    displayStudentId({
+      roll_number: 'f45151f7-cba8-46dc-865c-5e32e22d0228-STU-1792620267070-49a5dd15',
+    }),
+    ''
+  );
+  assert.equal(isInternalAttendanceCode('school-STU-1-abc'), true);
 });
 
 test('the next enrollment continues with a new unique pair in that class', () => {

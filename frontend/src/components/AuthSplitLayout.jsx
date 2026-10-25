@@ -61,7 +61,7 @@ function PromoPanel({ mode }) {
 
         <Link
           to={isSignup ? '/login' : '/plans'}
-          className="mt-8 inline-flex min-w-[160px] items-center justify-center rounded-sm border border-[#fffaf2]/80 px-8 py-2.5 text-sm font-semibold text-[#fffaf2] transition hover:bg-white/10"
+          className="auth-accent mt-8 inline-flex min-w-[160px] items-center justify-center rounded-sm px-8 py-2.5 text-sm font-semibold text-[#fffaf2] shadow-md transition hover:bg-[#8c3b22]"
         >
           {isSignup ? 'Sign in' : 'Create account'}
         </Link>

@@ -317,7 +317,7 @@ const Login = () => {
 
       <p className="mt-6 text-center text-sm text-[#5c564c]">
         New school?{' '}
-        <Link to="/plans" className="font-semibold hover:underline" style={{ color: AUTH_ORANGE }}>
+        <Link to="/plans" className="font-semibold text-[#a3472a] underline-offset-2 hover:underline">
           Create an account
         </Link>
       </p>

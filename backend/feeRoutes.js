@@ -6,6 +6,7 @@ import {
   isPaystackFailedStatus,
   isPaystackPendingStatus,
   isPaystackUserCancelled,
+  isTransientPaystackFailure,
   chargeMobileMoney,
   submitChargeOtp,
   submitChargePin,
@@ -21,6 +22,7 @@ import { settleSmsPayment, refundSchoolAndPlatformUnits, quoteSmsForPhones } fro
 import { buildOwingFeeSmsBodies, groupOwingParents } from './feeReminderSms.js';
 import { makeWalletReference } from './schoolWalletStore.js';
 import { supabase } from './supabaseClient.js';
+import { displayStudentId, needsSchoolStudentId, syncStudentIds } from './studentId.js';
 import { mergeStudentFieldList } from './studentFieldStore.js';
 import { isSchoolHeadRole } from './staffAdminRoutes.js';
 import {
@@ -101,11 +103,22 @@ function chargeInstructionReady(status) {
   );
 }
 
-async function waitForMomoInstruction(reference, initial, { attempts = 2, delayMs = 180 } = {}) {
+async function waitForMomoInstruction(reference, initial, { attempts = 6, delayMs = 400 } = {}) {
   let charge = initial;
   for (let i = 0; i < attempts; i++) {
     const status = String(charge?.status || '').toLowerCase();
-    if (chargeInstructionReady(status) || chargeLooksLikeCodePrompt(charge)) return charge;
+    if (
+      chargeLooksLikeCodePrompt(charge) ||
+      chargeNeedsCode(status) ||
+      status === 'success' ||
+      status === 'pay_offline' ||
+      status === 'open_url'
+    ) {
+      return charge;
+    }
+    if (isPaystackUserCancelled(charge) || (isPaystackFailedStatus(status) && !isTransientPaystackFailure(charge))) {
+      return charge;
+    }
     await sleep(delayMs);
     charge = (await readCharge(reference)) || charge;
   }
@@ -250,7 +263,7 @@ function publicStudentSummary(student, school, amount, month, balance, period) {
     student_id: student.id,
     student_name: student.name,
     class_name: student.class || null,
-    roll_number: student.roll_number || null,
+    roll_number: displayStudentId(student) || null,
     barcode: student.barcode,
     amount: outstanding > 0 ? outstanding : feeAmount,
     fee_amount: feeAmount,
@@ -291,6 +304,21 @@ async function loadFeeBalance(student, amount, month) {
   return buildFeeBalance({ feeAmount: amount, payments });
 }
 
+async function ensureSchoolStudentId(student, school) {
+  if (!student || !needsSchoolStudentId(student.roll_number)) return student;
+  try {
+    const result = await syncStudentIds(supabase, {
+      id: student.school_id,
+      name: school?.name || 'School',
+    }, { className: student.class });
+    const assigned = (result.assigned || []).find((row) => row.id === student.id);
+    if (assigned?.roll_number) return { ...student, roll_number: assigned.roll_number };
+  } catch (error) {
+    console.warn('Could not assign school student ID for fees:', error.message || error);
+  }
+  return student;
+}
+
 async function loadStudentFeeContext(barcode) {
   const code = String(barcode || '').trim();
   if (!code) return null;
@@ -300,11 +328,12 @@ async function loadStudentFeeContext(barcode) {
     supabase.from('schools').select('id, name, logo_url, email').eq('id', student.school_id).maybeSingle(),
     getClassFeeAmount(student.school_id, student.class),
   ]);
-  const period = await resolveFeePeriod(student.school_id);
+  const studentWithId = await ensureSchoolStudentId(student, school);
+  const period = await resolveFeePeriod(studentWithId.school_id);
   const month = period.key;
-  const amount = resolveStudentFeeAmount(student, classFee);
-  const balance = await loadFeeBalance(student, amount, month);
-  return { student, school, amount, month, balance, period };
+  const amount = resolveStudentFeeAmount(studentWithId, classFee);
+  const balance = await loadFeeBalance(studentWithId, amount, month);
+  return { student: studentWithId, school, amount, month, balance, period };
 }
 
 async function findStudentInSchool(schoolId, studentId) {
@@ -344,11 +373,12 @@ async function loadStudentFeeBySchool(schoolId, studentId) {
     supabase.from('schools').select('id, name, logo_url, email').eq('id', student.school_id).maybeSingle(),
     getClassFeeAmount(student.school_id, student.class),
   ]);
+  const studentWithId = await ensureSchoolStudentId(student, school);
   const period = await resolveFeePeriod(student.school_id);
   const month = period.key;
-  const amount = resolveStudentFeeAmount(student, classFee);
-  const balance = await loadFeeBalance(student, amount, month);
-  return { student, school, amount, month, balance, period };
+  const amount = resolveStudentFeeAmount(studentWithId, classFee);
+  const balance = await loadFeeBalance(studentWithId, amount, month);
+  return { student: studentWithId, school, amount, month, balance, period };
 }
 
 function feePayloadFromRecord(row, reference) {
@@ -450,6 +480,15 @@ async function resolveFeePayment(reference) {
     };
   }
 
+  if (charge && isPaystackFailedStatus(chargeStatus) && isTransientPaystackFailure(charge)) {
+    return {
+      status: 'pending',
+      payload: charge,
+      needs_code: false,
+      display_text: charge.display_text || 'Waiting for the confirmation on the phone.',
+    };
+  }
+
   if (charge && isPaystackFailedStatus(chargeStatus)) {
     const meta = parsePaystackMetadata(charge.metadata);
     noteFeePaymentFailed({
@@ -538,6 +577,14 @@ async function resolveFeePayment(reference) {
         payload: verified,
         needs_code: false,
         display_text: 'Payment was cancelled on the phone. Tap Continue to payment to start again.',
+      };
+    }
+    if (isPaystackFailedStatus(txStatus) && isTransientPaystackFailure(verified)) {
+      return {
+        status: 'pending',
+        payload: verified,
+        needs_code: false,
+        display_text: verified?.display_text || charge?.display_text || 'Waiting for the confirmation on the phone.',
       };
     }
     if (isPaystackFailedStatus(txStatus)) {
@@ -1072,7 +1119,7 @@ async function receiptDetailsForPayment(reference) {
     school_logo_url: school?.logo_url || null,
     student_name: student.name,
     class_name: student.class || meta.payer_class || null,
-    roll_number: student.roll_number || null,
+    roll_number: displayStudentId(student) || null,
     term_name: period.name,
     period_label: formatPeriodLabel(period),
     payment_month: period.key,
@@ -1119,7 +1166,7 @@ async function startFeePayment({
     payer_name: student.name,
     payer_class: student.class || null,
     barcode: student.barcode || null,
-    roll_number: student.roll_number || null,
+    roll_number: displayStudentId(student) || null,
     payment_month: month,
     term_name: termName || month,
     amount_major: payAmount,
@@ -1162,17 +1209,25 @@ async function startFeePayment({
     metadata.settle_mode = 'transfer';
     metadata.subaccount_code = null;
 
-    const charge = await chargeMobileMoney({
+    let charge = await chargeMobileMoney({
       ...chargeArgs,
       phone: phoneLocal,
       provider: momoNetwork,
     });
-    const status = String(charge?.status || 'pay_offline').toLowerCase();
+    if (isTransientPaystackFailure(charge) || !String(charge?.status || '').trim()) {
+      charge = (await waitForMomoInstruction(charge?.reference || reference, charge, {
+        attempts: 6,
+        delayMs: 400,
+      })) || charge;
+    }
+    const rawStatus = String(charge?.status || 'pay_offline').toLowerCase();
     const needsCode = chargeLooksLikeCodePrompt(charge);
     const liveMode = String(getPaystackConfig().secretKey || '').startsWith('sk_live_');
     const isTelecel = /vod|telecel/i.test(String(momoNetwork || ''));
     const phoneCancelled = !needsCode && isPaystackUserCancelled(charge);
-    let displayText = charge?.display_text || '';
+    const stillWaiting = !needsCode && !phoneCancelled && isTransientPaystackFailure(charge);
+    const status = stillWaiting ? 'pay_offline' : rawStatus;
+    let displayText = stillWaiting ? '' : charge?.display_text || '';
     if (phoneCancelled) {
       displayText = 'Payment was cancelled on the phone. Tap Continue to payment to start again.';
     } else if (!displayText) {
