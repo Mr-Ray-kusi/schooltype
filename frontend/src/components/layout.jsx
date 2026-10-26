@@ -80,6 +80,24 @@ const Layout = ({ children }) => {
     return undefined;
   }, [token, isSuperAdmin]);
 
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (!sidebarOpen) return undefined;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKey = (event) => {
+      if (event.key === 'Escape') setSidebarOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [sidebarOpen]);
+
   const handleLogout = async () => {
     await logout();
     window.location.assign('/');
@@ -167,20 +185,20 @@ const Layout = ({ children }) => {
 
   return (
     <div className={`min-h-screen ${liteMode ? 'lite-shell bg-slate-100 text-slate-900' : 'bg-slate-900 text-slate-50'}`}>
-      <div className="lg:hidden fixed top-4 left-4 z-50">
+      <div className="fixed left-[max(0.75rem,env(safe-area-inset-left))] top-[max(0.75rem,env(safe-area-inset-top))] z-50 lg:hidden">
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
-          className={`p-2 rounded-lg shadow-md ${liteMode ? 'bg-white text-slate-800' : 'bg-slate-800 text-slate-50'}`}
+          className={`flex h-11 w-11 items-center justify-center rounded-lg shadow-md ${liteMode ? 'bg-white text-slate-800' : 'bg-slate-800 text-slate-50'}`}
           aria-label={sidebarOpen ? 'Close menu' : 'Open menu'}
         >
           {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
         </button>
       </div>
 
-      <div className="fixed top-4 right-4 z-50">
+      <div className="fixed right-[max(0.75rem,env(safe-area-inset-right))] top-[max(0.75rem,env(safe-area-inset-top))] z-50 lg:right-4 lg:top-4">
         <Link
           to={isSuperAdmin ? '/super-admin/notifications' : '/notifications'}
-          className={`relative flex h-10 w-10 items-center justify-center rounded-lg shadow-md ${
+          className={`relative flex h-11 w-11 items-center justify-center rounded-lg shadow-md ${
             liteMode ? 'bg-white text-slate-800 hover:bg-slate-50' : 'bg-slate-800 text-slate-50 hover:bg-slate-700'
           }`}
           aria-label={unread ? `${unread} unread notifications` : 'Notifications'}
@@ -204,9 +222,9 @@ const Layout = ({ children }) => {
       )}
 
       <div
-        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col shadow-xl transform transition-transform duration-300 ease-in-out ${
+        className={`fixed inset-y-0 left-0 z-40 flex w-[min(16rem,85vw)] flex-col pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)] shadow-xl transform transition-transform duration-300 ease-in-out ${
           liteMode ? 'bg-white border-r border-slate-200' : 'bg-slate-800'
-        } ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0`}
+        } ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:w-64 lg:translate-x-0`}
       >
         <div className={`flex items-center gap-2 p-6 border-b shrink-0 ${liteMode ? 'border-slate-200' : 'border-slate-600'}`}>
           {school?.logo_url ? (
@@ -248,7 +266,7 @@ const Layout = ({ children }) => {
                       ? !item.featureKeys.some((key) => hasFeature(key))
                       : Boolean(item.featureKey) && !hasFeature(item.featureKey));
 
-                  const itemClasses = `flex items-center gap-3 px-4 py-2 rounded-lg transition-colors whitespace-nowrap ${
+                  const itemClasses = `flex min-h-11 items-center gap-3 px-4 py-2 rounded-lg transition-colors whitespace-nowrap ${
                     isLocked
                       ? 'text-slate-400 cursor-not-allowed opacity-60'
                       : active
@@ -332,7 +350,7 @@ const Layout = ({ children }) => {
       </div>
 
       <div className="min-w-0 lg:ml-64">
-        <main className="w-full min-w-0 max-w-full overflow-x-clip p-4 pt-16 sm:p-6 lg:pt-6">
+        <main className="w-full min-w-0 max-w-full overflow-x-clip p-4 pt-[calc(4.25rem+env(safe-area-inset-top))] sm:p-6 lg:pt-6">
           <OfflineBanner />
           <div className={isAttendance ? 'h-[min(70vh,40rem)] min-h-[28rem]' : undefined}>
             {children ?? <Outlet />}
