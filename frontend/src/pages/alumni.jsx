@@ -103,7 +103,7 @@ const Alumni = () => {
         <div>
           <h1 className="text-2xl font-bold text-white">Alumni Status</h1>
           <p className="mt-0.5 text-sm text-slate-400">
-            Completed records by year batch. Completing class is the last class in the school hierarchy.
+            Completed records by year batch.
           </p>
         </div>
         {overview?.completing_count > 0 ? (

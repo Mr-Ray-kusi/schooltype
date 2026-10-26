@@ -221,9 +221,7 @@ const AddStudent = ({ onClose } = {}) => {
 
               <div className="sm:col-span-2">
                 <p className="text-sm font-medium text-slate-200">Student ID</p>
-                <p className="mt-1 text-sm text-slate-400">
-                  Assigned when you save. It looks like BFA-AS-2026-014: school letters, a unique two-letter code, the enrollment year, then the student’s place in that class at enrollment.
-                </p>
+                <p className="mt-1 text-sm text-slate-400">Assigned when you save. It looks like BFA-AS-2026-014.</p>
               </div>
 
             </div>

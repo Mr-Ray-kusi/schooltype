@@ -35,12 +35,6 @@ const AdministratorSchool = ({ schoolName, authHeaders }) => {
   const [loadingReports, setLoadingReports] = useState(false);
   const [showAbsentSms, setShowAbsentSms] = useState(false);
 
-  useEffect(() => {
-    const lock = tab === 'attendance';
-    document.documentElement.classList.toggle('attendance-lock', lock);
-    return () => document.documentElement.classList.remove('attendance-lock');
-  }, [tab]);
-
   const loadReports = useCallback(async () => {
     setLoadingReports(true);
     try {

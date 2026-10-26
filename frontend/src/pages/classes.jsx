@@ -464,7 +464,7 @@ const Setup = () => {
       <div>
         <h1 className="text-2xl font-bold text-white">Setup</h1>
         <p className="mt-0.5 text-sm text-slate-400">
-          School image, terms, classes, fees, and subjects. Keep this tight so the school year is easy to run.
+          School image, terms, classes, fees, and subjects.
         </p>
         <button
           type="button"
