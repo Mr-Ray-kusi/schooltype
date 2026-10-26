@@ -469,13 +469,13 @@ const StaffPortal = () => {
   return (
     <div className={`min-h-screen ${liteMode ? 'lite-shell bg-slate-100 text-slate-900' : 'bg-slate-950 text-white'}`}>
       <header className={`border-b px-4 py-4 ${liteMode ? 'border-slate-200 bg-white' : 'border-slate-800 bg-slate-900/80'}`}>
-        <div className={`mx-auto flex items-center justify-between gap-3 ${wideLayout ? 'max-w-7xl' : 'max-w-5xl'}`}>
-          <div>
+        <div className={`mx-auto flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between ${wideLayout ? 'max-w-7xl' : 'max-w-5xl'}`}>
+          <div className="min-w-0">
             <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{schoolName}</p>
-            <h1 className="text-xl font-bold">{staff.name}</h1>
+            <h1 className="truncate text-xl font-bold">{staff.name}</h1>
             <p className="text-sm text-sky-300">{staff.role}</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {themeToggle}
             <button
               type="button"
@@ -501,9 +501,9 @@ const StaffPortal = () => {
         ) : isAccountant ? (
           <AuthContext.Provider value={portalAuth}>
             <div className="flex flex-col gap-6 lg:flex-row">
-              <aside className="shrink-0 lg:w-52">
-                <div className="sticky top-4 space-y-2 rounded-2xl border border-slate-700 bg-slate-900/70 p-3">
-                  <p className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-300">
+              <aside className="min-w-0 shrink-0 lg:w-52">
+                <div className="flex gap-2 overflow-x-auto pb-1 lg:sticky lg:top-4 lg:block lg:space-y-2 lg:overflow-visible rounded-2xl border border-slate-700 bg-slate-900/70 p-3">
+                  <p className="hidden px-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-300 lg:block">
                     Finance
                   </p>
                   {[
@@ -514,7 +514,7 @@ const StaffPortal = () => {
                       key={item.id}
                       type="button"
                       onClick={() => setFinanceTab(item.id)}
-                      className={`flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-medium ${
+                      className={`flex shrink-0 items-center rounded-xl px-3 py-2.5 text-left text-sm font-medium lg:w-full ${
                         financeTab === item.id ? 'bg-emerald-600 text-white' : 'text-slate-200 hover:bg-slate-800'
                       }`}
                     >
@@ -527,7 +527,7 @@ const StaffPortal = () => {
                       setFinanceTab('fees');
                       setOwingSmsOpen(true);
                     }}
-                    className="mt-2 flex w-full items-center gap-2 rounded-xl border border-slate-600 px-3 py-2 text-left text-sm font-medium text-slate-200 hover:bg-slate-800"
+                    className="flex shrink-0 items-center gap-2 rounded-xl border border-slate-600 px-3 py-2.5 text-left text-sm font-medium text-slate-200 hover:bg-slate-800 lg:mt-2 lg:w-full"
                   >
                     <MessageSquare className="h-4 w-4" />
                     SMS owing parents
