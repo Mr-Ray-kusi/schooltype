@@ -25,53 +25,65 @@ export function AuthBrandMark({ compact = false }) {
 
 function PromoPanel({ mode }) {
   const isSignup = mode === 'signup';
+  const flyerBg = !isSignup;
 
   return (
     <div className="relative flex min-h-[280px] flex-col overflow-hidden bg-[#123028] px-8 py-10 text-[#fffaf2] md:min-h-[640px] md:px-12 md:py-12">
       <img
-        src="/landing-hero.jpg"
+        src={flyerBg ? '/auth-create-account.jpg' : '/landing-hero.jpg'}
         alt=""
-        className="absolute inset-0 h-full w-full object-cover opacity-35"
+        className={`absolute inset-0 h-full w-full ${
+          flyerBg ? 'object-cover object-center' : 'object-cover opacity-35'
+        }`}
       />
-      <div className="absolute inset-0 bg-[#0b1f1a]/72" />
+      <div className={`absolute inset-0 ${flyerBg ? 'bg-gradient-to-t from-[#0b1f1a]/80 via-[#0b1f1a]/15 to-transparent' : 'bg-[#0b1f1a]/72'}`} />
 
-      <div className="relative flex flex-1 flex-col items-center justify-center text-center">
-        <div className="mb-6 flex items-center gap-1.5">
-          {[0, 1, 2, 3].map((i) => (
-            <span
-              key={i}
-              className={`h-1 rounded-full ${i === 0 ? 'w-7 bg-[#e4c778]' : 'w-5 bg-white/35'}`}
-            />
-          ))}
+      {flyerBg ? (
+        <div className="relative mt-auto flex justify-center pt-24">
+          <Link
+            to="/plans"
+            className="auth-accent inline-flex min-w-[160px] items-center justify-center rounded-sm px-8 py-2.5 text-sm font-semibold text-[#fffaf2] shadow-md transition hover:bg-[#8c3b22]"
+          >
+            Create account
+          </Link>
         </div>
+      ) : (
+        <>
+          <div className="relative flex flex-1 flex-col items-center justify-center text-center">
+            <div className="mb-6 flex items-center gap-1.5">
+              {[0, 1, 2, 3].map((i) => (
+                <span
+                  key={i}
+                  className={`h-1 rounded-full ${i === 0 ? 'w-7 bg-[#e4c778]' : 'w-5 bg-white/35'}`}
+                />
+              ))}
+            </div>
 
-        <span className="mb-5 inline-flex items-center gap-1.5 rounded-full border border-[rgba(228,199,120,0.45)] bg-black/15 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#e4c778]">
-          <GraduationCap className="h-3 w-3" />
-          Schooltype
-        </span>
+            <span className="mb-5 inline-flex items-center gap-1.5 rounded-full border border-[rgba(228,199,120,0.45)] bg-black/15 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#e4c778]">
+              <GraduationCap className="h-3 w-3" />
+              Schooltype
+            </span>
 
-        <h2 className="max-w-xs font-serif text-[2rem] font-bold leading-tight md:text-[2.35rem]">
-          {isSignup ? "You're Welcome." : 'New to the crew?'}
-        </h2>
-        <p className="mt-4 max-w-sm text-sm leading-relaxed text-[#efe6d6] md:text-[15px]">
-          {isSignup
-            ? 'Sign in to keep the school moving.'
-            : 'Create your school account and put academics to work in minutes.'}
-        </p>
+            <h2 className="max-w-xs font-serif text-[2rem] font-bold leading-tight md:text-[2.35rem]">
+              You&apos;re Welcome.
+            </h2>
+            <p className="mt-4 max-w-sm text-sm leading-relaxed text-[#efe6d6] md:text-[15px]">
+              Sign in to keep the school moving.
+            </p>
 
-        <Link
-          to={isSignup ? '/login' : '/plans'}
-          className="auth-accent mt-8 inline-flex min-w-[160px] items-center justify-center rounded-sm px-8 py-2.5 text-sm font-semibold text-[#fffaf2] shadow-md transition hover:bg-[#8c3b22]"
-        >
-          {isSignup ? 'Sign in' : 'Create account'}
-        </Link>
-      </div>
+            <Link
+              to="/login"
+              className="auth-accent mt-8 inline-flex min-w-[160px] items-center justify-center rounded-sm px-8 py-2.5 text-sm font-semibold text-[#fffaf2] shadow-md transition hover:bg-[#8c3b22]"
+            >
+              Sign in
+            </Link>
+          </div>
 
-      <p className="relative mt-8 text-center text-xs italic text-[#d8cfc0] md:mt-0">
-        {isSignup
-          ? "Let's build, manage and organise all school activities"
-          : '"Every school deserves a connected academic life."'}
-      </p>
+          <p className="relative mt-8 text-center text-xs italic text-[#d8cfc0] md:mt-0">
+            Let&apos;s build, manage and organise all school activities
+          </p>
+        </>
+      )}
     </div>
   );
 }
