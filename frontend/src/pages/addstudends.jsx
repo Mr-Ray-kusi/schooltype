@@ -17,7 +17,7 @@ import { invalidateCache } from '../utils/requestCache';
 import { EXTRA_FEE_REASONS, emptyExtraFee, extraFeesPayload } from '../utils/extraFees';
 
 const fieldClass =
-  'w-full rounded-xl border border-slate-600/80 bg-slate-950/60 px-4 py-3 text-sm text-white placeholder:text-slate-500 outline-none transition focus:border-sky-500/60 focus:ring-2 focus:ring-sky-500/30';
+  'w-full rounded-xl border border-slate-600/80 bg-slate-950/60 px-4 py-3 text-base text-white placeholder:text-slate-500 outline-none transition focus:border-sky-500/60 focus:ring-2 focus:ring-sky-500/30';
 
 const AddStudent = ({ onClose } = {}) => {
   const navigate = useNavigate();
@@ -130,7 +130,7 @@ const AddStudent = ({ onClose } = {}) => {
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300/90">
               Enrollment
             </p>
-            <h1 className="mt-2 font-display text-3xl font-bold tracking-tight text-white md:text-4xl">
+            <h1 className="mt-2 font-display text-2xl font-bold tracking-tight text-white sm:text-3xl md:text-4xl">
               Add new student
             </h1>
           </div>

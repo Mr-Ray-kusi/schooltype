@@ -287,7 +287,7 @@ const AccountantFees = ({
               : 'Record cash payments, print receipts, and export reports.'}
           </p>
         </div>
-        <div className="flex flex-nowrap items-center gap-2 overflow-x-auto">
+        <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap sm:overflow-x-auto">
           <select
             value={classFilter}
             onChange={(e) => setClassFilter(e.target.value)}

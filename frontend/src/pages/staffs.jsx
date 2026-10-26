@@ -466,7 +466,7 @@ const Staff = () => {
       <div className="space-y-3">
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-white">Staff</h1>
+            <h1 className="text-2xl font-bold text-white sm:text-3xl">Staff</h1>
             <p className="mt-1 text-sm text-slate-400">{total} people</p>
             {showPeopleFilter && (
               <div className="mt-3 inline-flex rounded-full border border-slate-600 bg-slate-900 p-1">

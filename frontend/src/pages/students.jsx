@@ -215,7 +215,7 @@ const Students = () => {
 <div className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-white">Students</h1>
+            <h1 className="text-2xl font-bold text-white sm:text-3xl">Students</h1>
             <p className="mt-1 text-slate-300">{total} student{total !== 1 ? 's' : ''} enrolled</p>
           </div>
           <div className="flex flex-wrap gap-2">

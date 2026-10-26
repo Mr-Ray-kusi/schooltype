@@ -224,12 +224,12 @@ const Dashboard = () => {
             className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent"
           />
 
-          <div className="absolute inset-0 z-10 flex items-end justify-between gap-3 px-6 py-6 sm:px-8 sm:py-8">
+          <div className="absolute inset-0 z-10 flex flex-wrap items-end justify-between gap-3 px-4 py-5 sm:px-8 sm:py-8">
             <div className="min-w-0 max-w-xl">
               <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-sky-300">
                 Overview
               </p>
-              <h1 className="mt-2 font-display text-2xl font-bold leading-tight tracking-tight text-white sm:text-3xl md:text-4xl">
+              <h1 className="mt-2 font-display text-xl font-bold leading-tight tracking-tight text-white sm:text-3xl md:text-4xl">
                 {school?.name || 'Dashboard'}
               </h1>
               <p className="mt-1 truncate text-sm text-white/80 sm:text-base">{todayLabel}</p>

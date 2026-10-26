@@ -46,6 +46,14 @@
     appearance: none;
   }
 
+  @media (max-width: 639px) {
+    input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='hidden']):not([type='submit']):not([type='button']):not([type='reset']),
+    textarea,
+    select {
+      font-size: 16px !important;
+    }
+  }
+
   input[type='date']::-webkit-date-and-time-value,
   input[type='time']::-webkit-date-and-time-value {
     text-align: left;

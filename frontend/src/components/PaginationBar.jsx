@@ -17,7 +17,7 @@ const PaginationBar = ({ page = 1, total = 0, limit = 50, onPageChange }) => {
           type="button"
           disabled={current <= 1}
           onClick={() => onPageChange(current - 1)}
-          className="inline-flex items-center gap-1 rounded-lg border border-slate-600 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-40"
+          className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-lg border border-slate-600 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-40"
         >
           <ChevronLeft className="h-4 w-4" />
           Prev
@@ -29,7 +29,7 @@ const PaginationBar = ({ page = 1, total = 0, limit = 50, onPageChange }) => {
           type="button"
           disabled={current >= pages}
           onClick={() => onPageChange(current + 1)}
-          className="inline-flex items-center gap-1 rounded-lg border border-slate-600 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-40"
+          className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-lg border border-slate-600 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-40"
         >
           Next
           <ChevronRight className="h-4 w-4" />

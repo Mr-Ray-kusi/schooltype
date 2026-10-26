@@ -320,7 +320,7 @@ const ReportCards = () => {
     <div className="space-y-8">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-white">Report Cards</h1>
+          <h1 className="text-2xl font-bold text-white sm:text-3xl">Report Cards</h1>
         </div>
         <div className="flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto pb-1">
           <button

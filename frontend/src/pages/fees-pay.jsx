@@ -369,7 +369,7 @@ const FeesPay = () => {
       <div className="mk-page">
         <div className="mx-auto w-full max-w-lg space-y-6">
           <header>
-            <h1 className="font-serif text-4xl font-bold">Pay school fees</h1>
+            <h1 className="font-serif text-3xl font-bold sm:text-4xl">Pay school fees</h1>
             <Link to="/" className="mt-3 inline-block text-sm font-semibold text-[var(--mk-forest)] underline-offset-2 hover:underline">
               Back to home
             </Link>
@@ -397,7 +397,7 @@ const FeesPay = () => {
             })}
           </ol>
 
-          <form onSubmit={onSubmit} className="mk-card space-y-4 p-6">
+          <form onSubmit={onSubmit} className="mk-card space-y-4 p-4 sm:p-6">
             {step === 1 ? (
               <>
                 <label className="block text-sm font-semibold">

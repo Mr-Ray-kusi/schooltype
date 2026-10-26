@@ -106,7 +106,7 @@ const Fees = () => {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-white">Fees</h1>
+          <h1 className="text-2xl font-bold text-white sm:text-3xl">Fees</h1>
           <p className="mt-1 text-sm text-slate-400">
             Paid and unpaid balances for {data?.term_name || data?.period_label || data?.month || 'this term'}.
           </p>
