@@ -54,6 +54,15 @@ export default function MarketingChrome({
   }, [location.pathname]);
 
   useEffect(() => {
+    if (!menuOpen) return undefined;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [menuOpen]);
+
+  useEffect(() => {
     if (!onHome) return undefined;
     const hash = String(location.hash || window.location.hash || '').replace('#', '');
     if (hash) {
