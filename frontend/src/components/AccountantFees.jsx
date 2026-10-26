@@ -92,7 +92,14 @@ const FeeClassChart = ({ rows }) => {
   );
 };
 
-const AccountantFees = ({ schoolName, authHeaders, readOnly = false }) => {
+const AccountantFees = ({
+  schoolName,
+  authHeaders,
+  readOnly = false,
+  reminderOpen,
+  onReminderOpenChange,
+  hideReminderButton = false,
+}) => {
   const requestConfig = useMemo(() => ({ headers: authHeaders }), [authHeaders]);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -123,6 +130,13 @@ const AccountantFees = ({ schoolName, authHeaders, readOnly = false }) => {
   useEffect(() => {
     load().catch(() => {});
   }, [load]);
+
+  useEffect(() => {
+    if (reminderOpen) {
+      setSmsQuote(null);
+      setShowReminder(true);
+    }
+  }, [reminderOpen]);
 
   const copyLink = async (path) => {
     const url = `${window.location.origin}${path}`;
@@ -169,6 +183,7 @@ const AccountantFees = ({ schoolName, authHeaders, readOnly = false }) => {
       }
       setShowReminder(false);
       setSmsQuote(null);
+      onReminderOpenChange?.(false);
     } catch (err) {
       toast.error(err.response?.data?.error || 'Could not send the reminder.');
     } finally {
@@ -261,7 +276,7 @@ const AccountantFees = ({ schoolName, authHeaders, readOnly = false }) => {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+      <div className="space-y-3">
         <div>
           <h2 className="text-2xl font-bold text-white">Fees paid and unpaid</h2>
           <p className="mt-1 text-sm text-slate-400">
@@ -272,11 +287,11 @@ const AccountantFees = ({ schoolName, authHeaders, readOnly = false }) => {
               : 'Record cash payments, print receipts, and export reports.'}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-nowrap items-center gap-2 overflow-x-auto">
           <select
             value={classFilter}
             onChange={(e) => setClassFilter(e.target.value)}
-            className="rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-white"
+            className="h-10 min-w-[8.5rem] shrink-0 rounded-lg border border-slate-600 bg-slate-900 px-3 text-sm text-white"
           >
             <option value="">All classes</option>
             {classNames.map((name) => (
@@ -292,7 +307,7 @@ const AccountantFees = ({ schoolName, authHeaders, readOnly = false }) => {
               load().catch(() => {});
             }}
             disabled={loading}
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-600 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-70"
+            className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg border border-slate-600 px-3 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-70"
           >
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             Refresh
@@ -301,7 +316,7 @@ const AccountantFees = ({ schoolName, authHeaders, readOnly = false }) => {
             <button
               type="button"
               onClick={() => setShowManual(true)}
-              className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
+              className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white hover:bg-primary-700"
             >
               <Plus className="h-4 w-4" />
               Record payment
@@ -367,7 +382,7 @@ const AccountantFees = ({ schoolName, authHeaders, readOnly = false }) => {
             <FileSpreadsheet className="h-4 w-4" />
             {exporting === 'year' ? 'Exporting…' : 'Excel · this year'}
           </button>
-          {readOnly ? null : (
+          {readOnly || hideReminderButton ? null : (
             <button
               type="button"
               onClick={() => {
@@ -501,7 +516,10 @@ const AccountantFees = ({ schoolName, authHeaders, readOnly = false }) => {
               <h3 className="text-2xl font-semibold text-white">Fee reminder</h3>
               <button
                 type="button"
-                onClick={() => setShowReminder(false)}
+                onClick={() => {
+                  setShowReminder(false);
+                  onReminderOpenChange?.(false);
+                }}
                 className="rounded-full border border-slate-600 px-4 py-2 text-slate-200 hover:bg-slate-800"
               >
                 Close
@@ -537,7 +555,10 @@ const AccountantFees = ({ schoolName, authHeaders, readOnly = false }) => {
               </button>
               <button
                 type="button"
-                onClick={() => setShowReminder(false)}
+                onClick={() => {
+                  setShowReminder(false);
+                  onReminderOpenChange?.(false);
+                }}
                 className="rounded-full border border-slate-600 px-6 py-3 text-slate-200"
               >
                 Cancel

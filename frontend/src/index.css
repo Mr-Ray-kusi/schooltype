@@ -868,7 +868,7 @@ html.lite [class*='text-sky-1'] {
 html.lite .dashboard-hero [class*='text-white'],
 html.lite .dashboard-hero .text-slate-100,
 html.lite .dashboard-hero .text-white\/80 {
-  color: #ffffff !important;
+  color: #e2e8f0 !important;
 }
 html.lite .dashboard-hero .text-sky-300 {
   color: #7dd3fc !important;
@@ -924,7 +924,15 @@ html.lite [class*='bg-green-'][class*='text-white'],
 html.lite [class*='bg-blue-'][class*='text-white'],
 html.lite [class*='bg-indigo-'][class*='text-white'],
 html.lite [class*='bg-amber-'][class*='text-white'] {
-  color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+html.lite .text-sky-50,
+html.lite .text-emerald-50,
+html.lite .text-amber-50,
+html.lite [class*='text-sky-50'],
+html.lite [class*='text-emerald-50'] {
+  color: #0f172a !important;
 }
 
 /* Super-admin pages share the same Lite Mode shell */
@@ -977,7 +985,7 @@ html.lite [class*='bg-amber-'][class*='text-white'] {
 .lite-shell .bg-primary-500,
 .lite-shell .bg-primary-600,
 .lite-shell .bg-emerald-500 {
-  color: #ffffff !important;
+  color: #0f172a !important;
 }
 
 .mk input:not([type='checkbox']):not([type='radio']):not([type='file']):not([type='hidden']):not([type='submit']):not([type='button']),

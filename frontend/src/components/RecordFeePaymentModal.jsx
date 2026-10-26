@@ -9,7 +9,7 @@ const formatGhs = (value) =>
   `GHS ${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const fieldClass =
-  'w-full rounded-xl border border-slate-600/80 bg-slate-950/60 px-4 py-3 text-sm text-white outline-none focus:border-sky-500/60 focus:ring-2 focus:ring-sky-500/30';
+  'w-full rounded-lg border border-slate-600/80 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none focus:border-sky-500/60 focus:ring-2 focus:ring-sky-500/30';
 
 const METHODS = [
   { id: 'cash', label: 'Cash at school' },
@@ -343,14 +343,16 @@ const RecordFeePaymentModal = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-6">
-      <form onSubmit={submit} className="w-full max-w-lg rounded-3xl bg-slate-900 p-6 shadow-2xl sm:p-8">
-        <div className="flex items-start justify-between gap-4">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-3 sm:items-center sm:p-4">
+      <form
+        onSubmit={submit}
+        className="flex max-h-[88vh] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-slate-900 shadow-2xl"
+      >
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-800 px-4 py-3">
           <div>
-            <h2 className="text-2xl font-semibold text-white">Record a payment</h2>
-            <p className="mt-1 text-sm text-slate-400">
-              Cash is recorded here. MoMo sends a confirmation to the parent phone so the payment
-              goes through the system.
+            <h2 className="text-lg font-semibold text-white">Record a payment</h2>
+            <p className="mt-1 text-xs text-slate-400">
+              Cash is recorded here. MoMo sends a confirmation to the parent phone.
             </p>
           </div>
           <button
@@ -359,13 +361,14 @@ const RecordFeePaymentModal = ({
               if (momoPrompt?.reference) abortMomo();
               onClose?.();
             }}
-            className="rounded-full border border-slate-600 px-4 py-2 text-slate-200 hover:bg-slate-800"
+            className="rounded-full border border-slate-600 px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-800"
           >
             Close
           </button>
         </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
 
-        <label className="mt-6 block text-sm font-medium text-slate-300">
+        <label className="block text-sm font-medium text-slate-300">
           Student
           <div ref={boxRef} className="relative mt-2">
             <input
@@ -384,7 +387,7 @@ const RecordFeePaymentModal = ({
               disabled={Boolean(momoPrompt)}
             />
             {open && query.trim() ? (
-              <ul className="absolute z-10 mt-1 max-h-56 w-full overflow-auto rounded-xl border border-slate-700 bg-slate-950 py-1 shadow-xl">
+              <ul className="absolute z-10 mt-1 max-h-36 w-full overflow-auto rounded-xl border border-slate-700 bg-slate-950 py-1 shadow-xl">
                 {searching ? (
                   <li className="px-4 py-3 text-sm text-slate-400">Searching…</li>
                 ) : picker.length === 0 ? (
@@ -451,7 +454,7 @@ const RecordFeePaymentModal = ({
                 type="button"
                 disabled={Boolean(momoPrompt)}
                 onClick={() => setMethod(item.id)}
-                className={`rounded-2xl border px-3 py-3 text-sm font-medium ${
+                className={`rounded-xl border px-3 py-2 text-sm font-medium ${
                   method === item.id
                     ? 'border-sky-400 bg-sky-500/10 text-white'
                     : 'border-slate-700 bg-slate-950/40 text-slate-300 hover:border-slate-500'
@@ -513,11 +516,12 @@ const RecordFeePaymentModal = ({
           </div>
         ) : null}
 
-        <div className="mt-6 flex flex-wrap gap-3">
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2 border-t border-slate-800 bg-slate-900 px-4 py-3">
           <button
             type="submit"
             disabled={saving}
-            className="rounded-full bg-primary-600 px-6 py-3 text-white hover:bg-primary-700 disabled:opacity-50"
+            className="rounded-full bg-primary-600 px-5 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50"
           >
             {saving
               ? method === 'momo'
@@ -531,14 +535,13 @@ const RecordFeePaymentModal = ({
                   ? 'Send MoMo prompt'
                   : 'Save payment'}
           </button>
-          
           <button
             type="button"
             onClick={() => {
               if (momoPrompt?.reference) abortMomo();
               onClose?.();
             }}
-            className="rounded-full border border-slate-600 px-6 py-3 text-slate-200"
+            className="rounded-full border border-slate-600 px-5 py-2 text-sm text-slate-200"
           >
             Cancel
           </button>

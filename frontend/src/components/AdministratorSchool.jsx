@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
-import { Download, Printer, RefreshCw } from 'lucide-react';
+import { Download, MessageSquare, Printer, RefreshCw } from 'lucide-react';
 import Students from '../pages/students';
 import Staff from '../pages/staffs';
 import Setup from '../pages/classes';
@@ -9,6 +9,8 @@ import Attendance from '../pages/attendance';
 import Scanner from '../pages/scanner';
 import Alumni from '../pages/alumni';
 import { StaffEmbedProvider } from '../contexts/staffEmbed';
+import AbsentParentSmsModal from './AbsentParentSmsModal';
+import { schoolLocalDate } from '../utils/schoolDate';
 import { downloadStudentReportCardsPdf, downloadSubjectRankingsPdf } from '../utils/reportCardPdf';
 
 const NAV = [
@@ -31,6 +33,7 @@ const AdministratorSchool = ({ schoolName, authHeaders }) => {
   const [teachers, setTeachers] = useState([]);
   const [allowTeacherId, setAllowTeacherId] = useState('');
   const [loadingReports, setLoadingReports] = useState(false);
+  const [showAbsentSms, setShowAbsentSms] = useState(false);
 
   useEffect(() => {
     const lock = tab === 'attendance';
@@ -140,6 +143,17 @@ const AdministratorSchool = ({ schoolName, authHeaders }) => {
                 {item.label}
               </button>
             ))}
+            <button
+              type="button"
+              onClick={() => {
+                setTab('attendance');
+                setShowAbsentSms(true);
+              }}
+              className="mt-2 flex w-full items-center gap-2 rounded-xl border border-slate-600 px-3 py-2 text-left text-sm font-medium text-slate-200 hover:bg-slate-800"
+            >
+              <MessageSquare className="h-4 w-4" />
+              SMS absent parents
+            </button>
           </div>
         </aside>
 
@@ -285,6 +299,12 @@ const AdministratorSchool = ({ schoolName, authHeaders }) => {
           ) : null}
         </div>
       </div>
+      <AbsentParentSmsModal
+        open={showAbsentSms}
+        onClose={() => setShowAbsentSms(false)}
+        date={schoolLocalDate()}
+        requestConfig={{ headers: authHeaders }}
+      />
     </StaffEmbedProvider>
   );
 };

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import toast from 'react-hot-toast';
-import { BookOpen, GraduationCap, LogOut, Moon, Pencil, Save, Sun, Users } from 'lucide-react';
+import { BookOpen, GraduationCap, LogOut, MessageSquare, Moon, Pencil, Save, Sun, Users } from 'lucide-react';
 import AdministratorSchool from '../components/AdministratorSchool';
 import AccountantFees from '../components/AccountantFees';
 import SchoolWallet from './school-wallet';
@@ -53,6 +53,7 @@ const StaffPortal = () => {
   const [editingSaved, setEditingSaved] = useState(false);
   const [schoolRecord, setSchoolRecord] = useState(null);
   const [financeTab, setFinanceTab] = useState('fees');
+  const [owingSmsOpen, setOwingSmsOpen] = useState(false);
   const { liteMode, toggleLiteMode } = useLiteMode();
 
   const themeToggle = (
@@ -520,11 +521,28 @@ const StaffPortal = () => {
                       {item.label}
                     </button>
                   ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFinanceTab('fees');
+                      setOwingSmsOpen(true);
+                    }}
+                    className="mt-2 flex w-full items-center gap-2 rounded-xl border border-slate-600 px-3 py-2 text-left text-sm font-medium text-slate-200 hover:bg-slate-800"
+                  >
+                    <MessageSquare className="h-4 w-4" />
+                    SMS owing parents
+                  </button>
                 </div>
               </aside>
               <div className="min-w-0 flex-1">
                 {financeTab === 'fees' ? (
-                  <AccountantFees schoolName={schoolName} authHeaders={authHeaders} />
+                  <AccountantFees
+                    schoolName={schoolName}
+                    authHeaders={authHeaders}
+                    hideReminderButton
+                    reminderOpen={owingSmsOpen}
+                    onReminderOpenChange={setOwingSmsOpen}
+                  />
                 ) : (
                   <SchoolWallet viewOnly />
                 )}
