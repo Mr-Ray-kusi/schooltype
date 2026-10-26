@@ -383,7 +383,7 @@ const StaffPortal = () => {
 
   if (!sessionToken || !staff) {
     return (
-      <div className={`relative min-h-screen overflow-hidden ${liteMode ? 'lite-shell bg-slate-100 text-slate-900' : 'bg-slate-950 text-white'}`}>
+      <div className={`relative min-h-dvh overflow-x-clip overflow-y-auto ${liteMode ? 'lite-shell bg-slate-100 text-slate-900' : 'bg-slate-950 text-white'}`}>
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0"
@@ -392,7 +392,7 @@ const StaffPortal = () => {
               'radial-gradient(ellipse 55% 40% at 50% 0%, rgba(52,152,219,0.18), transparent 55%), #020617',
           }}
         />
-        <div className="relative z-10 mx-auto flex min-h-screen max-w-md flex-col justify-center px-5 py-10">
+        <div className="relative z-10 mx-auto flex min-h-dvh max-w-md flex-col justify-center px-5 py-10 pb-[max(2.5rem,env(safe-area-inset-bottom))] pt-[max(2.5rem,env(safe-area-inset-top))]">
           <div className="mb-6 flex justify-end">{themeToggle}</div>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300/90">Staff portal</p>
           <h1 className="mt-2 font-display text-3xl font-bold">{schoolName}</h1>
@@ -405,7 +405,7 @@ const StaffPortal = () => {
               <input
                 value={accessCode}
                 onChange={(e) => setAccessCode(e.target.value)}
-                className="w-full rounded-xl border border-slate-600 bg-slate-950/70 px-4 py-3 text-white"
+                className="w-full rounded-xl border border-slate-600 bg-slate-950/70 px-4 py-3 text-base text-white"
                 placeholder="SCH-XXXXXXXX"
                 required
               />
@@ -415,7 +415,7 @@ const StaffPortal = () => {
               <select
                 value={role}
                 onChange={(e) => setRole(e.target.value)}
-                className="w-full rounded-xl border border-slate-600 bg-slate-950/70 px-4 py-3 text-white"
+                className="w-full rounded-xl border border-slate-600 bg-slate-950/70 px-4 py-3 text-base text-white"
                 required
               >
                 {ROLES.map((item) => (

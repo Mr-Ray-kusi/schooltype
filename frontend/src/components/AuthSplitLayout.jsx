@@ -99,7 +99,7 @@ export function AuthField({
           onChange={onChange}
           required={required}
           placeholder={placeholder}
-          className={`auth-field w-full rounded-sm py-3 text-sm ${
+          className={`auth-field w-full rounded-sm py-3 text-base ${
             Icon ? 'pl-10' : 'pl-3.5'
           } ${rightSlot ? 'pr-11' : 'pr-3.5'}`}
         />
@@ -113,7 +113,7 @@ export default function AuthSplitLayout({ mode = 'login', children }) {
   const isSignup = mode === 'signup';
 
   return (
-    <div className="auth-page relative min-h-screen overflow-hidden bg-[#123028] font-sans text-[#1a1712]">
+    <div className="auth-page relative min-h-dvh overflow-x-clip overflow-y-auto bg-[#123028] font-sans text-[#1a1712]">
       <div
         aria-hidden
         className="absolute inset-0 scale-105 bg-cover bg-center"
@@ -123,10 +123,10 @@ export default function AuthSplitLayout({ mode = 'login', children }) {
         }}
       />
 
-      <div className="relative z-10 mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-6 md:px-8 md:py-8">
-        <div className="mx-auto grid w-full max-w-5xl flex-1 overflow-hidden rounded-[28px] bg-[#fffaf2] shadow-2xl shadow-black/30 md:min-h-[640px] md:grid-cols-2">
+      <div className="relative z-10 mx-auto flex min-h-dvh max-w-6xl flex-col px-3 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] sm:px-4 sm:py-6 md:px-8 md:py-8">
+        <div className="mx-auto grid w-full max-w-5xl flex-1 overflow-hidden rounded-2xl bg-[#fffaf2] shadow-2xl shadow-black/30 sm:rounded-[28px] md:min-h-[640px] md:grid-cols-2">
           <div className={`order-1 ${isSignup ? 'md:order-2' : 'md:order-1'}`}>
-            <div className="flex h-full flex-col justify-center px-6 py-8 sm:px-10 md:px-12">{children}</div>
+            <div className="flex h-full flex-col justify-center px-5 py-7 sm:px-10 md:px-12">{children}</div>
           </div>
           <div className={`hidden md:block ${isSignup ? 'md:order-1' : 'md:order-2'}`}>
             <PromoPanel mode={mode} />

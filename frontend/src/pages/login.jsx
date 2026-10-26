@@ -284,7 +284,7 @@ const Login = () => {
           }
         />
 
-        <div className="flex items-center justify-between gap-3 text-sm">
+        <div className="flex flex-col gap-3 text-sm sm:flex-row sm:items-center sm:justify-between">
           <label className="inline-flex cursor-pointer items-center gap-2 text-[#1a1712]">
             <input
               type="checkbox"
