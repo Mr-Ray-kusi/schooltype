@@ -630,8 +630,8 @@ const Attendance = () => {
         </div>
       </div>
 
-      <div className="flex shrink-0 flex-nowrap items-end gap-2 rounded-xl border border-slate-700 bg-slate-800 p-2 print:hidden">
-        <label className="min-w-0 flex-1 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+      <div className="flex shrink-0 flex-wrap items-end gap-2 rounded-xl border border-slate-700 bg-slate-800 p-2 print:hidden">
+        <label className="min-w-[8.5rem] flex-1 text-[11px] font-medium uppercase tracking-wide text-slate-400">
           Type
           <select
             value={selectedType}
@@ -644,7 +644,7 @@ const Attendance = () => {
             <option value="non-staff">Non-staff</option>
           </select>
         </label>
-        <label className="min-w-0 flex-1 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+        <label className="min-w-[8.5rem] flex-1 text-[11px] font-medium uppercase tracking-wide text-slate-400">
           {selectedType === 'staff' || selectedType === 'non-staff' ? 'Role' : 'Class / Roll'}
           <select
             value={selectedClass}
@@ -659,7 +659,7 @@ const Attendance = () => {
             ))}
           </select>
         </label>
-        <label className="min-w-0 flex-1 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+        <label className="min-w-[8.5rem] flex-1 text-[11px] font-medium uppercase tracking-wide text-slate-400">
           Search
           <div className="relative mt-1">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
@@ -672,7 +672,7 @@ const Attendance = () => {
             />
           </div>
         </label>
-        <label className="w-[7.5rem] shrink-0 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+        <label className="w-full shrink-0 text-[11px] font-medium uppercase tracking-wide text-slate-400 sm:w-[7.5rem]">
           Late after
           <input
             type="time"

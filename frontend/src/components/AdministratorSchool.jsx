@@ -157,7 +157,7 @@ const AdministratorSchool = ({ schoolName, authHeaders }) => {
           {tab === 'staff' ? <Staff /> : null}
           {tab === 'setup' ? <Setup /> : null}
           {tab === 'attendance' ? (
-            <div className="h-[min(70vh,40rem)] min-h-[28rem]">
+            <div className="h-[min(70dvh,40rem)] min-h-[22rem] sm:min-h-[28rem]">
               <Attendance />
             </div>
           ) : null}

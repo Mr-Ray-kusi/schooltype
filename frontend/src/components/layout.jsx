@@ -352,7 +352,7 @@ const Layout = ({ children }) => {
       <div className="min-w-0 lg:ml-64">
         <main className="w-full min-w-0 max-w-full overflow-x-clip p-4 pt-[calc(4.25rem+env(safe-area-inset-top))] sm:p-6 lg:pt-6">
           <OfflineBanner />
-          <div className={isAttendance ? 'h-[min(70vh,40rem)] min-h-[28rem]' : undefined}>
+          <div className={isAttendance ? 'h-[min(70dvh,40rem)] min-h-[22rem] sm:min-h-[28rem]' : undefined}>
             {children ?? <Outlet />}
           </div>
         </main>
