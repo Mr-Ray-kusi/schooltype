@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { Check } from 'lucide-react';
 import MarketingChrome from '../components/MarketingChrome';
+import FaqSection from '../components/FaqSection';
 
 const ABOUT_POINTS = [
   {
@@ -275,6 +276,8 @@ const Home = () => (
         </div>
       </div>
     </section>
+
+    <FaqSection />
   </MarketingChrome>
 );
 

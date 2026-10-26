@@ -120,6 +120,7 @@ import {
 import {
   createPlatformNotification,
   createPlatformNotificationsBatch,
+  createPublicSupportNotification,
   listSchoolNotifications,
   listPeerSchools,
   countUnreadSchoolNotifications,
@@ -3534,6 +3535,70 @@ app.get('/api/health', async (req, res) => {
       status: 'error',
       timestamp: new Date().toISOString(),
     });
+  }
+});
+
+const supportHits = new Map();
+const supportPhone = () =>
+  String(process.env.SUPPORT_PHONE || process.env.VITE_SUPPORT_PHONE || '').trim();
+
+function supportRateLimited(ip) {
+  const key = String(ip || 'unknown');
+  const now = Date.now();
+  const windowMs = 60 * 60 * 1000;
+  const row = supportHits.get(key) || { count: 0, start: now };
+  if (now - row.start > windowMs) {
+    supportHits.set(key, { count: 1, start: now });
+    return false;
+  }
+  if (row.count >= 5) return true;
+  row.count += 1;
+  return false;
+}
+
+app.get('/api/public/support', (_req, res) => {
+  res.json({ phone: supportPhone() });
+});
+
+app.post('/api/public/support', async (req, res) => {
+  try {
+    const ip = getClientIp(req);
+    if (supportRateLimited(ip)) {
+      return res.status(429).json({ error: 'Too many support requests. Try again later.' });
+    }
+
+    const fullName = String(req.body.fullName || req.body.name || '').trim();
+    const email = String(req.body.email || '').trim();
+    const contact = String(req.body.contact || '').trim();
+    const country = String(req.body.country || '').trim();
+    const location = String(req.body.location || '').trim();
+    const message = String(req.body.message || '').trim();
+
+    if (!fullName || !email || !contact || !country || !location || !message) {
+      return res.status(400).json({ error: 'Fill name, email, contact, country, location, and message.' });
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: 'Enter a valid email address.' });
+    }
+
+    const schoolId = await findPlatformSchoolId(supabase);
+    if (!schoolId) {
+      return res.status(503).json({ error: 'Support inbox is not ready. Try again later.' });
+    }
+
+    const item = await createPublicSupportNotification({
+      schoolId,
+      fullName,
+      email,
+      contact,
+      country,
+      location,
+      message,
+    });
+    res.json({ ok: true, id: item?.id || null });
+  } catch (error) {
+    console.warn('Public support insert failed:', error.code || '', error.message || error);
+    res.status(error.status || 500).json({ error: error.message || 'Could not send that request.' });
   }
 });
 

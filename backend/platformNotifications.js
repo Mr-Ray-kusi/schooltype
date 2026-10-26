@@ -26,6 +26,44 @@ const isMissingColumnError = (error, column) => {
   );
 };
 
+const clip = (value, max) => String(value || '').trim().slice(0, max);
+
+export function formatPublicSupportBody({ fullName, email, contact, country, location, message }) {
+  return [
+    'Public support request',
+    '',
+    `Full name: ${clip(fullName, 120)}`,
+    `Email: ${clip(email, 160)}`,
+    `Contact: ${clip(contact, 80)}`,
+    `Country: ${clip(country, 80)}`,
+    `Location: ${clip(location, 120)}`,
+    '',
+    clip(message, 2000),
+  ].join('\n');
+}
+
+export async function createPublicSupportNotification({
+  schoolId,
+  fullName,
+  email,
+  contact,
+  country,
+  location,
+  message,
+}) {
+  return createPlatformNotification({
+    schoolId,
+    senderRole: 'school',
+    subject: `Public request · ${clip(fullName, 80)}`,
+    body: formatPublicSupportBody({ fullName, email, contact, country, location, message }),
+    kind: 'public_support',
+  });
+}
+
+export const isPublicSupportNotification = (row) =>
+  String(row?.kind || '') === 'public_support' ||
+  String(row?.subject || '').toLowerCase().startsWith('public request');
+
 export async function createPlatformNotification({
   schoolId,
   senderRole,
@@ -58,6 +96,13 @@ export async function createPlatformNotification({
 
   if (error && payload.from_school_id && isMissingColumnError(error, 'from_school_id')) {
     delete payload.from_school_id;
+    const retry = await supabase.from('platform_notifications').insert([payload]).select().single();
+    data = retry.data;
+    error = retry.error;
+  }
+
+  if (error && payload.kind && (isMissingColumnError(error, 'kind') || String(error.message || '').includes('kind'))) {
+    delete payload.kind;
     const retry = await supabase.from('platform_notifications').insert([payload]).select().single();
     data = retry.data;
     error = retry.error;

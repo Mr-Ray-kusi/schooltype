@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ArrowUpRight, Globe, Menu, X } from 'lucide-react';
 import { SOCIAL_LINKS } from '../constants/socials';
+import SupportWidget from './SupportWidget';
 
 export const MARKETING_NAV = [
   { id: 'home', label: 'Home', href: '/#home' },
@@ -9,6 +10,7 @@ export const MARKETING_NAV = [
   { id: 'features', label: 'Features', href: '/#features' },
   { id: 'fees', label: 'Fees', href: '/fees' },
   { id: 'security', label: 'Security', href: '/#security' },
+  { id: 'faq', label: 'FAQ', href: '/#faq' },
 ];
 
 export const scrollToId = (id) => {
@@ -196,6 +198,7 @@ export default function MarketingChrome({
               <Link to="/#features">Features</Link>
               <Link to="/fees">Fees payment</Link>
               <Link to="/#security">Security</Link>
+              <Link to="/#faq">FAQ</Link>
               <Link to="/login">Sign in</Link>
               <Link to="/plans">Get started</Link>
             </nav>
@@ -234,6 +237,7 @@ export default function MarketingChrome({
           </div>
         </div>
       </footer>
+      <SupportWidget />
     </div>
   );
 }

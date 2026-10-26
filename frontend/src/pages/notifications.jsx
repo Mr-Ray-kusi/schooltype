@@ -146,8 +146,13 @@ const Notifications = () => {
     return null;
   };
 
+  const isPublicRequest = (item) =>
+    String(item?.kind || '') === 'public_support' ||
+    String(item?.subject || '').toLowerCase().startsWith('public request');
+
   const inboxSenderForRoot = (item) => {
     if (!item) return '';
+    if (isPublicRequest(item)) return 'Public request';
     if (isSuperAdmin) {
       if (item.from_school_id && item.from_school_id !== item.school_id) {
         const from = schoolNameById[item.from_school_id] || 'School';
@@ -163,6 +168,7 @@ const Notifications = () => {
 
   const labelForMessage = (msg) => {
     if (isMyMessage(msg)) return 'Me';
+    if (isPublicRequest(msg)) return 'Public request';
     if (msg.sender_role === 'super_admin') return 'SCHOOLTYPE Admin';
     const peerId = peerSchoolId(msg);
     return schoolNameById[peerId] || school?.name || 'School';
@@ -302,11 +308,14 @@ const Notifications = () => {
     });
   };
 
-  const replyPlaceholder = isSuperAdmin
-    ? 'Reply to this school…'
-    : peerSchoolId(thread[0] || selected)
-      ? 'Reply to this school…'
-      : 'Reply to SCHOOLTYPE admin…';
+  const replyPlaceholder =
+    isSuperAdmin && isPublicRequest(thread[0] || selected)
+      ? 'Note on this public request…'
+      : isSuperAdmin
+        ? 'Reply to this school…'
+        : peerSchoolId(thread[0] || selected)
+          ? 'Reply to this school…'
+          : 'Reply to SCHOOLTYPE admin…';
 
   return (
     <div className="relative min-h-[calc(100vh-3rem)]">
