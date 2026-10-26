@@ -343,10 +343,10 @@ const RecordFeePaymentModal = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-3 sm:items-center sm:p-4">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:items-center sm:p-4">
       <form
         onSubmit={submit}
-        className="flex max-h-[88vh] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-slate-900 shadow-2xl"
+        className="flex max-h-[min(92dvh,40rem)] w-full max-w-md flex-col overflow-hidden rounded-t-2xl bg-slate-900 shadow-2xl sm:rounded-2xl"
       >
         <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-800 px-4 py-3">
           <div>

@@ -57,8 +57,8 @@ const PersonDetailModal = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
-      <div className="max-h-[90vh] w-full max-w-2xl overflow-hidden rounded-3xl border border-slate-700 bg-slate-900 shadow-2xl shadow-black/40">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/70 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-sm sm:items-center sm:p-4">
+      <div className="max-h-[min(92dvh,40rem)] w-full max-w-2xl overflow-hidden rounded-t-3xl border border-slate-700 bg-slate-900 shadow-2xl shadow-black/40 sm:rounded-3xl">
         <div className="flex items-start justify-between gap-3 border-b border-slate-800 px-5 py-4 sm:px-6">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Record</p>
           <button
