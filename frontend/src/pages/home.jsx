@@ -87,11 +87,10 @@ const Home = () => (
       <div className="relative z-10 mx-auto flex min-h-[100svh] max-w-[1120px] flex-col justify-center px-5 pb-24 pt-28 sm:px-7 sm:pt-32 lg:px-8">
         <p className="mk-kicker mk-kicker-light">SCHOOLTYPE</p>
         <h1 className="mt-4 max-w-3xl font-serif text-[1.85rem] font-bold leading-[1.18] tracking-tight text-[#fffaf2] sm:text-4xl lg:text-[2.75rem]">
-          The central connection point for all your school academic activities
+          For all your school academic activities
         </h1>
         <p className="mt-5 max-w-xl text-base leading-relaxed text-[#efe6d6] sm:text-lg">
-          Track students and staff, mark attendance with QR codes, send SMS or email, manage fees and
-          wallets — everything your school needs, connected in one place.
+          Everything your school needs, connected in one place.
         </p>
         <div className="mk-hero-actions mt-8 flex flex-wrap gap-3">
           <Link to="/plans" className="mk-btn mk-btn-primary">
