@@ -7,6 +7,7 @@ import { cachedGet, forceGet, invalidateCache, peekCache, staleGet } from '../ut
 import { schoolLocalDate } from '../utils/schoolDate';
 import { useLivePoll } from '../hooks/useLivePoll';
 import { useAuth } from '../contexts/authcontext';
+import { useStaffEmbed } from '../contexts/staffEmbed';
 import { downloadAllStudentAttendanceZip, downloadTermAttendancePdf } from '../utils/attendanceTermPdf';
 import PaginationBar from '../components/PaginationBar';
 
@@ -212,6 +213,7 @@ const TermRecords = ({
 
 const Attendance = () => {
   const { school } = useAuth();
+  const { embedded } = useStaffEmbed();
   const [attendanceRecords, setAttendanceRecords] = useState([]);
   const [openKey, setOpenKey] = useState(null);
   const [termCache, setTermCache] = useState({});
@@ -660,15 +662,17 @@ const Attendance = () => {
                     ? 'PDFs'
                     : 'Student PDFs'}
           </button>
-          <button
-            type="button"
-            disabled={Boolean(bulkBusy)}
-            onClick={deleteAllStudentRecords}
-            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-rose-500/40 px-3 text-sm font-medium text-rose-200 hover:bg-rose-500/10 disabled:opacity-50"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-            {bulkBusy === 'delete' ? 'Deleting…' : 'Delete all students'}
-          </button>
+          {embedded ? null : (
+            <button
+              type="button"
+              disabled={Boolean(bulkBusy)}
+              onClick={deleteAllStudentRecords}
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-rose-500/40 px-3 text-sm font-medium text-rose-200 hover:bg-rose-500/10 disabled:opacity-50"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              {bulkBusy === 'delete' ? 'Deleting…' : 'Delete all students'}
+            </button>
+          )}
         </div>
       </div>
 
