@@ -2,11 +2,12 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import toast from 'react-hot-toast';
-import { BookOpen, GraduationCap, LogOut, Pencil, Save, Users } from 'lucide-react';
+import { BookOpen, GraduationCap, LogOut, Moon, Pencil, Save, Sun, Users } from 'lucide-react';
 import AdministratorSchool from '../components/AdministratorSchool';
-import Fees from './fees-paid';
+import AccountantFees from '../components/AccountantFees';
 import SchoolWallet from './school-wallet';
 import { AuthContext } from '../contexts/authcontext';
+import useLiteMode from '../hooks/useLiteMode';
 
 const ROLES = ['Administrator', 'Teacher', 'Accountant'];
 const ATTITUDES = ['Excellent', 'Good', 'Bad', 'Worse'];
@@ -52,6 +53,23 @@ const StaffPortal = () => {
   const [editingSaved, setEditingSaved] = useState(false);
   const [schoolRecord, setSchoolRecord] = useState(null);
   const [financeTab, setFinanceTab] = useState('fees');
+  const { liteMode, toggleLiteMode } = useLiteMode();
+
+  const themeToggle = (
+    <button
+      type="button"
+      onClick={toggleLiteMode}
+      className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-sm ${
+        liteMode
+          ? 'border-slate-300 bg-white text-slate-800 hover:bg-slate-50'
+          : 'border-slate-600 text-slate-200 hover:bg-slate-800'
+      }`}
+      aria-pressed={liteMode}
+    >
+      {liteMode ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+      {liteMode ? 'Dark' : 'Lite'}
+    </button>
+  );
 
   const authHeaders = useMemo(
     () => (sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
@@ -347,7 +365,7 @@ const StaffPortal = () => {
 
   if (resolvingSlug || loadingPortal) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-300">
+      <div className={`flex min-h-screen items-center justify-center ${liteMode ? 'lite-shell bg-slate-100 text-slate-700' : 'bg-slate-950 text-slate-300'}`}>
         Loading staff portal…
       </div>
     );
@@ -355,16 +373,16 @@ const StaffPortal = () => {
 
   if (linkError) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-slate-950 px-6 text-center">
-        <h1 className="text-2xl font-bold text-white">Staff portal unavailable</h1>
-        <p className="text-slate-400">{linkError}</p>
+      <div className={`flex min-h-screen flex-col items-center justify-center gap-3 px-6 text-center ${liteMode ? 'lite-shell bg-slate-100' : 'bg-slate-950'}`}>
+        <h1 className={`text-2xl font-bold ${liteMode ? 'text-slate-900' : 'text-white'}`}>Staff portal unavailable</h1>
+        <p className={liteMode ? 'text-slate-600' : 'text-slate-400'}>{linkError}</p>
       </div>
     );
   }
 
   if (!sessionToken || !staff) {
     return (
-      <div className="relative min-h-screen overflow-hidden bg-slate-950 text-white">
+      <div className={`relative min-h-screen overflow-hidden ${liteMode ? 'lite-shell bg-slate-100 text-slate-900' : 'bg-slate-950 text-white'}`}>
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0"
@@ -374,6 +392,7 @@ const StaffPortal = () => {
           }}
         />
         <div className="relative z-10 mx-auto flex min-h-screen max-w-md flex-col justify-center px-5 py-10">
+          <div className="mb-6 flex justify-end">{themeToggle}</div>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300/90">Staff portal</p>
           <h1 className="mt-2 font-display text-3xl font-bold">{schoolName}</h1>
           <form
@@ -447,22 +466,29 @@ const StaffPortal = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white">
-      <header className="border-b border-slate-800 bg-slate-900/80 px-4 py-4">
+    <div className={`min-h-screen ${liteMode ? 'lite-shell bg-slate-100 text-slate-900' : 'bg-slate-950 text-white'}`}>
+      <header className={`border-b px-4 py-4 ${liteMode ? 'border-slate-200 bg-white' : 'border-slate-800 bg-slate-900/80'}`}>
         <div className={`mx-auto flex items-center justify-between gap-3 ${wideLayout ? 'max-w-7xl' : 'max-w-5xl'}`}>
           <div>
             <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{schoolName}</p>
             <h1 className="text-xl font-bold">{staff.name}</h1>
             <p className="text-sm text-sky-300">{staff.role}</p>
           </div>
-          <button
-            type="button"
-            onClick={() => clearSession({ leavePortal: true })}
-            className="inline-flex items-center gap-2 rounded-full border border-slate-600 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800"
-          >
-            <LogOut className="h-4 w-4" />
-            Sign out
-          </button>
+          <div className="flex items-center gap-2">
+            {themeToggle}
+            <button
+              type="button"
+              onClick={() => clearSession({ leavePortal: true })}
+              className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm ${
+                liteMode
+                  ? 'border-slate-300 bg-white text-slate-800 hover:bg-slate-50'
+                  : 'border-slate-600 text-slate-200 hover:bg-slate-800'
+              }`}
+            >
+              <LogOut className="h-4 w-4" />
+              Sign out
+            </button>
+          </div>
         </div>
       </header>
 
@@ -497,7 +523,11 @@ const StaffPortal = () => {
                 </div>
               </aside>
               <div className="min-w-0 flex-1">
-                {financeTab === 'fees' ? <Fees /> : <SchoolWallet viewOnly />}
+                {financeTab === 'fees' ? (
+                  <AccountantFees schoolName={schoolName} authHeaders={authHeaders} />
+                ) : (
+                  <SchoolWallet viewOnly />
+                )}
               </div>
             </div>
           </AuthContext.Provider>

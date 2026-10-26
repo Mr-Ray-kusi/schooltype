@@ -1,5 +1,6 @@
 import { supabase } from './supabaseClient.js';
 import { createStudent, createStaff, createNonStaff } from './peopleCreate.js';
+import { sendAbsentParentSms } from './absentNotify.js';
 import {
   allowTeacherScoreEdit,
   inspectScoreLock,
@@ -503,6 +504,40 @@ export function registerStaffAdminRoutes(app, { authenticateStaffPortal }) {
         });
       } catch (error) {
         res.status(500).json({ error: error.message || 'Failed to update teacher edit access' });
+      }
+    }
+  );
+
+  app.post(
+    '/api/staff-portal/session/admin/attendance/absent-sms',
+    authenticateStaffPortal,
+    requireSchoolHead,
+    async (req, res) => {
+      try {
+        const { data: school } = await supabase
+          .from('schools')
+          .select('id, name')
+          .eq('id', req.staffPortal.schoolId)
+          .maybeSingle();
+        const result = await sendAbsentParentSms({
+          schoolId: req.staffPortal.schoolId,
+          schoolName: school?.name || 'School',
+          date: req.body?.date,
+          confirmSmsPayment: Boolean(req.body?.confirmSmsPayment),
+          senderName: req.staffPortal.staffName || 'Administrator',
+          senderRole: 'Administrator',
+        });
+        res.json(result);
+      } catch (err) {
+        if (err.status) {
+          return res.status(err.status).json({
+            error: err.message,
+            code: err.code || undefined,
+            sms_billing: err.sms_billing,
+            sms_delivery: err.sms_delivery,
+          });
+        }
+        res.status(500).json({ error: err.message || 'Failed to SMS absent-student parents' });
       }
     }
   );

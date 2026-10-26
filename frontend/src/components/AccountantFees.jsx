@@ -298,14 +298,26 @@ const AccountantFees = ({ schoolName, authHeaders, readOnly = false }) => {
             Refresh
           </button>
           {readOnly ? null : (
-            <button
-              type="button"
-              onClick={() => setShowManual(true)}
-              className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
-            >
-              <Plus className="h-4 w-4" />
-              Record payment
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => setShowManual(true)}
+                className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
+              >
+                <Plus className="h-4 w-4" />
+                Record payment
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSmsQuote(null);
+                  setShowReminder(true);
+                }}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-600 px-4 py-2 text-sm font-medium text-slate-200 hover:bg-slate-800"
+              >
+                SMS owing parents
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -367,15 +379,18 @@ const AccountantFees = ({ schoolName, authHeaders, readOnly = false }) => {
             <FileSpreadsheet className="h-4 w-4" />
             {exporting === 'year' ? 'Exporting…' : 'Excel · this year'}
           </button>
-          {tab === 'unpaid' && !readOnly ? (
+          {readOnly ? null : (
             <button
               type="button"
-              onClick={() => setShowReminder(true)}
+              onClick={() => {
+                setSmsQuote(null);
+                setShowReminder(true);
+              }}
               className="rounded-full bg-primary-600 px-5 py-2 text-sm font-medium text-white hover:bg-primary-700"
             >
-              Send reminder
+              SMS owing parents
             </button>
-          ) : null}
+          )}
         </div>
       </div>
 

@@ -98,7 +98,7 @@ import { inspectScoreLock, loadScoreLocks } from './scorePublishStore.js';
 import { isProtectedStaffRole, staffPortalApiAllowed, staffPortalAsSchoolUser } from './staffSchoolAuth.js';
 import { parseRequiredGender, parseRequiredSalary } from './peopleCreate.js';
 import { extraFeesJson } from './feePayments.js';
-import { notifyParentsOfAbsence } from './absentNotify.js';
+import { notifyParentsOfAbsence, sendAbsentParentSms } from './absentNotify.js';
 import { registerAlumniRoutes } from './alumniRoutes.js';
 import { applyTermPromotion } from './studentPromotion.js';
 import { sortClasses } from './classHierarchy.js';
@@ -5914,6 +5914,38 @@ app.post('/api/attendance/mark', authenticateToken, enforcePlanApproval, async (
       console.error('Attendance marking error:', error);
     }
     res.status(status).json({ error: error.message, user: error.user || undefined });
+  }
+});
+
+app.post('/api/attendance/absent-sms', authenticateToken, enforcePlanApproval, async (req, res) => {
+  try {
+    const { data: school } = await supabase
+      .from('schools')
+      .select('id, name')
+      .eq('id', req.user.schoolId)
+      .maybeSingle();
+    const result = await sendAbsentParentSms({
+      schoolId: req.user.schoolId,
+      schoolName: school?.name || 'School',
+      date: req.body?.date,
+      confirmSmsPayment: Boolean(req.body?.confirmSmsPayment),
+      senderName: req.user.staffPortal
+        ? req.staffPortal?.staffName || 'Administrator'
+        : req.user.email || 'Admin',
+      senderRole: req.user.staffPortal ? 'Administrator' : 'Admin',
+    });
+    res.json(result);
+  } catch (err) {
+    if (err.status) {
+      return res.status(err.status).json({
+        error: err.message,
+        code: err.code || undefined,
+        sms_billing: err.sms_billing,
+        sms_delivery: err.sms_delivery,
+      });
+    }
+    console.error('Absent parent SMS error:', err);
+    res.status(500).json({ error: err.message || 'Failed to SMS absent-student parents' });
   }
 });
 

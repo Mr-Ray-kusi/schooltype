@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { AlertTriangle, ChevronDown, Clock, Download, Printer, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { AlertTriangle, ChevronDown, Clock, Download, MessageSquare, Printer, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { cachedGet, forceGet, invalidateCache, peekCache, staleGet } from '../utils/requestCache';
@@ -229,6 +229,9 @@ const Attendance = () => {
   const [bulkBusy, setBulkBusy] = useState('');
   const [page, setPage] = useState(1);
   const [refreshing, setRefreshing] = useState(false);
+  const [showAbsentSms, setShowAbsentSms] = useState(false);
+  const [absentSmsQuote, setAbsentSmsQuote] = useState(null);
+  const [sendingAbsentSms, setSendingAbsentSms] = useState(false);
 
   const fetchLateSettings = async () => {
     try {
@@ -378,6 +381,38 @@ const Attendance = () => {
     () => filteredRecords.slice((safePage - 1) * ATTENDANCE_PAGE_SIZE, safePage * ATTENDANCE_PAGE_SIZE),
     [filteredRecords, safePage]
   );
+
+  const sendAbsentSms = async () => {
+    setSendingAbsentSms(true);
+    try {
+      const { data } = await axios.post('/api/attendance/absent-sms', {
+        date: selectedDate,
+        confirmSmsPayment: Boolean(absentSmsQuote),
+      });
+      if (!absentSmsQuote) {
+        setAbsentSmsQuote(data);
+        if (!data.can_send && data.blockers?.length) {
+          toast.error(data.blockers.join(' '));
+        }
+        return;
+      }
+      const sent = data?.sms_delivery?.sent;
+      const failed = data?.sms_delivery?.failed;
+      if (data?.sms_delivery?.dryRun) {
+        toast.success(`TEST ONLY — no SMS sent. ${sent || 0} absent-parent message(s) logged.`);
+      } else if (failed > 0) {
+        toast.success(`SMS sent to ${sent} parent(s); ${failed} failed.`);
+      } else {
+        toast.success(`SMS sent to ${sent ?? absentSmsQuote.recipients} parent(s) of absent students.`);
+      }
+      setShowAbsentSms(false);
+      setAbsentSmsQuote(null);
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Could not SMS absent-student parents');
+    } finally {
+      setSendingAbsentSms(false);
+    }
+  };
 
   const refresh = async () => {
     if (refreshing) return;
@@ -582,6 +617,17 @@ const Attendance = () => {
           />
           <button
             type="button"
+            onClick={() => {
+              setAbsentSmsQuote(null);
+              setShowAbsentSms(true);
+            }}
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 text-sm font-medium text-sky-100 hover:bg-sky-500/20"
+          >
+            <MessageSquare className="h-3.5 w-3.5" />
+            SMS absent parents
+          </button>
+          <button
+            type="button"
             onClick={refresh}
             disabled={refreshing}
             className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary-600 px-3 text-sm font-medium text-white hover:bg-primary-500 disabled:opacity-70"
@@ -752,6 +798,50 @@ const Attendance = () => {
             limit={ATTENDANCE_PAGE_SIZE}
             onPageChange={setPage}
           />
+        </div>
+      ) : null}
+
+      {showAbsentSms ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-6">
+          <div className="w-full max-w-lg rounded-3xl bg-slate-900 p-6 shadow-2xl sm:p-8">
+            <h2 className="text-xl font-semibold text-white">SMS parents of absent students</h2>
+            <p className="mt-2 text-sm text-slate-400">
+              Built-in message for {format(new Date(`${selectedDate}T12:00:00`), 'EEE d MMM yyyy')}.
+              {absentCount ? ` ${absentCount} student${absentCount === 1 ? '' : 's'} marked absent.` : ''}
+            </p>
+            <p className="mt-4 rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-slate-200">
+              {absentSmsQuote?.message ||
+                '{student_name} did not come to school today. Please contact the school if this is unexpected.'}
+            </p>
+            {absentSmsQuote ? (
+              <p className="mt-3 text-sm text-slate-300">
+                {absentSmsQuote.recipients} parent{absentSmsQuote.recipients === 1 ? '' : 's'} ·{' '}
+                {absentSmsQuote.absent_students || 0} student
+                {(absentSmsQuote.absent_students || 0) === 1 ? '' : 's'} · {absentSmsQuote.quote?.units_required || 0}{' '}
+                SMS unit{(absentSmsQuote.quote?.units_required || 0) === 1 ? '' : 's'}
+              </p>
+            ) : null}
+            <div className="mt-5 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={sendAbsentSms}
+                disabled={sendingAbsentSms}
+                className="rounded-full bg-sky-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-50"
+              >
+                {sendingAbsentSms ? 'Sending…' : absentSmsQuote ? 'Confirm SMS' : 'Check cost'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAbsentSms(false);
+                  setAbsentSmsQuote(null);
+                }}
+                className="rounded-full border border-slate-600 px-5 py-2.5 text-sm text-slate-200"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
     </div>
