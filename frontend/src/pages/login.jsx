@@ -212,7 +212,7 @@ const Login = () => {
         </div>
       )}
 
-      <div className="mt-8">
+      <div className="mt-4">
         <GoogleSignInButton
           label="Sign in with Google"
           disabled={loading}
@@ -248,12 +248,12 @@ const Login = () => {
         />
       </div>
 
-      <div className="relative my-6 text-center text-[11px] uppercase tracking-[0.14em] text-[#5c564c]">
+      <div className="relative my-3 text-center text-[11px] uppercase tracking-[0.14em] text-[#5c564c]">
         <span className="absolute inset-x-0 top-1/2 h-px bg-[#d8cfc0]" />
         <span className="relative bg-[#fffaf2] px-3">or continue with email</span>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-5">
+      <form onSubmit={handleSubmit} className="space-y-3">
         <AuthField
           label="Email"
           icon={Mail}
@@ -315,13 +315,13 @@ const Login = () => {
         </button>
       </form>
 
-      <p className="mt-6 text-center text-sm text-[#5c564c]">
+      <p className="mt-4 text-center text-sm text-[#5c564c]">
         New school?{' '}
         <Link to="/plans" className="font-semibold text-[#a3472a] underline-offset-2 hover:underline">
           Create an account
         </Link>
       </p>
-      <p className="mt-3 text-center text-xs text-[#5c564c]">
+      <p className="mt-2 text-center text-xs text-[#5c564c]">
         <Link to="/privacy" className="hover:underline">
           Privacy notice
         </Link>

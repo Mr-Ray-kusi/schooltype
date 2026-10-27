@@ -28,7 +28,7 @@ function PromoPanel({ mode }) {
   const flyerBg = !isSignup;
 
   return (
-    <div className="relative flex min-h-[280px] flex-col overflow-hidden bg-[#123028] px-8 py-10 text-[#fffaf2] md:min-h-[640px] md:px-12 md:py-12">
+    <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[#123028] px-6 py-6 text-[#fffaf2] md:px-8 md:py-8">
       <img
         src={flyerBg ? '/auth-create-account.jpg' : '/landing-hero.jpg'}
         alt=""
@@ -39,7 +39,7 @@ function PromoPanel({ mode }) {
       <div className={`absolute inset-0 ${flyerBg ? 'bg-gradient-to-t from-[#0b1f1a]/80 via-[#0b1f1a]/15 to-transparent' : 'bg-[#0b1f1a]/72'}`} />
 
       {flyerBg ? (
-        <div className="relative mt-auto flex justify-center pt-24">
+        <div className="relative mt-auto flex justify-center">
           <Link
             to="/plans"
             className="auth-accent inline-flex min-w-[160px] items-center justify-center rounded-sm px-8 py-2.5 text-sm font-semibold text-[#fffaf2] shadow-md transition hover:bg-[#8c3b22]"
@@ -111,7 +111,7 @@ export function AuthField({
           onChange={onChange}
           required={required}
           placeholder={placeholder}
-          className={`auth-field w-full rounded-sm py-3 text-base ${
+          className={`auth-field w-full rounded-sm py-2.5 text-base ${
             Icon ? 'pl-10' : 'pl-3.5'
           } ${rightSlot ? 'pr-11' : 'pr-3.5'}`}
         />
@@ -123,9 +123,14 @@ export function AuthField({
 
 export default function AuthSplitLayout({ mode = 'login', children }) {
   const isSignup = mode === 'signup';
+  const lockViewport = !isSignup;
 
   return (
-    <div className="auth-page relative min-h-dvh overflow-x-clip overflow-y-auto bg-[#123028] font-sans text-[#1a1712]">
+    <div
+      className={`auth-page relative bg-[#123028] font-sans text-[#1a1712] ${
+        lockViewport ? 'h-dvh overflow-hidden' : 'min-h-dvh overflow-x-clip overflow-y-auto'
+      }`}
+    >
       <div
         aria-hidden
         className="absolute inset-0 scale-105 bg-cover bg-center"
@@ -135,12 +140,28 @@ export default function AuthSplitLayout({ mode = 'login', children }) {
         }}
       />
 
-      <div className="relative z-10 mx-auto flex min-h-dvh max-w-6xl flex-col px-3 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] sm:px-4 sm:py-6 md:px-8 md:py-8">
-        <div className="mx-auto grid w-full max-w-5xl flex-1 overflow-hidden rounded-2xl bg-[#fffaf2] shadow-2xl shadow-black/30 sm:rounded-[28px] md:min-h-[640px] md:grid-cols-2">
-          <div className={`order-1 ${isSignup ? 'md:order-2' : 'md:order-1'}`}>
-            <div className="flex h-full flex-col justify-center px-5 py-7 sm:px-10 md:px-12">{children}</div>
+      <div
+        className={`relative z-10 mx-auto flex max-w-6xl flex-col ${
+          lockViewport
+            ? 'h-full px-3 py-3 sm:px-5 sm:py-4 md:px-6 md:py-5'
+            : 'min-h-dvh px-3 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] sm:px-4 sm:py-6 md:px-8 md:py-8'
+        }`}
+      >
+        <div
+          className={`mx-auto grid w-full max-w-5xl overflow-hidden rounded-2xl bg-[#fffaf2] shadow-2xl shadow-black/30 sm:rounded-[28px] md:grid-cols-2 ${
+            lockViewport ? 'h-full min-h-0' : 'min-h-dvh flex-1 md:min-h-[640px]'
+          }`}
+        >
+          <div className={`order-1 min-h-0 ${isSignup ? 'md:order-2' : 'md:order-1'}`}>
+            <div
+              className={`flex h-full min-h-0 flex-col justify-center ${
+                lockViewport ? 'px-5 py-5 sm:px-8 md:px-10' : 'px-5 py-7 sm:px-10 md:px-12'
+              }`}
+            >
+              {children}
+            </div>
           </div>
-          <div className={`hidden md:block ${isSignup ? 'md:order-1' : 'md:order-2'}`}>
+          <div className={`hidden min-h-0 md:block ${isSignup ? 'md:order-1' : 'md:order-2'}`}>
             <PromoPanel mode={mode} />
           </div>
         </div>
