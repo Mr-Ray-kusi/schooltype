@@ -64,6 +64,20 @@ export const isPublicSupportNotification = (row) =>
   String(row?.kind || '') === 'public_support' ||
   String(row?.subject || '').toLowerCase().startsWith('public request');
 
+export function parsePublicSupportContact(body) {
+  const text = String(body || '');
+  const pick = (label) => {
+    const match = text.match(new RegExp(`^${label}:\\s*(.+)$`, 'im'));
+    return String(match?.[1] || '').trim();
+  };
+  const email = pick('Email');
+  const fullName = pick('Full name');
+  return {
+    email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : '',
+    fullName,
+  };
+}
+
 export async function createPlatformNotification({
   schoolId,
   senderRole,

@@ -232,6 +232,57 @@ export function momoProviderFromGhanaPhone(phone) {
   return null;
 }
 
+export function normalizeBankAccountNumber(value) {
+  return String(value || '').replace(/\D/g, '');
+}
+
+export async function chargeBank({
+  email,
+  amountMinor,
+  currency,
+  bankCode,
+  accountNumber,
+  reference,
+  metadata,
+}) {
+  const code = String(bankCode || '').trim();
+  const account = normalizeBankAccountNumber(accountNumber);
+  if (!code) {
+    const err = new Error('Select the bank you are paying from.');
+    err.status = 400;
+    throw err;
+  }
+  if (account.length < 8 || account.length > 20) {
+    const err = new Error('Enter the bank account number.');
+    err.status = 400;
+    throw err;
+  }
+
+  const flatMeta = {};
+  if (metadata && typeof metadata === 'object') {
+    Object.entries(metadata).forEach(([key, value]) => {
+      if (key === 'custom_fields') return;
+      if (value == null || typeof value === 'object') return;
+      flatMeta[key] = String(value);
+    });
+  }
+
+  return paystackRequest('/charge', {
+    method: 'POST',
+    body: {
+      email,
+      amount: amountMinor,
+      currency: String(currency || 'GHS').toUpperCase(),
+      reference,
+      metadata: Object.keys(flatMeta).length ? flatMeta : undefined,
+      bank: {
+        code,
+        account_number: account,
+      },
+    },
+  });
+}
+
 export async function chargeMobileMoney({
   email,
   amountMinor,

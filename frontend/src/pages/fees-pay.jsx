@@ -51,6 +51,10 @@ const FeesPay = () => {
   const [method, setMethod] = useState('momo');
   const [phone, setPhone] = useState('');
   const [provider, setProvider] = useState('mtn');
+  const [banks, setBanks] = useState([]);
+  const [bankCode, setBankCode] = useState('');
+  const [accountNumber, setAccountNumber] = useState('');
+  const [accountName, setAccountName] = useState('');
   const [info, setInfo] = useState(null);
   const [error, setError] = useState('');
   const [loadingSchools, setLoadingSchools] = useState(!barcode);
@@ -124,6 +128,21 @@ const FeesPay = () => {
       cancelled = true;
     };
   }, [barcode]);
+
+  useEffect(() => {
+    let cancelled = false;
+    axios
+      .get('/api/public/banks')
+      .then(({ data }) => {
+        if (!cancelled) setBanks(data.banks || []);
+      })
+      .catch(() => {
+        if (!cancelled) setBanks([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const reference = momoPrompt?.reference;
@@ -232,6 +251,13 @@ const FeesPay = () => {
 
   const startPay = async (event) => {
     event?.preventDefault();
+    if (method === 'bank') {
+      const account = String(accountNumber || '').replace(/\D/g, '');
+      if (!bankCode || account.length < 8) {
+        setError('Enter the bank and account number you are paying from.');
+        return;
+      }
+    }
     setPaying(true);
     setError('');
     try {
@@ -242,12 +268,15 @@ const FeesPay = () => {
         method,
         phone: method === 'momo' ? phone : undefined,
         provider: method === 'momo' ? momoNetworkFromPhone(phone) || provider : undefined,
+        bankCode: method === 'bank' ? bankCode : undefined,
+        accountNumber: method === 'bank' ? accountNumber : undefined,
+        accountName: method === 'bank' ? accountName : undefined,
       };
       const path = barcode
         ? `/api/public/fees/${encodeURIComponent(barcode)}/checkout`
         : '/api/public/fees/pay';
       const { data } = await axios.post(path, payload, { timeout: 45000 });
-      if (method === 'momo' || data.mode === 'momo') {
+      if (method === 'momo' || method === 'bank' || data.mode === 'momo' || data.mode === 'bank') {
         if (data.authorization_url) {
           window.location.href = data.authorization_url;
           return;
@@ -544,15 +573,67 @@ const FeesPay = () => {
                     </label>
                   </div>
                 ) : (
-                  <p className="border border-[var(--mk-line)] bg-[var(--mk-paper)] px-4 py-3 text-sm text-[var(--mk-muted)]">
-                    You will finish this payment on the bank checkout page.
-                  </p>
+                  <div className="grid gap-3">
+                    <label className="block text-sm font-semibold">
+                      Bank
+                      {banks.length ? (
+                        <select
+                          className={fieldClass}
+                          value={bankCode}
+                          onChange={(e) => setBankCode(e.target.value)}
+                          required={method === 'bank'}
+                        >
+                          <option value="">Select bank</option>
+                          {banks.map((bank) => (
+                            <option key={`${bank.code}-${bank.name}`} value={bank.code}>
+                              {bank.name}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          className={fieldClass}
+                          value={bankCode}
+                          onChange={(e) => setBankCode(e.target.value)}
+                          placeholder="Bank code"
+                          required={method === 'bank'}
+                        />
+                      )}
+                    </label>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="block text-sm font-semibold">
+                        Account number
+                        <input
+                          className={fieldClass}
+                          inputMode="numeric"
+                          value={accountNumber}
+                          onChange={(e) => setAccountNumber(e.target.value)}
+                          placeholder="Account number"
+                          required={method === 'bank'}
+                        />
+                      </label>
+                      <label className="block text-sm font-semibold">
+                        Account name
+                        <input
+                          className={fieldClass}
+                          value={accountName}
+                          onChange={(e) => setAccountName(e.target.value)}
+                          placeholder="Name on the account"
+                          required={method === 'bank'}
+                        />
+                      </label>
+                    </div>
+                  </div>
                 )}
                 {method === 'momo' ? (
                   <p className="text-sm text-[var(--mk-muted)]">
                     You will confirm the MoMo prompt on the phone. Schooltype does not ask for your MoMo PIN.
                   </p>
-                ) : null}
+                ) : (
+                  <p className="text-sm text-[var(--mk-muted)]">
+                    Enter the bank account you want to pay from. Confirm any bank prompt if it appears.
+                  </p>
+                )}
               </>
             ) : null}
 

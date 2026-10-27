@@ -242,6 +242,11 @@ const Notifications = () => {
         const withoutTemp = prev.filter((n) => n.id !== tempId);
         return mergeNotificationItems(withoutTemp, [data]);
       });
+      if (data?.email_sent === false) {
+        toast.error(data.email_error || 'Reply saved, but the email was not sent.');
+      } else if (isPublicRequest(selected)) {
+        toast.success('Reply emailed to the address on this request.');
+      }
     } catch (err) {
       setItems((prev) => prev.filter((n) => n.id !== tempId));
       setReply(bodyText);
@@ -310,7 +315,7 @@ const Notifications = () => {
 
   const replyPlaceholder =
     isSuperAdmin && isPublicRequest(thread[0] || selected)
-      ? 'Note on this public request…'
+      ? 'This reply will be emailed to the person who sent the request…'
       : isSuperAdmin
         ? 'Reply to this school…'
         : peerSchoolId(thread[0] || selected)

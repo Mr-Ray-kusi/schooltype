@@ -121,6 +121,8 @@ import {
   createPlatformNotification,
   createPlatformNotificationsBatch,
   createPublicSupportNotification,
+  isPublicSupportNotification,
+  parsePublicSupportContact,
   listSchoolNotifications,
   listPeerSchools,
   countUnreadSchoolNotifications,
@@ -7194,11 +7196,20 @@ app.post('/api/notifications/:id/reply', authenticateToken, async (req, res) => 
     if (req.user.role === 'super_admin') {
       const { data: parent } = await supabase
         .from('platform_notifications')
-        .select('id, school_id, parent_id, subject')
+        .select('id, school_id, parent_id, subject, kind, body')
         .eq('id', req.params.id)
         .maybeSingle();
       if (!parent) return res.status(404).json({ error: 'Notification not found' });
       const rootId = parent.parent_id || parent.id;
+      let root = parent;
+      if (parent.parent_id) {
+        const loaded = await supabase
+          .from('platform_notifications')
+          .select('id, school_id, parent_id, subject, kind, body')
+          .eq('id', rootId)
+          .maybeSingle();
+        if (loaded.data) root = loaded.data;
+      }
       const reply = await createPlatformNotification({
         schoolId: parent.school_id,
         senderRole: 'super_admin',
@@ -7207,6 +7218,39 @@ app.post('/api/notifications/:id/reply', authenticateToken, async (req, res) => 
         kind: 'message',
         parentId: rootId,
       });
+      if (isPublicSupportNotification(root)) {
+        const contact = parsePublicSupportContact(root.body);
+        if (!contact.email) {
+          return res.json({
+            ...reply,
+            email_sent: false,
+            email_error: 'This public request has no email address to reply to.',
+          });
+        }
+        const greeting = contact.fullName ? `Hello ${contact.fullName},` : 'Hello,';
+        const safeBody = String(body)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+        try {
+          await sendAuthEmail({
+            to: contact.email,
+            subject: reply.subject || 'Reply from Schooltype support',
+            text: `${greeting}\n\n${body}\n\n— Schooltype support`,
+            html: `<p>${greeting}</p><p>${safeBody.replace(/\n/g, '<br>')}</p><p style="color:#64748b;font-size:12px">Schooltype support</p>`,
+          });
+        } catch (mailErr) {
+          return res.json({
+            ...reply,
+            email_sent: false,
+            email_error:
+              mailErr.code === 'EMAIL_NOT_CONFIGURED'
+                ? 'Reply was saved in the inbox, but email is not configured. Set EMAIL_USER and EMAIL_PASSWORD.'
+                : mailErr.message || 'Reply was saved in the inbox, but the email could not be sent.',
+          });
+        }
+        return res.json({ ...reply, email_sent: true });
+      }
       return res.json(reply);
     }
 

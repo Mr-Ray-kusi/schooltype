@@ -8,12 +8,15 @@ import {
   isPaystackUserCancelled,
   isTransientPaystackFailure,
   chargeMobileMoney,
+  chargeBank,
+  listBanks,
   submitChargeOtp,
   submitChargePin,
   GHANA_CHECKOUT_CHANNELS,
   toMinorUnits,
   fromMinorUnits,
   normalizeGhanaPhone,
+  normalizeBankAccountNumber,
   momoProviderFromGhanaPhone,
 } from './paystack.js';
 import { getFrontendBaseUrl } from './emailVerification.js';
@@ -1140,6 +1143,9 @@ async function startFeePayment({
   method = 'bank',
   phone,
   provider,
+  bankCode,
+  accountNumber,
+  accountName,
   termName,
 }) {
   const { configured, publicKey } = getPaystackConfig();
@@ -1243,6 +1249,63 @@ async function startFeePayment({
       mode: 'momo',
       reference: charge?.reference || reference,
       status: phoneCancelled ? 'cancelled' : needsCode && !chargeNeedsCode(status) ? 'send_otp' : status,
+      needs_code: needsCode,
+      code_type: status === 'send_pin' ? 'pin' : needsCode ? 'otp' : null,
+      display_text: displayText,
+      authorization_url: charge?.url || charge?.redirecturl || null,
+      public_key: publicKey || null,
+      amount: payAmount,
+      currency: 'GHS',
+      month,
+      payout_ready: false,
+      live_mode: liveMode,
+    };
+  }
+
+  if (payMethod === 'bank') {
+    const account = normalizeBankAccountNumber(accountNumber);
+    const code = String(bankCode || '').trim();
+    if (!code || account.length < 8) {
+      const err = new Error('Enter the bank and account number you are paying from.');
+      err.status = 400;
+      throw err;
+    }
+    metadata.payment_method = 'bank';
+    metadata.bank_code = code;
+    metadata.bank_account_last4 = account.slice(-4);
+    if (accountName) metadata.bank_account_name = String(accountName).slice(0, 80);
+
+    let charge = await chargeBank({
+      ...chargeArgs,
+      bankCode: code,
+      accountNumber: account,
+    });
+    if (isTransientPaystackFailure(charge) || !String(charge?.status || '').trim()) {
+      charge = (await waitForMomoInstruction(charge?.reference || reference, charge, {
+        attempts: 6,
+        delayMs: 400,
+      })) || charge;
+    }
+    const rawStatus = String(charge?.status || 'pending').toLowerCase();
+    const needsCode = chargeLooksLikeCodePrompt(charge);
+    const liveMode = String(getPaystackConfig().secretKey || '').startsWith('sk_live_');
+    const userCancelled = !needsCode && isPaystackUserCancelled(charge);
+    const stillWaiting = !needsCode && !userCancelled && isTransientPaystackFailure(charge);
+    const status = stillWaiting ? 'pending' : rawStatus;
+    let displayText = stillWaiting ? '' : charge?.display_text || '';
+    if (userCancelled) {
+      displayText = 'Payment was cancelled. Tap Continue to payment to start again.';
+    } else if (!displayText) {
+      if (needsCode) {
+        displayText = 'Enter the verification code sent for this bank payment.';
+      } else {
+        displayText = 'Confirm this bank payment with your bank if a prompt appears.';
+      }
+    }
+    return {
+      mode: 'bank',
+      reference: charge?.reference || reference,
+      status: userCancelled ? 'cancelled' : needsCode && !chargeNeedsCode(status) ? 'send_otp' : status,
       needs_code: needsCode,
       code_type: status === 'send_pin' ? 'pin' : needsCode ? 'otp' : null,
       display_text: displayText,
@@ -1406,6 +1469,23 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
     }
   });
 
+  app.get('/api/public/banks', async (_req, res) => {
+    try {
+      const banks = await listBanks({ currency: getPaystackConfig().currency || 'GHS' });
+      res.json({
+        banks: (Array.isArray(banks) ? banks : [])
+          .map((bank) => ({
+            code: String(bank.code || '').trim(),
+            name: String(bank.name || '').trim(),
+          }))
+          .filter((bank) => bank.code && bank.name),
+      });
+    } catch (err) {
+      console.warn('Public banks list failed:', err.message || err);
+      res.json({ banks: [] });
+    }
+  });
+
   app.post('/api/public/fees/lookup', async (req, res) => {
     try {
       const schoolId = String(req.body?.schoolId || '').trim();
@@ -1448,6 +1528,9 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
         method,
         phone: req.body?.phone,
         provider: req.body?.provider,
+        bankCode: req.body?.bankCode || req.body?.bank_code,
+        accountNumber: req.body?.accountNumber || req.body?.account_number,
+        accountName: req.body?.accountName || req.body?.account_name,
       });
       res.json(payment);
     } catch (err) {
@@ -1632,6 +1715,9 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
         method: req.body?.method || 'bank',
         phone: req.body?.phone,
         provider: req.body?.provider,
+        bankCode: req.body?.bankCode || req.body?.bank_code,
+        accountNumber: req.body?.accountNumber || req.body?.account_number,
+        accountName: req.body?.accountName || req.body?.account_name,
       });
       res.json(checkout);
     } catch (err) {
