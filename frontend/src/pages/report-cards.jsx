@@ -39,42 +39,38 @@ const ReportCards = () => {
   const [selectedStudentKeys, setSelectedStudentKeys] = useState([]);
   const [clearing, setClearing] = useState(false);
   const [expandedEntryKey, setExpandedEntryKey] = useState(null);
-  const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
+  const [entryPage, setEntryPage] = useState(1);
+  const [printPage, setPrintPage] = useState(1);
   const [filterOptions, setFilterOptions] = useState({ classes: [], subjects: [], terms: [] });
 
   const loadScores = useCallback(async ({ silent = false, force = false } = {}) => {
-    const cacheKey = `report-cards:scores:${page}:${selectedClass}:${selectedSubject}:${selectedTerm}`;
+    const cacheKey = `report-cards:scores:all:${selectedClass}:${selectedSubject}:${selectedTerm}`;
     if (!silent && !force) {
       const cached = peekCache(cacheKey);
       if (cached) {
-        setScores(cached.scores || []);
-        setTotal(Number(cached.total) || 0);
+        const rows = Array.isArray(cached.scores) ? cached.scores : Array.isArray(cached) ? cached : [];
+        setScores(rows);
         if (cached.filters) setFilterOptions(cached.filters);
         setLoading(false);
       }
     }
     try {
       const fetcher = async () => {
-        const res = await axios.get('/api/report-cards/scores', {
-          params: {
-            page,
-            limit: LIST_PAGE_SIZE,
-            class: selectedClass !== 'all' ? selectedClass : undefined,
-            subject: selectedSubject !== 'all' ? selectedSubject : undefined,
-            term: selectedTerm !== 'all' ? selectedTerm : undefined,
-            refresh: silent ? undefined : '1',
-          },
+        const scores = await fetchAllPages(axios, '/api/report-cards/scores', {
+          class: selectedClass !== 'all' ? selectedClass : undefined,
+          subject: selectedSubject !== 'all' ? selectedSubject : undefined,
+          term: selectedTerm !== 'all' ? selectedTerm : undefined,
+          refresh: force ? '1' : undefined,
         });
-        return res.data;
+        return { scores };
       };
       const data = silent
         ? await staleGet(cacheKey, fetcher, 0)
         : force
           ? await forceGet(cacheKey, fetcher)
           : await staleGet(cacheKey, fetcher, REPORT_CACHE_MS);
-      setScores(data.scores || []);
-      setTotal(Number(data.total) || 0);
+      const rows = Array.isArray(data) ? data : data.scores || [];
+      setScores(rows);
       if (data.filters) setFilterOptions(data.filters);
     } catch (err) {
       if (!silent) {
@@ -84,14 +80,15 @@ const ReportCards = () => {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [page, selectedClass, selectedSubject, selectedTerm]);
+  }, [selectedClass, selectedSubject, selectedTerm]);
 
   useEffect(() => {
     loadScores({ silent: false });
   }, [loadScores]);
 
   useEffect(() => {
-    setPage(1);
+    setEntryPage(1);
+    setPrintPage(1);
   }, [selectedClass, selectedSubject, selectedTerm]);
 
   useLivePoll(() => loadScores({ silent: true }), 60000, !loading);
@@ -206,6 +203,16 @@ const ReportCards = () => {
       String(a.student_name || '').localeCompare(String(b.student_name || ''))
     );
   }, [scores, selectedClass, selectedSubject, selectedTerm]);
+
+  const pagedScoreEntries = useMemo(() => {
+    const start = (entryPage - 1) * LIST_PAGE_SIZE;
+    return studentScoreEntries.slice(start, start + LIST_PAGE_SIZE);
+  }, [studentScoreEntries, entryPage]);
+
+  const pagedPrintStudents = useMemo(() => {
+    const start = (printPage - 1) * LIST_PAGE_SIZE;
+    return studentsForPrint.slice(start, start + LIST_PAGE_SIZE);
+  }, [studentsForPrint, printPage]);
 
   const uniqueStudents = useMemo(
     () => new Set(filtered.map((row) => studentKey(row))).size,
@@ -464,14 +471,14 @@ const ReportCards = () => {
                     Loading teacher scores...
                   </td>
                 </tr>
-              ) : studentScoreEntries.length === 0 ? (
+              ) : pagedScoreEntries.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-6 py-10 text-center text-slate-400">
                     No scores yet.
                   </td>
                 </tr>
               ) : (
-                studentScoreEntries.map((entry, index) => {
+                pagedScoreEntries.map((entry, index) => {
                   const open = expandedEntryKey === entry.key;
                   return (
                     <React.Fragment key={entry.key}>
@@ -555,7 +562,12 @@ const ReportCards = () => {
           </table>
         </div>
         <div className="mt-4">
-          <PaginationBar page={page} total={total} limit={LIST_PAGE_SIZE} onPageChange={setPage} />
+          <PaginationBar
+            page={entryPage}
+            total={studentScoreEntries.length}
+            limit={LIST_PAGE_SIZE}
+            onPageChange={setEntryPage}
+          />
         </div>
       </section>
 
@@ -605,14 +617,14 @@ const ReportCards = () => {
               </tr>
             </thead>
             <tbody>
-              {studentsForPrint.length === 0 ? (
+              {pagedPrintStudents.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-6 py-10 text-center text-slate-400">
                     No students yet.
                   </td>
                 </tr>
               ) : (
-                studentsForPrint.map((student, index) => (
+                pagedPrintStudents.map((student, index) => (
                   <tr key={student.key} className={index % 2 === 0 ? 'bg-slate-800' : 'bg-slate-900'}>
                     <td className="px-6 py-4">
                       <input
@@ -654,6 +666,14 @@ const ReportCards = () => {
               )}
             </tbody>
           </table>
+        </div>
+        <div className="mt-4">
+          <PaginationBar
+            page={printPage}
+            total={studentsForPrint.length}
+            limit={LIST_PAGE_SIZE}
+            onPageChange={setPrintPage}
+          />
         </div>
       </section>
     </div>
