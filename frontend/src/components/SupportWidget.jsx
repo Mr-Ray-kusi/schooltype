@@ -67,7 +67,16 @@ export default function SupportWidget() {
       setForm(emptyForm);
       close();
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Could not send that request.');
+      const fromApi = error.response?.data?.error;
+      const status = error.response?.status;
+      toast.error(
+        fromApi ||
+          (status === 404 || status === 405
+            ? 'The live API does not have this inbox yet. Redeploy the backend, then try again.'
+            : error.response
+              ? 'Could not send that request.'
+              : 'Could not reach the server. Confirm the API is running, then try again.')
+      );
     } finally {
       setSending(false);
     }
@@ -176,9 +185,6 @@ export default function SupportWidget() {
                     className="mk-field mt-1"
                   />
                 </label>
-                <p className="text-xs text-[var(--mk-muted)]">
-                  This is a public request. It goes to the Schooltype super admin inbox, not into a school workspace.
-                </p>
                 <div className="flex flex-wrap gap-2">
                   <button type="submit" disabled={sending} className="mk-btn mk-btn-primary">
                     {sending ? 'Sending…' : 'Send request'}
@@ -202,8 +208,7 @@ export default function SupportWidget() {
                   </>
                 ) : (
                   <p className="mk-lead text-sm">
-                    A phone line is not published yet. Send an email request and we will call you back on the contact
-                    you provide.
+                    Send an email request and we will call you back on the contact you provide.
                   </p>
                 )}
                 <button type="button" className="mk-btn mk-btn-outline" onClick={() => setMode('choose')}>
