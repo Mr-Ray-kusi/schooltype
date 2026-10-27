@@ -11,8 +11,8 @@ import { useStaffEmbed } from '../contexts/staffEmbed';
 import { downloadAllStudentAttendanceZip, downloadTermAttendancePdf } from '../utils/attendanceTermPdf';
 import PaginationBar from '../components/PaginationBar';
 
-const ATTENDANCE_PAGE_SIZE = 5;
-const TERM_DAY_PAGE_SIZE = 8;
+const ATTENDANCE_PAGE_SIZE = 25;
+const TERM_DAY_PAGE_SIZE = 31;
 
 const fieldClass =
   'h-9 min-h-9 w-full rounded-lg border border-slate-600 bg-slate-900 px-2.5 text-sm text-white outline-none focus:ring-2 focus:ring-primary-500';
@@ -253,7 +253,7 @@ const Attendance = () => {
       }
       try {
         const fetcher = async () => (await axios.get(`/api/attendance?date=${selectedDate}`)).data;
-        const data = silent ? await cachedGet(cacheKey, fetcher, 4000) : await forceGet(cacheKey, fetcher);
+        const data = await cachedGet(cacheKey, fetcher, 8000);
         setAttendanceRecords(Array.isArray(data) ? data : []);
       } catch (error) {
         if (!silent) console.error('Error fetching attendance:', error);
@@ -549,7 +549,7 @@ const Attendance = () => {
       ]
     : [];
 
-  if (loading && attendanceRecords.length === 0) {
+  if (loading && attendanceRecords.length === 0 && !peekCache(`attendance:${selectedDate}`)) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-slate-400">
         Loading attendance…

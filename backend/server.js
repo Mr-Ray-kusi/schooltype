@@ -6,7 +6,7 @@ import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import { supabase, platformSupabase } from './supabaseClient.js';
 import { createTenantClient, disableTenantJwt, runWithTenant } from './tenantContext.js';
-import { isJwtAuthError, noteJwtClockRejection, syncJwtClock } from './jwtClock.js';
+import { isJwtAuthError, jwtClockOffsetSec, noteJwtClockRejection, syncJwtClock } from './jwtClock.js';
 import { readAccessToken, setSessionCookie, clearSessionCookie } from './cookieAuth.js';
 import {
   createAuthSession,
@@ -259,6 +259,9 @@ const bumpSchoolCaches = (schoolId) => {
   if (!schoolId) return;
   cacheInvalidate(`dash:${schoolId}`);
   cacheInvalidate(`att-sum:${schoolId}`);
+  cacheInvalidate(`att-people:${schoolId}`);
+  cacheInvalidate(`att-fill:${schoolId}`);
+  cacheInvalidate(`att-person-fill:${schoolId}`);
   cacheInvalidate(`reports:${schoolId}`);
   cacheInvalidate(`analytics:${schoolId}`);
   cacheInvalidate(`fee-dash:${schoolId}`);
@@ -2427,6 +2430,7 @@ const enrichAttendanceRows = async (attendance, lateAfterTime = '08:00') => {
 
     return {
       ...record,
+      date: String(record.date || '').slice(0, 10) || record.date,
       user_type: userType,
       user,
       punctuality,
@@ -2437,7 +2441,12 @@ const enrichAttendanceRows = async (attendance, lateAfterTime = '08:00') => {
 
 const ATTENDANCE_TIMEZONE = process.env.ATTENDANCE_TIMEZONE || 'Africa/Accra';
 
-const schoolLocalDate = (date = new Date()) => {
+const schoolNow = (date = new Date()) => {
+  const offsetMs = Number(jwtClockOffsetSec() || 0) * 1000;
+  return new Date(date.getTime() + offsetMs);
+};
+
+const schoolLocalDate = (date = schoolNow()) => {
   try {
     const parts = new Intl.DateTimeFormat('en-CA', {
       timeZone: ATTENDANCE_TIMEZONE,
@@ -2479,7 +2488,32 @@ const canHaveAttendanceOn = (createdAt, ymd) => {
   return String(ymd).slice(0, 10) >= start;
 };
 
-const pruneAttendanceBeforeEnrollment = async (schoolId, rows, people) => {
+const attendanceDayKey = (value) => {
+  const raw = String(value || '').trim();
+  const match = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : '';
+};
+
+const filterAttendanceForDate = (rows, ymd) => {
+  const day = String(ymd || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return rows || [];
+  return (rows || []).filter((row) => {
+    const stored = attendanceDayKey(row.date);
+    if (stored === day) return true;
+    if (row.timestamp) return schoolLocalDate(new Date(row.timestamp)) === day;
+    return false;
+  });
+};
+
+const applyAttendanceDateFilter = (query, ymd) => {
+  const day = String(ymd || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return query;
+  const prev = addCalendarDays(day, -1);
+  const next = addCalendarDays(day, 1);
+  return query.gte('date', prev).lte('date', next);
+};
+
+const pruneAttendanceBeforeEnrollment = async (schoolId, rows, people, { persist = true } = {}) => {
   const startByKey = new Map();
   for (const person of people || []) {
     const start = firstAttendanceDate(person.created_at);
@@ -2496,10 +2530,12 @@ const pruneAttendanceBeforeEnrollment = async (schoolId, rows, people) => {
     }
     keep.push(row);
   }
-  for (let i = 0; i < dropIds.length; i += 80) {
-    await supabase.from('attendance').delete().eq('school_id', schoolId).in('id', dropIds.slice(i, i + 80));
+  if (persist && dropIds.length) {
+    for (let i = 0; i < dropIds.length; i += 80) {
+      await supabase.from('attendance').delete().eq('school_id', schoolId).in('id', dropIds.slice(i, i + 80));
+    }
+    bumpSchoolCaches(schoolId);
   }
-  if (dropIds.length) bumpSchoolCaches(schoolId);
   return keep;
 };
 
@@ -2798,14 +2834,14 @@ const fetchAllQueryRows = async (buildQuery, pageSize = 1000) => {
 
 const ABSENT_AFTER_LATE_MINUTES = 120;
 
-const lateCutoffReached = (ymd, lateAfterTime, now = new Date()) => {
+const lateCutoffReached = (ymd, lateAfterTime, now = schoolNow()) => {
   const today = schoolLocalDate(now);
   if (ymd > today) return false;
   if (ymd < today) return true;
   return getAttendancePunctuality(now, lateAfterTime) === 'late';
 };
 
-const absentCutoffReached = (ymd, lateAfterTime, now = new Date()) => {
+const absentCutoffReached = (ymd, lateAfterTime, now = schoolNow()) => {
   const today = schoolLocalDate(now);
   if (ymd > today) return false;
   if (ymd < today) return lateCutoffReached(ymd, lateAfterTime, now);
@@ -2814,7 +2850,7 @@ const absentCutoffReached = (ymd, lateAfterTime, now = new Date()) => {
   return clock.hour * 60 + clock.minute >= cutH * 60 + cutM + ABSENT_AFTER_LATE_MINUTES;
 };
 
-const autoAttendanceStatus = (ymd, lateAfterTime, userType, now = new Date()) => {
+const autoAttendanceStatus = (ymd, lateAfterTime, userType, now = schoolNow()) => {
   if (normalizeAttendanceUserType(userType) === 'student' && absentCutoffReached(ymd, lateAfterTime, now)) {
     return 'absent';
   }
@@ -2871,6 +2907,10 @@ const loadEnrolledStudents = async (schoolId) => {
 };
 
 const loadSchoolPeopleForAttendance = async (schoolId) => {
+  const cacheKey = `att-people:${schoolId}`;
+  const cached = cacheGet(cacheKey);
+  if (Array.isArray(cached) && cached.length) return cached;
+
   const [students, staffRes, nonStaffRes] = await Promise.all([
     loadEnrolledStudents(schoolId),
     supabase.from('staffs').select('id, name, role, created_at').eq('school_id', schoolId),
@@ -2890,7 +2930,9 @@ const loadSchoolPeopleForAttendance = async (schoolId) => {
     user_type: 'non-staff',
     created_at: row.created_at || null,
   }));
-  return [...students, ...staff, ...nonStaff];
+  const people = [...students, ...staff, ...nonStaff];
+  cacheSet(cacheKey, people, 45000);
+  return people;
 };
 
 const insertAttendanceChunks = async (rows) => {
@@ -2941,31 +2983,42 @@ const notifyNewAbsences = async (schoolId, studentIds) => {
   void today;
 };
 
-const ensureUnscannedStudentsMarkedLate = async (schoolId, ymd) => {
+const lateFillInflight = new Map();
+
+const ensureUnscannedStudentsMarkedLate = async (schoolId, ymd, { people: givenPeople } = {}) => {
   const date = String(ymd || '').slice(0, 10);
   if (!schoolId || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !isSchoolWeekday(date)) return 0;
+  const fillKey = `att-fill:${schoolId}:${date}`;
+  if (cacheGet(fillKey)) return 0;
+  if (lateFillInflight.has(fillKey)) return lateFillInflight.get(fillKey);
 
+  const run = (async () => {
   const terms = await listAcademicTerms(schoolId).catch(() => []);
-  if (!dateInAcademicTerm(date, terms)) return 0;
+  if (!dateInAcademicTerm(date, terms)) {
+    cacheSet(fillKey, 1, 60000);
+    return 0;
+  }
 
   const lateAfterTime = await getSchoolLateAfterTime(schoolId);
   if (!lateCutoffReached(date, lateAfterTime)) return 0;
   const markAbsent = absentCutoffReached(date, lateAfterTime);
 
   const [people, markedRows] = await Promise.all([
-    loadSchoolPeopleForAttendance(schoolId),
+    givenPeople?.length ? Promise.resolve(givenPeople) : loadSchoolPeopleForAttendance(schoolId),
     fetchAllQueryRows(() =>
-      supabase
-        .from('attendance')
-        .select('id, user_id, user_type, status, timestamp')
-        .eq('school_id', schoolId)
-        .eq('date', date)
+      applyAttendanceDateFilter(
+        supabase
+          .from('attendance')
+          .select('id, user_id, user_type, status, timestamp')
+          .eq('school_id', schoolId),
+        date
+      )
     ),
   ]);
   if (!people.length) return 0;
 
   const marked = new Map(
-    (markedRows || []).map((row) => [
+    filterAttendanceForDate(markedRows, date).map((row) => [
       `${normalizeAttendanceUserType(row.user_type)}:${row.user_id}`,
       row,
     ])
@@ -3027,7 +3080,16 @@ const ensureUnscannedStudentsMarkedLate = async (schoolId, ymd) => {
   if (newlyAbsentIds.length && date === schoolLocalDate()) {
     await notifyNewAbsences(schoolId, newlyAbsentIds);
   }
+  cacheSet(fillKey, 1, 90000);
   return inserted + newlyAbsentIds.length;
+  })();
+
+  lateFillInflight.set(fillKey, run);
+  try {
+    return await run;
+  } finally {
+    lateFillInflight.delete(fillKey);
+  }
 };
 
 const eachSchoolDay = (from, to) => {
@@ -4796,7 +4858,7 @@ const markAttendanceForSchool = async (schoolId, attendanceCode) => {
 
   const { userId, userName, userLabel, userType } = person;
   const schoolName = await getSchoolNameById(schoolId);
-  const now = new Date();
+  const now = schoolNow();
   const today = schoolLocalDate(now);
   if (!canHaveAttendanceOn(person.createdAt, today)) {
     const err = new Error('Attendance starts the day after enrollment');
@@ -6022,26 +6084,31 @@ app.get('/api/attendance', authenticateToken, enforcePlanApproval, async (req, r
     const { date, type } = req.query;
     const today = schoolLocalDate();
     const selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(String(date || '')) ? date : today;
-    await ensureUnscannedStudentsMarkedLate(req.user.schoolId, selectedDate);
-
-    const attendance = await fetchAllQueryRows(() => {
+    const people = await loadSchoolPeopleForAttendance(req.user.schoolId);
+    const lateAfterTimePromise = getSchoolLateAfterTime(req.user.schoolId);
+    const attendancePromise = fetchAllQueryRows(() => {
       let query = supabase
         .from('attendance')
         .select('*')
         .eq('school_id', req.user.schoolId)
         .order('timestamp', { ascending: false });
-      if (date) query = query.eq('date', date);
+      query = applyAttendanceDateFilter(query, selectedDate);
       if (type && type !== 'all') query = query.eq('user_type', type);
       return query;
     });
 
-    const people = await loadSchoolPeopleForAttendance(req.user.schoolId);
-    const visibleAttendance = await pruneAttendanceBeforeEnrollment(req.user.schoolId, attendance, people);
-
-    const lateAfterTime = await getSchoolLateAfterTime(req.user.schoolId);
+    const [attendance, lateAfterTime] = await Promise.all([attendancePromise, lateAfterTimePromise]);
+    const dayRows = filterAttendanceForDate(attendance, selectedDate);
+    const visibleAttendance = await pruneAttendanceBeforeEnrollment(
+      req.user.schoolId,
+      dayRows,
+      people,
+      { persist: false }
+    );
     const enrichedAttendance = await enrichAttendanceRows(visibleAttendance, lateAfterTime);
-
     res.json(enrichedAttendance);
+
+    void ensureUnscannedStudentsMarkedLate(req.user.schoolId, selectedDate, { people });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -6061,18 +6128,11 @@ app.get('/api/attendance/person/:userId', authenticateToken, enforcePlanApproval
     const person = people.find((row) => row.id === userId && row.user_type === userType);
     const startOn = firstAttendanceDate(person?.created_at);
     const rangeFrom = startOn && startOn > from ? startOn : from;
-
-    if (startOn) {
-      await supabase
-        .from('attendance')
-        .delete()
-        .eq('school_id', req.user.schoolId)
-        .eq('user_id', userId)
-        .eq('user_type', userType)
-        .lt('date', startOn);
+    const fillKey = `att-person-fill:${req.user.schoolId}:${userId}:${userType}:${rangeFrom}:${to}`;
+    if (!cacheGet(fillKey)) {
+      await fillPersonTermLateDays(req.user.schoolId, userId, userType, rangeFrom, to);
+      cacheSet(fillKey, 1, 120000);
     }
-
-    await fillPersonTermLateDays(req.user.schoolId, userId, userType, rangeFrom, to);
 
     const data = await fetchAllQueryRows(() =>
       supabase
