@@ -8,7 +8,7 @@ import {
   isPaystackUserCancelled,
   isTransientPaystackFailure,
   chargeMobileMoney,
-  chargeBank,
+  chargeCard,
   listBanks,
   submitChargeOtp,
   submitChargePin,
@@ -16,7 +16,6 @@ import {
   toMinorUnits,
   fromMinorUnits,
   normalizeGhanaPhone,
-  normalizeBankAccountNumber,
   momoProviderFromGhanaPhone,
 } from './paystack.js';
 import { getFrontendBaseUrl } from './emailVerification.js';
@@ -1146,6 +1145,9 @@ async function startFeePayment({
   bankCode,
   accountNumber,
   accountName,
+  cardNumber,
+  cardExpiry,
+  cardCvv,
   termName,
 }) {
   const { configured, publicKey } = getPaystackConfig();
@@ -1263,22 +1265,15 @@ async function startFeePayment({
   }
 
   if (payMethod === 'bank') {
-    const account = normalizeBankAccountNumber(accountNumber);
-    const code = String(bankCode || '').trim();
-    if (!code || account.length < 8) {
-      const err = new Error('Enter the bank and account number you are paying from.');
-      err.status = 400;
-      throw err;
-    }
     metadata.payment_method = 'bank';
-    metadata.bank_code = code;
-    metadata.bank_account_last4 = account.slice(-4);
-    if (accountName) metadata.bank_account_name = String(accountName).slice(0, 80);
+    const last4 = String(cardNumber || '').replace(/\D/g, '').slice(-4);
+    if (last4) metadata.card_last4 = last4;
 
-    let charge = await chargeBank({
+    let charge = await chargeCard({
       ...chargeArgs,
-      bankCode: code,
-      accountNumber: account,
+      cardNumber,
+      expiry: cardExpiry,
+      cvv: cardCvv,
     });
     if (isTransientPaystackFailure(charge) || !String(charge?.status || '').trim()) {
       charge = (await waitForMomoInstruction(charge?.reference || reference, charge, {
@@ -1296,10 +1291,12 @@ async function startFeePayment({
     if (userCancelled) {
       displayText = 'Payment was cancelled. Tap Continue to payment to start again.';
     } else if (!displayText) {
-      if (needsCode) {
-        displayText = 'Enter the verification code sent for this bank payment.';
+      if (status === 'send_pin') {
+        displayText = 'Enter the card PIN to confirm this payment.';
+      } else if (needsCode) {
+        displayText = 'Enter the verification code sent for this card payment.';
       } else {
-        displayText = 'Confirm this bank payment with your bank if a prompt appears.';
+        displayText = 'Confirm this card payment if a bank prompt appears.';
       }
     }
     return {
@@ -1531,6 +1528,9 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
         bankCode: req.body?.bankCode || req.body?.bank_code,
         accountNumber: req.body?.accountNumber || req.body?.account_number,
         accountName: req.body?.accountName || req.body?.account_name,
+        cardNumber: req.body?.cardNumber || req.body?.card_number,
+        cardExpiry: req.body?.cardExpiry || req.body?.card_expiry,
+        cardCvv: req.body?.cardCvv || req.body?.card_cvv,
       });
       res.json(payment);
     } catch (err) {
@@ -1718,6 +1718,9 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
         bankCode: req.body?.bankCode || req.body?.bank_code,
         accountNumber: req.body?.accountNumber || req.body?.account_number,
         accountName: req.body?.accountName || req.body?.account_name,
+        cardNumber: req.body?.cardNumber || req.body?.card_number,
+        cardExpiry: req.body?.cardExpiry || req.body?.card_expiry,
+        cardCvv: req.body?.cardCvv || req.body?.card_cvv,
       });
       res.json(checkout);
     } catch (err) {

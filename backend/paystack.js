@@ -236,6 +236,76 @@ export function normalizeBankAccountNumber(value) {
   return String(value || '').replace(/\D/g, '');
 }
 
+export function normalizeCardNumber(value) {
+  return String(value || '').replace(/\D/g, '');
+}
+
+export function parseCardExpiry(value) {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (digits.length < 4) return null;
+  const expiryMonth = digits.slice(0, 2);
+  const expiryYear = digits.slice(2, 4);
+  const month = Number(expiryMonth);
+  if (!Number.isInteger(month) || month < 1 || month > 12) return null;
+  return { expiryMonth, expiryYear };
+}
+
+export async function chargeCard({
+  email,
+  amountMinor,
+  currency,
+  cardNumber,
+  expiry,
+  cvv,
+  reference,
+  metadata,
+}) {
+  const number = normalizeCardNumber(cardNumber);
+  const parsed = parseCardExpiry(expiry);
+  const cvc = String(cvv || '').replace(/\D/g, '');
+  if (number.length < 13 || number.length > 19) {
+    const err = new Error('Enter the card number.');
+    err.status = 400;
+    throw err;
+  }
+  if (!parsed) {
+    const err = new Error('Enter the expiry as MM/YY.');
+    err.status = 400;
+    throw err;
+  }
+  if (cvc.length < 3 || cvc.length > 4) {
+    const err = new Error('Enter the 3-digit CVV.');
+    err.status = 400;
+    throw err;
+  }
+
+  const flatMeta = {};
+  if (metadata && typeof metadata === 'object') {
+    Object.entries(metadata).forEach(([key, value]) => {
+      if (key === 'custom_fields') return;
+      if (value == null || typeof value === 'object') return;
+      flatMeta[key] = String(value);
+    });
+  }
+
+  return paystackRequest('/charge', {
+    method: 'POST',
+    body: {
+      email,
+      amount: amountMinor,
+      currency: String(currency || 'GHS').toUpperCase(),
+      reference,
+      metadata: Object.keys(flatMeta).length ? flatMeta : undefined,
+      card: {
+        number,
+        cvv: cvc,
+        expiry_month: parsed.expiryMonth,
+        expiry_year: parsed.expiryYear,
+      },
+    },
+  });
+}
+
 export async function chargeBank({
   email,
   amountMinor,

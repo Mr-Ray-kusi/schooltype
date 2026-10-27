@@ -41,6 +41,19 @@ const isFullyPaid = (info) =>
 
 const fieldClass = 'mk-field mt-2';
 
+const formatCardNumber = (value) =>
+  String(value || '')
+    .replace(/\D/g, '')
+    .slice(0, 19)
+    .replace(/(\d{4})(?=\d)/g, '$1 ')
+    .trim();
+
+const formatCardExpiry = (value) => {
+  const digits = String(value || '').replace(/\D/g, '').slice(0, 4);
+  if (digits.length <= 2) return digits;
+  return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+};
+
 const FeesPay = () => {
   const { barcode } = useParams();
   const [step, setStep] = useState(barcode ? 2 : 1);
@@ -51,10 +64,9 @@ const FeesPay = () => {
   const [method, setMethod] = useState('momo');
   const [phone, setPhone] = useState('');
   const [provider, setProvider] = useState('mtn');
-  const [banks, setBanks] = useState([]);
-  const [bankCode, setBankCode] = useState('');
-  const [accountNumber, setAccountNumber] = useState('');
-  const [accountName, setAccountName] = useState('');
+  const [cardNumber, setCardNumber] = useState('');
+  const [cardExpiry, setCardExpiry] = useState('');
+  const [cardCvv, setCardCvv] = useState('');
   const [info, setInfo] = useState(null);
   const [error, setError] = useState('');
   const [loadingSchools, setLoadingSchools] = useState(!barcode);
@@ -128,21 +140,6 @@ const FeesPay = () => {
       cancelled = true;
     };
   }, [barcode]);
-
-  useEffect(() => {
-    let cancelled = false;
-    axios
-      .get('/api/public/banks')
-      .then(({ data }) => {
-        if (!cancelled) setBanks(data.banks || []);
-      })
-      .catch(() => {
-        if (!cancelled) setBanks([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     const reference = momoPrompt?.reference;
@@ -252,9 +249,11 @@ const FeesPay = () => {
   const startPay = async (event) => {
     event?.preventDefault();
     if (method === 'bank') {
-      const account = String(accountNumber || '').replace(/\D/g, '');
-      if (!bankCode || account.length < 8) {
-        setError('Enter the bank and account number you are paying from.');
+      const number = String(cardNumber || '').replace(/\D/g, '');
+      const expiry = String(cardExpiry || '').replace(/\D/g, '');
+      const cvv = String(cardCvv || '').replace(/\D/g, '');
+      if (number.length < 13 || expiry.length < 4 || cvv.length < 3) {
+        setError('Enter the card number, expiry (MM/YY), and CVV.');
         return;
       }
     }
@@ -268,9 +267,9 @@ const FeesPay = () => {
         method,
         phone: method === 'momo' ? phone : undefined,
         provider: method === 'momo' ? momoNetworkFromPhone(phone) || provider : undefined,
-        bankCode: method === 'bank' ? bankCode : undefined,
-        accountNumber: method === 'bank' ? accountNumber : undefined,
-        accountName: method === 'bank' ? accountName : undefined,
+        cardNumber: method === 'bank' ? cardNumber : undefined,
+        cardExpiry: method === 'bank' ? cardExpiry : undefined,
+        cardCvv: method === 'bank' ? cardCvv : undefined,
       };
       const path = barcode
         ? `/api/public/fees/${encodeURIComponent(barcode)}/checkout`
@@ -575,50 +574,39 @@ const FeesPay = () => {
                 ) : (
                   <div className="grid gap-3">
                     <label className="block text-sm font-semibold">
-                      Bank
-                      {banks.length ? (
-                        <select
-                          className={fieldClass}
-                          value={bankCode}
-                          onChange={(e) => setBankCode(e.target.value)}
-                          required={method === 'bank'}
-                        >
-                          <option value="">Select bank</option>
-                          {banks.map((bank) => (
-                            <option key={`${bank.code}-${bank.name}`} value={bank.code}>
-                              {bank.name}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <input
-                          className={fieldClass}
-                          value={bankCode}
-                          onChange={(e) => setBankCode(e.target.value)}
-                          placeholder="Bank code"
-                          required={method === 'bank'}
-                        />
-                      )}
+                      Card number
+                      <input
+                        className={fieldClass}
+                        inputMode="numeric"
+                        autoComplete="cc-number"
+                        value={cardNumber}
+                        onChange={(e) => setCardNumber(formatCardNumber(e.target.value))}
+                        placeholder="ACCT-000003"
+                        required={method === 'bank'}
+                      />
                     </label>
                     <div className="grid gap-3 sm:grid-cols-2">
                       <label className="block text-sm font-semibold">
-                        Account number
+                        Expiry
                         <input
                           className={fieldClass}
                           inputMode="numeric"
-                          value={accountNumber}
-                          onChange={(e) => setAccountNumber(e.target.value)}
-                          placeholder="Account number"
+                          autoComplete="cc-exp"
+                          value={cardExpiry}
+                          onChange={(e) => setCardExpiry(formatCardExpiry(e.target.value))}
+                          placeholder="MM/YY"
                           required={method === 'bank'}
                         />
                       </label>
                       <label className="block text-sm font-semibold">
-                        Account name
+                        CVV
                         <input
                           className={fieldClass}
-                          value={accountName}
-                          onChange={(e) => setAccountName(e.target.value)}
-                          placeholder="Name on the account"
+                          inputMode="numeric"
+                          autoComplete="cc-csc"
+                          value={cardCvv}
+                          onChange={(e) => setCardCvv(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                          placeholder="123"
                           required={method === 'bank'}
                         />
                       </label>
@@ -629,11 +617,7 @@ const FeesPay = () => {
                   <p className="text-sm text-[var(--mk-muted)]">
                     You will confirm the MoMo prompt on the phone. Schooltype does not ask for your MoMo PIN.
                   </p>
-                ) : (
-                  <p className="text-sm text-[var(--mk-muted)]">
-                    Enter the bank account you want to pay from. Confirm any bank prompt if it appears.
-                  </p>
-                )}
+                ) : null}
               </>
             ) : null}
 
