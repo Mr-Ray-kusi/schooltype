@@ -19,8 +19,6 @@ import {
   Bell,
   Activity,
   GraduationCap,
-  Camera,
-  Plus,
   MoreHorizontal,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -218,18 +216,6 @@ const Layout = ({ children }) => {
     return match?.name || (isSuperAdmin ? 'SCHOOLTYPE' : school?.name || 'Schooltype');
   }, [allNavItems, location, youOpen, isSuperAdmin, school?.name]);
 
-  const cameraHref = isSuperAdmin
-    ? '/super-admin/analytics'
-    : itemAllowed({ featureKey: 'scanner' })
-      ? '/scanner'
-      : '/notifications';
-
-  const plusHref = isSuperAdmin
-    ? '/super-admin/email-schools'
-    : itemAllowed({ featureKey: 'add-student' })
-      ? '/add-student'
-      : '/students';
-
   const isAttendance = location.pathname === '/attendance';
   const dark = !liteMode;
   const circleBtn = dark
@@ -332,22 +318,9 @@ const Layout = ({ children }) => {
           >
             <MoreHorizontal className="h-5 w-5" />
           </button>
-          <h1 className="pointer-events-none absolute inset-x-16 truncate text-center text-[1.35rem] font-semibold leading-none">
+          <h1 className="pointer-events-none absolute inset-x-14 truncate text-center text-[1.35rem] font-semibold leading-none">
             {pageTitle}
           </h1>
-          <div className="flex items-center gap-2">
-            <Link to={cameraHref} className={circleBtn} aria-label="Scanner">
-              <Camera className="h-5 w-5" />
-            </Link>
-            <Link
-              to={plusHref}
-              aria-label="Add"
-              className="flex h-11 w-11 items-center justify-center rounded-full text-white shadow-lg"
-              style={{ backgroundColor: WA_GREEN }}
-            >
-              <Plus className="h-6 w-6" strokeWidth={2.5} />
-            </Link>
-          </div>
         </div>
       </header>
 
