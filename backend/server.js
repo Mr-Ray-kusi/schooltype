@@ -146,7 +146,7 @@ import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 import { cacheGet, cacheSet, cacheInvalidate } from './ttlCache.js';
 import { isProduction, isVercel } from './runtime.js';
-import { applyBaselineSecurityHeaders } from './httpSecurity.js';
+import { applyBaselineSecurityHeaders, corsOriginAllowed } from './httpSecurity.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -189,10 +189,10 @@ app.use(
   cors({
     credentials: true,
     origin(origin, callback) {
-      if (!origin || allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
+      if (corsOriginAllowed(origin, allowedOrigins, { production: IS_PRODUCTION })) {
         return callback(null, true);
       }
-      return callback(null, false);
+      return callback(new Error('Not allowed by CORS'));
     },
   })
 );
