@@ -54,6 +54,7 @@ import {
   formatPeriodLabel,
 } from './academicTerms.js';
 import { recordPlatformEvent } from './platformTelemetry.js';
+import { checkAuthHitAllowed, recordAuthHit, getClientIp } from './authSecurity.js';
 
 const notedFeeFailureRefs = new Set();
 const cancelledFeeRefs = new Set();
@@ -1360,6 +1361,18 @@ async function startFeePayment({
 }
 
 export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval }) {
+  const rejectPublicFeeFlood = async (req, res) => {
+    const ip = getClientIp(req);
+    const check = await checkAuthHitAllowed('fee_public', ip);
+    if (!check.allowed) {
+      res.setHeader('Retry-After', String(check.retryAfterSec || 60));
+      res.status(429).json({ error: 'Too many fee lookups. Try again later.' });
+      return true;
+    }
+    await recordAuthHit('fee_public', ip);
+    return false;
+  };
+
   app.get('/api/academic-terms', authenticateToken, enforcePlanApproval, async (req, res) => {
     try {
       const terms = await listAcademicTerms(req.user.schoolId);
@@ -1485,6 +1498,7 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
 
   app.post('/api/public/fees/lookup', async (req, res) => {
     try {
+      if (await rejectPublicFeeFlood(req, res)) return;
       const schoolId = String(req.body?.schoolId || '').trim();
       const studentId = String(req.body?.studentId || '').trim();
       if (!schoolId || !studentId) {
@@ -1504,6 +1518,7 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
 
   app.post('/api/public/fees/pay', async (req, res) => {
     try {
+      if (await rejectPublicFeeFlood(req, res)) return;
       const schoolId = String(req.body?.schoolId || '').trim();
       const studentId = String(req.body?.studentId || '').trim();
       const method = normalizePayMethod(req.body?.method);
@@ -1678,6 +1693,7 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
 
   app.get('/api/public/fees/:barcode', async (req, res) => {
     try {
+      if (await rejectPublicFeeFlood(req, res)) return;
       const ctx = await loadStudentFeeContext(req.params.barcode);
       if (!ctx) {
         noteUnknownStudentId({ studentCode: req.params.barcode });
@@ -1693,6 +1709,7 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
 
   app.post('/api/public/fees/:barcode/checkout', async (req, res) => {
     try {
+      if (await rejectPublicFeeFlood(req, res)) return;
       const ctx = await loadStudentFeeContext(req.params.barcode);
       if (!ctx) {
         noteUnknownStudentId({ studentCode: req.params.barcode });

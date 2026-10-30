@@ -20,6 +20,7 @@ const HIT_LIMITS = {
   google: { max: 20, windowMs: LOCKOUT_WINDOW_MS },
   staff_login: { max: 15, windowMs: LOCKOUT_WINDOW_MS },
   resend: { max: 5, windowMs: SIGNUP_WINDOW_MS },
+  fee_public: { max: 30, windowMs: LOCKOUT_WINDOW_MS },
 };
 
 const MAX_RESEND_PER_EMAIL = 3;
