@@ -962,7 +962,15 @@ if (JWT_SECRET_IS_WEAK) {
   }
 }
 
+const assertJwtSecretReady = () => {
+  if (!IS_PRODUCTION || !JWT_SECRET_IS_WEAK) return;
+  const error = new Error('Authentication is temporarily unavailable');
+  error.status = 503;
+  throw error;
+};
+
 const signAuthToken = (school, { remember = false, expiresIn } = {}) => {
+  assertJwtSecretReady();
   const role = getSchoolRole(school);
   const ttl = expiresIn || (remember ? '30d' : JWT_EXPIRES_IN);
   return jwt.sign({ schoolId: school.id, email: school.email, role, remember: Boolean(remember) }, JWT_SECRET, {
@@ -1637,10 +1645,12 @@ app.get('/api/auth/verify-email', async (req, res) => {
 
     const alreadyHasPassword = Boolean(school.password_hash) && !needsPasswordSetup(school);
     const tokenPurpose = alreadyHasPassword ? 'reset_password' : 'set_password';
-    const issueSetupToken = (schoolRow) =>
-      jwt.sign({ schoolId: schoolRow.id, email: schoolRow.email, purpose: tokenPurpose }, JWT_SECRET, {
+    const issueSetupToken = (schoolRow) => {
+      assertJwtSecretReady();
+      return jwt.sign({ schoolId: schoolRow.id, email: schoolRow.email, purpose: tokenPurpose }, JWT_SECRET, {
         expiresIn: '2h',
       });
+    };
 
     const expiresAt = school.email_verification_expires_at
       ? new Date(school.email_verification_expires_at).getTime()
