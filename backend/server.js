@@ -1879,19 +1879,19 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     if (!resendCheck.allowed) return sendAuthRateLimited(res, resendCheck);
     await recordResendAttempt(email, clientIp);
 
+    const genericResetReply = {
+      ok: true,
+      message: 'If that school email is on Schooltype, a reset link was sent.',
+    };
+
     const school = await findSchoolByEmail(email);
     if (!school || getSchoolRole(school) === 'super_admin' || String(school.email || '').trim().toLowerCase() !== email) {
-      return res.status(404).json({
-        error: 'No school account uses that email. Enter the exact school email from signup.',
-        code: 'SCHOOL_EMAIL_NOT_FOUND',
-      });
+      return res.json(genericResetReply);
     }
 
     if (!emailReady || !emailTransporter) {
-      return res.status(503).json({
-        error: 'Email is not configured on the server.',
-        code: 'EMAIL_NOT_CONFIGURED',
-      });
+      console.warn('Forgot password skipped: email is not configured');
+      return res.json(genericResetReply);
     }
 
     const { rawToken, tokenHash, expiresAt } = createEmailVerificationToken();
@@ -1901,7 +1901,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     });
     if (updateError) {
       console.error('Forgot password update failed:', updateError);
-      return res.status(500).json({ error: 'Could not start a password reset. Try again.' });
+      return res.json(genericResetReply);
     }
 
     const resetUrl = buildVerifyEmailUrl(rawToken);
@@ -1927,15 +1927,9 @@ app.post('/api/auth/forgot-password', async (req, res) => {
       });
     } catch (mailError) {
       console.error('Forgot password email failed:', mailError.message);
-      return res.status(500).json({ error: 'Failed to send the reset email. Try again later.' });
     }
 
-    res.json({
-      ok: true,
-      sent: true,
-      email: recipientEmail,
-      message: 'A reset link was sent to that school email.',
-    });
+    res.json(genericResetReply);
   } catch (error) {
     console.error('Forgot password error:', error);
     res.status(500).json({ error: 'Internal server error' });
