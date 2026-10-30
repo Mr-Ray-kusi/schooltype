@@ -146,6 +146,7 @@ import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 import { cacheGet, cacheSet, cacheInvalidate } from './ttlCache.js';
 import { isProduction, isVercel } from './runtime.js';
+import { applyBaselineSecurityHeaders } from './httpSecurity.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -165,6 +166,7 @@ const getDummyPasswordHash = () => {
 const IS_PRODUCTION = isProduction();
 
 const app = express();
+app.disable('x-powered-by');
 app.set('trust proxy', 1);
 
 const allowedOrigins = (() => {
@@ -196,14 +198,7 @@ app.use(
 );
 
 app.use((req, res, next) => {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.setHeader('X-DNS-Prefetch-Control', 'off');
-  res.setHeader('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()');
-  if (IS_PRODUCTION) {
-    res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains');
-  }
+  applyBaselineSecurityHeaders(res, { production: IS_PRODUCTION });
   next();
 });
 
@@ -5812,10 +5807,13 @@ app.get('/api/report-cards/scores', authenticateToken, enforcePlanApproval, asyn
 
     const schoolId = req.user.schoolId;
     const { page, limit, from, to } = parsePagination(req);
+    const wantAll = String(req.query.all || '') === '1';
     const classFilter = String(req.query.class || req.query.className || '').trim();
     const subjectFilter = String(req.query.subject || '').trim();
     const termFilter = String(req.query.term || '').trim();
-    const cacheKey = `reports:${schoolId}:${page}:${limit}:${classFilter}:${subjectFilter}:${termFilter}`;
+    const cacheKey = wantAll
+      ? `reports:${schoolId}:all:${classFilter}:${subjectFilter}:${termFilter}`
+      : `reports:${schoolId}:${page}:${limit}:${classFilter}:${subjectFilter}:${termFilter}`;
     const cached = cacheGet(cacheKey);
     if (cached && String(req.query.refresh || '') !== '1') return res.json(cached);
 
@@ -5825,25 +5823,49 @@ app.get('/api/report-cards/scores', authenticateToken, enforcePlanApproval, asyn
       return res.status(403).json({ error: 'Report cards are not included in your plan' });
     }
 
-    let scoreQuery = supabase
-      .from('student_scores')
-      .select('*', { count: 'exact' })
-      .eq('school_id', schoolId)
-      .order('updated_at', { ascending: false })
-      .range(from, to);
-    if (classFilter && classFilter !== 'all') scoreQuery = scoreQuery.eq('class_name', classFilter);
-    if (subjectFilter && subjectFilter !== 'all') scoreQuery = scoreQuery.eq('subject', subjectFilter);
-    if (termFilter && termFilter !== 'all') scoreQuery = scoreQuery.eq('term', termFilter);
-    const { data: scores, error, count } = await scoreQuery;
+    const scoreQueryAt = (fromIdx, toIdx) => {
+      let scoreQuery = supabase
+        .from('student_scores')
+        .select('*', { count: 'exact' })
+        .eq('school_id', schoolId)
+        .order('updated_at', { ascending: false })
+        .range(fromIdx, toIdx);
+      if (classFilter && classFilter !== 'all') scoreQuery = scoreQuery.eq('class_name', classFilter);
+      if (subjectFilter && subjectFilter !== 'all') scoreQuery = scoreQuery.eq('subject', subjectFilter);
+      if (termFilter && termFilter !== 'all') scoreQuery = scoreQuery.eq('term', termFilter);
+      return scoreQuery;
+    };
 
-    if (error) {
-      if (isMissingColumnError(error, 'student_scores') || error.code === '42P01') {
-        return res.json({ scores: [], note: 'No scores yet. Teachers enter scores in the staff portal.' });
+    let rows = [];
+    let count = 0;
+    if (wantAll) {
+      const chunk = 500;
+      let fromIdx = 0;
+      while (fromIdx < 20000) {
+        const { data: scores, error, count: rowCount } = await scoreQueryAt(fromIdx, fromIdx + chunk - 1);
+        if (error) {
+          if (isMissingColumnError(error, 'student_scores') || error.code === '42P01') {
+            return res.json({ scores: [], note: 'No scores yet. Teachers enter scores in the staff portal.' });
+          }
+          throw error;
+        }
+        count = rowCount || count;
+        const batch = scores || [];
+        rows.push(...batch);
+        if (!batch.length || batch.length < chunk || (rowCount && rows.length >= rowCount)) break;
+        fromIdx += chunk;
       }
-      throw error;
+    } else {
+      const { data: scores, error, count: rowCount } = await scoreQueryAt(from, to);
+      if (error) {
+        if (isMissingColumnError(error, 'student_scores') || error.code === '42P01') {
+          return res.json({ scores: [], note: 'No scores yet. Teachers enter scores in the staff portal.' });
+        }
+        throw error;
+      }
+      rows = scores || [];
+      count = rowCount || 0;
     }
-
-    const rows = scores || [];
     const studentIds = [...new Set(rows.map((r) => r.student_id).filter(Boolean))];
     const staffIds = [...new Set(rows.map((r) => r.staff_id).filter(Boolean))];
 
@@ -5894,9 +5916,9 @@ app.get('/api/report-cards/scores', authenticateToken, enforcePlanApproval, asyn
     const payload = {
       scores: enriched,
       items: enriched,
-      total: count || 0,
-      page,
-      limit,
+      total: count || enriched.length,
+      page: wantAll ? 1 : page,
+      limit: wantAll ? enriched.length || limit : limit,
       filters: {
         classes: [...new Set((filterRows.data || []).map((row) => row.class_name).filter(Boolean))].sort(),
         subjects: [...new Set((filterRows.data || []).map((row) => row.subject).filter(Boolean))].sort(),
