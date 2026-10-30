@@ -12,7 +12,7 @@ const { signTenantJwt } = await import('../tenantContext.js');
 const { checkLoginAllowed, recordLoginFailure } = await import('../authSecurity.js');
 const { schoolHasPaidPlan } = await import('../schoolPlanStore.js');
 
-test('a public ID shows name, school, class, and parent contact for return of the card', () => {
+test('a public ID shows name, school, and class without the parent phone number', () => {
   const open = gateProfile({
     type: 'student',
     name: 'Ama Mensah',
@@ -29,8 +29,8 @@ test('a public ID shows name, school, class, and parent contact for return of th
   assert.equal(open.school_name, 'Sunrise School');
   assert.equal(open.class, 'JHS 2');
   assert.equal(open.roll_number, 'STU-12');
-  assert.equal(open.parent_phone, '0244000000');
   assert.equal(open.parent_name, 'Kwame Mensah');
+  assert.equal(open.parent_phone, undefined);
   assert.equal(open.photo_url, null);
 });
 
