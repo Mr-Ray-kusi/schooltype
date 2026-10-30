@@ -28,7 +28,7 @@ import {
   gateProfile,
 } from './publicIdGate.js';
 import { formatParsedStudentId, parseStudentId, syncStudentIds } from './studentId.js';
-import { buildHealthPayload } from './runtimeHealth.js';
+import { buildHealthPayload, publicHealthView } from './runtimeHealth.js';
 import { pingDbPooler, ensureStudentProfileColumns } from './dbPooler.js';
 import { mergeStudentFieldList, mergeStudentFields, writeStudentProfileFields } from './studentFieldStore.js';
 import { purgePersonRelated } from './personPurge.js';
@@ -3592,7 +3592,9 @@ app.get('/api/health', async (req, res) => {
         .limit(1);
       if (dbHealth.error) payload.status = 'degraded';
     }
-    res.status(payload.status === 'error' ? 500 : 200).json(payload);
+    res
+      .status(payload.status === 'error' ? 500 : 200)
+      .json(publicHealthView(payload, { detailed: !IS_PRODUCTION }));
   } catch (error) {
     res.status(500).json({
       status: 'error',
@@ -5252,6 +5254,7 @@ async function issueStaffPortalSession(req, res, resolved) {
     return res.status(401).json({ error: 'Invalid access code or role' });
   }
 
+  assertJwtSecretReady();
   const sessionToken = jwt.sign(
     {
       purpose: 'staff_portal',

@@ -95,3 +95,11 @@ export async function buildHealthPayload({ checkDb = false } = {}) {
   }
   return payload;
 }
+
+export function publicHealthView(payload, { detailed = false } = {}) {
+  if (detailed) return payload;
+  return {
+    status: payload?.status || 'ok',
+    timestamp: payload?.timestamp || new Date().toISOString(),
+  };
+}
