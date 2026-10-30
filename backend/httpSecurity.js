@@ -23,6 +23,12 @@ export function corsOriginAllowed(origin, allowedOrigins, { production = false }
   return list.includes(origin);
 }
 
+export function sanitizePublicText(value, maxLen = 200, { multiline = false } = {}) {
+  let text = String(value || '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
+  text = multiline ? text.replace(/\r\n/g, '\n').trim() : text.replace(/\s+/g, ' ').trim();
+  return text.slice(0, maxLen);
+}
+
 export function safeClientError(error, fallback = 'Request failed') {
   const status = Number(error?.status) || 500;
   if (status < 500 && error?.message && !looksLikeInternalError(error.message)) {

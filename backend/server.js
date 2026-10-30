@@ -146,7 +146,7 @@ import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 import { cacheGet, cacheSet, cacheInvalidate } from './ttlCache.js';
 import { isProduction, isVercel } from './runtime.js';
-import { applyBaselineSecurityHeaders, corsOriginAllowed } from './httpSecurity.js';
+import { applyBaselineSecurityHeaders, corsOriginAllowed, sanitizePublicText, safeClientError } from './httpSecurity.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -3620,12 +3620,12 @@ app.post('/api/public/support', async (req, res) => {
       return res.status(429).json({ error: 'Too many support requests. Try again later.' });
     }
 
-    const fullName = String(req.body.fullName || req.body.name || '').trim();
-    const email = String(req.body.email || '').trim();
-    const contact = String(req.body.contact || '').trim();
-    const country = String(req.body.country || '').trim();
-    const location = String(req.body.location || '').trim();
-    const message = String(req.body.message || '').trim();
+    const fullName = sanitizePublicText(req.body.fullName || req.body.name, 80);
+    const email = sanitizePublicText(req.body.email, 120).toLowerCase();
+    const contact = sanitizePublicText(req.body.contact, 40);
+    const country = sanitizePublicText(req.body.country, 56);
+    const location = sanitizePublicText(req.body.location, 80);
+    const message = sanitizePublicText(req.body.message, 2000, { multiline: true });
 
     if (!fullName || !email || !contact || !country || !location || !message) {
       return res.status(400).json({ error: 'Fill name, email, contact, country, location, and message.' });
@@ -3639,7 +3639,7 @@ app.post('/api/public/support', async (req, res) => {
       return res.status(503).json({ error: 'Support inbox is not ready. Try again later.' });
     }
 
-    const item = await createPublicSupportNotification({
+    await createPublicSupportNotification({
       schoolId,
       fullName,
       email,
@@ -3648,10 +3648,11 @@ app.post('/api/public/support', async (req, res) => {
       location,
       message,
     });
-    res.json({ ok: true, id: item?.id || null });
+    res.json({ ok: true });
   } catch (error) {
     console.warn('Public support insert failed:', error.code || '', error.message || error);
-    res.status(error.status || 500).json({ error: error.message || 'Could not send that request.' });
+    const safe = safeClientError(error, 'Could not send that request.');
+    res.status(safe.status).json({ error: safe.error });
   }
 });
 

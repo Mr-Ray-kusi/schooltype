@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { applyBaselineSecurityHeaders, corsOriginAllowed, safeClientError } from '../httpSecurity.js';
+import { applyBaselineSecurityHeaders, corsOriginAllowed, safeClientError, sanitizePublicText } from '../httpSecurity.js';
 
 test('API responses are not cached and do not advertise Express', () => {
   const headers = {};
@@ -25,6 +25,11 @@ test('production CORS never treats * as an allowed origin', () => {
     corsOriginAllowed('https://schootype.vercel.app', ['https://schootype.vercel.app'], { production: true }),
     true
   );
+});
+
+test('sanitizePublicText strips control characters and caps length', () => {
+  assert.equal(sanitizePublicText('  Ama\u0000 Mensah  ', 80), 'Ama Mensah');
+  assert.equal(sanitizePublicText('x'.repeat(50), 10).length, 10);
 });
 
 test('safeClientError hides internal details', () => {
