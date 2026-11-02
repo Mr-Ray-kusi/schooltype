@@ -318,7 +318,13 @@ export const AuthProvider = ({ children }) => {
         const status = error.response?.status;
         const url = error.config?.url || '';
         // Don't logout on verify retries or transient API errors.
-        if (status === 401 && !isAuthRoute(url) && !url.includes('/api/auth/verify') && !url.includes('/api/student-portal')) {
+        if (
+          status === 401 &&
+          !isAuthRoute(url) &&
+          !url.includes('/api/auth/verify') &&
+          !url.includes('/api/student-portal') &&
+          !url.includes('/api/staff-portal')
+        ) {
           clearSession();
         }
         return Promise.reject(error);

@@ -8,6 +8,7 @@ import AccountantFees from '../components/AccountantFees';
 import SchoolWallet from './school-wallet';
 import { AuthContext } from '../contexts/authcontext';
 import useLiteMode from '../hooks/useLiteMode';
+import { readStaffPortalSession, staffPortalSessionForPath } from '../utils/staffPortalSession';
 
 const ROLES = ['Administrator', 'Teacher', 'Accountant'];
 const ATTITUDES = ['Excellent', 'Good', 'Bad', 'Worse'];
@@ -18,28 +19,23 @@ const normalizeClassKey = (value) =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '');
 
+const restoredPortalSession = () => {
+  if (typeof window === 'undefined') return null;
+  return staffPortalSessionForPath(readStaffPortalSession(sessionStorage), window.location.pathname);
+};
+
 const StaffPortal = () => {
   const { token: tokenParam, schoolSlug } = useParams();
-  const [token, setToken] = useState(tokenParam || null);
+  const restored = restoredPortalSession();
+  const [token, setToken] = useState(tokenParam || restored?.portalToken || null);
   const [resolvingSlug, setResolvingSlug] = useState(Boolean(schoolSlug && !tokenParam));
-  const [schoolName, setSchoolName] = useState('');
+  const [schoolName, setSchoolName] = useState(restored?.schoolName || '');
   const [linkError, setLinkError] = useState('');
   const [accessCode, setAccessCode] = useState('');
   const [role, setRole] = useState('Teacher');
   const [loggingIn, setLoggingIn] = useState(false);
-  const [sessionToken, setSessionToken] = useState(() => {
-    try {
-      const raw = sessionStorage.getItem(SESSION_KEY);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw);
-      if (tokenParam && parsed?.portalToken === tokenParam) return parsed.sessionToken;
-      if (schoolSlug && parsed?.schoolSlug === schoolSlug) return parsed.sessionToken;
-    } catch {
-      /* ignore */
-    }
-    return null;
-  });
-  const [staff, setStaff] = useState(null);
+  const [sessionToken, setSessionToken] = useState(restored?.sessionToken || null);
+  const [staff, setStaff] = useState(restored?.staff || null);
   const [students, setStudents] = useState([]);
   const [selectedSubject, setSelectedSubject] = useState('');
   const [selectedClass, setSelectedClass] = useState('');
@@ -51,7 +47,7 @@ const StaffPortal = () => {
   const [scoreLock, setScoreLock] = useState({ published: false, canEdit: true });
   const [hasSavedScores, setHasSavedScores] = useState(false);
   const [editingSaved, setEditingSaved] = useState(false);
-  const [schoolRecord, setSchoolRecord] = useState(null);
+  const [schoolRecord, setSchoolRecord] = useState(restored?.school || null);
   const [financeTab, setFinanceTab] = useState('fees');
   const [owingSmsOpen, setOwingSmsOpen] = useState(false);
   const { liteMode, toggleLiteMode } = useLiteMode();
@@ -145,8 +141,9 @@ const StaffPortal = () => {
     sessionStorage.setItem(
       SESSION_KEY,
       JSON.stringify({
-        portalToken: token,
+        portalToken: token || tokenParam || null,
         schoolSlug: schoolSlug || null,
+        portalPath: window.location.pathname,
         sessionToken: nextToken,
         staff: nextStaff,
         schoolName: nextSchool,
@@ -155,21 +152,21 @@ const StaffPortal = () => {
     );
   };
 
-  const clearSession = ({ leavePortal = false } = {}) => {
+  const clearSession = () => {
     sessionStorage.removeItem(SESSION_KEY);
     setSessionToken(null);
     setStaff(null);
     setStudents([]);
     setDraftScores({});
     setSchoolRecord(null);
-    if (leavePortal) window.location.assign('/');
   };
 
   useEffect(() => {
     if (!sessionToken) return undefined;
     const id = axios.interceptors.request.use((config) => {
       config.headers = config.headers || {};
-      if (!config.headers.Authorization) {
+      const url = String(config.url || '');
+      if (url.includes('/api/staff-portal/session')) {
         config.headers.Authorization = `Bearer ${sessionToken}`;
       }
       return config;
@@ -236,8 +233,8 @@ const StaffPortal = () => {
         const firstClass = data.staff.classNames?.[0] || '';
         setSelectedSubject((prev) => prev || firstSubject);
         setSelectedClass((prev) => prev || firstClass);
-      } catch {
-        if (!cancelled) clearSession();
+      } catch (err) {
+        if (!cancelled && err.response?.status === 401) clearSession();
       }
     };
     restore();
@@ -364,7 +361,9 @@ const StaffPortal = () => {
     }
   };
 
-  if (resolvingSlug || loadingPortal) {
+  const signedIn = Boolean(sessionToken && staff);
+
+  if (!signedIn && (resolvingSlug || loadingPortal)) {
     return (
       <div className={`flex min-h-screen items-center justify-center ${liteMode ? 'lite-shell bg-slate-100 text-slate-700' : 'bg-slate-950 text-slate-300'}`}>
         Loading staff portal…
@@ -372,7 +371,7 @@ const StaffPortal = () => {
     );
   }
 
-  if (linkError) {
+  if (!signedIn && linkError) {
     return (
       <div className={`flex min-h-screen flex-col items-center justify-center gap-3 px-6 text-center ${liteMode ? 'lite-shell bg-slate-100' : 'bg-slate-950'}`}>
         <h1 className={`text-2xl font-bold ${liteMode ? 'text-slate-900' : 'text-white'}`}>Staff portal unavailable</h1>
@@ -479,7 +478,7 @@ const StaffPortal = () => {
             {themeToggle}
             <button
               type="button"
-              onClick={() => clearSession({ leavePortal: true })}
+              onClick={() => clearSession()}
               className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm ${
                 liteMode
                   ? 'border-slate-300 bg-white text-slate-800 hover:bg-slate-50'
