@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import axios from 'axios';
 import MarketingChrome from '../components/MarketingChrome';
+import { applyLiteClass } from '../hooks/useLiteMode';
 
 const TOKEN_KEY = 'studentPortalSession';
 
@@ -44,6 +45,10 @@ function SchoolCover({ school }) {
 const StudentPortal = () => {
   const { schoolId } = useParams();
   const navigate = useNavigate();
+  useLayoutEffect(() => {
+    applyLiteClass(false);
+    return () => applyLiteClass(false);
+  }, []);
   const [schools, setSchools] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');

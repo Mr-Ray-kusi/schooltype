@@ -1,0 +1,181 @@
+/** English country names from the runtime, plus well-known cities for each code. */
+const displayNames = new Intl.DisplayNames(['en'], { type: 'region' });
+
+const CITIES = {
+  GH: ['Accra', 'Kumasi', 'Tamale', 'Takoradi', 'Tema', 'Cape Coast', 'Sunyani', 'Koforidua', 'Ho', 'Wa', 'Bolgatanga', 'Obuasi', 'Techiman', 'Nkawkaw', 'Winneba', 'Kasoa'],
+  NG: ['Lagos', 'Abuja', 'Kano', 'Ibadan', 'Port Harcourt', 'Benin City', 'Kaduna', 'Enugu', 'Aba', 'Onitsha', 'Ilorin', 'Abeokuta', 'Jos', 'Warri'],
+  CI: ['Abidjan', 'Yamoussoukro', 'Bouaké', 'Daloa', 'San-Pédro', 'Korhogo', 'Man'],
+  KE: ['Nairobi', 'Mombasa', 'Kisumu', 'Nakuru', 'Eldoret', 'Thika'],
+  ZA: ['Johannesburg', 'Cape Town', 'Durban', 'Pretoria', 'Port Elizabeth', 'Bloemfontein', 'Soweto'],
+  EG: ['Cairo', 'Alexandria', 'Giza', 'Shubra El Kheima', 'Port Said', 'Suez', 'Luxor', 'Aswan'],
+  MA: ['Casablanca', 'Rabat', 'Marrakesh', 'Fes', 'Tangier', 'Agadir'],
+  TN: ['Tunis', 'Sfax', 'Sousse', 'Kairouan', 'Bizerte'],
+  DZ: ['Algiers', 'Oran', 'Constantine', 'Annaba', 'Blida'],
+  SN: ['Dakar', 'Thiès', 'Saint-Louis', 'Ziguinchor', 'Kaolack'],
+  ML: ['Bamako', 'Sikasso', 'Ségou', 'Mopti', 'Kayes'],
+  BF: ['Ouagadougou', 'Bobo-Dioulasso', 'Koudougou', 'Ouahigouya', 'Banfora'],
+  NE: ['Niamey', 'Zinder', 'Maradi', 'Agadez', 'Tahoua'],
+  TG: ['Lomé', 'Sokodé', 'Kara', 'Kpalimé', 'Atakpamé'],
+  BJ: ['Cotonou', 'Porto-Novo', 'Parakou', 'Abomey', 'Bohicon'],
+  LR: ['Monrovia', 'Gbarnga', 'Buchanan', 'Kakata'],
+  SL: ['Freetown', 'Bo', 'Kenema', 'Makeni'],
+  GM: ['Banjul', 'Serekunda', 'Brikama'],
+  GW: ['Bissau', 'Bafatá', 'Gabú'],
+  GN: ['Conakry', 'Nzérékoré', 'Kankan', 'Kindia'],
+  CV: ['Praia', 'Mindelo', 'Santa Maria'],
+  MR: ['Nouakchott', 'Nouadhibou', 'Rosso'],
+  CM: ['Douala', 'Yaoundé', 'Bamenda', 'Garoua', 'Bafoussam'],
+  GA: ['Libreville', 'Port-Gentil', 'Franceville'],
+  CG: ['Brazzaville', 'Pointe-Noire', 'Dolisie'],
+  CD: ['Kinshasa', 'Lubumbashi', 'Mbuji-Mayi', 'Kisangani', 'Goma', 'Bukavu'],
+  AO: ['Luanda', 'Huambo', 'Lobito', 'Benguela', 'Lubango'],
+  ZM: ['Lusaka', 'Kitwe', 'Ndola', 'Kabwe', 'Livingstone'],
+  ZW: ['Harare', 'Bulawayo', 'Chitungwiza', 'Mutare', 'Gweru'],
+  MZ: ['Maputo', 'Beira', 'Nampula', 'Matola', 'Quelimane'],
+  MW: ['Lilongwe', 'Blantyre', 'Mzuzu', 'Zomba'],
+  TZ: ['Dar es Salaam', 'Dodoma', 'Mwanza', 'Arusha', 'Zanzibar City', 'Mbeya'],
+  UG: ['Kampala', 'Entebbe', 'Gulu', 'Mbarara', 'Jinja'],
+  RW: ['Kigali', 'Butare', 'Gisenyi', 'Ruhengeri'],
+  BI: ['Bujumbura', 'Gitega', 'Ngozi'],
+  ET: ['Addis Ababa', 'Dire Dawa', 'Mekelle', 'Gondar', 'Hawassa', 'Bahir Dar'],
+  ER: ['Asmara', 'Keren', 'Massawa'],
+  DJ: ['Djibouti', 'Ali Sabieh'],
+  SO: ['Mogadishu', 'Hargeisa', 'Bosaso', 'Kismayo'],
+  SS: ['Juba', 'Wau', 'Malakal'],
+  SD: ['Khartoum', 'Omdurman', 'Port Sudan', 'Nyala'],
+  TD: ['N\'Djamena', 'Moundou', 'Sarh'],
+  CF: ['Bangui', 'Bimbo', 'Berbérati'],
+  GQ: ['Malabo', 'Bata'],
+  ST: ['São Tomé', 'Santo António'],
+  NA: ['Windhoek', 'Walvis Bay', 'Swakopmund'],
+  BW: ['Gaborone', 'Francistown', 'Maun'],
+  LS: ['Maseru', 'Teyateyaneng', 'Mafeteng'],
+  SZ: ['Mbabane', 'Manzini', 'Lobamba'],
+  MG: ['Antananarivo', 'Toamasina', 'Antsirabe', 'Mahajanga'],
+  MU: ['Port Louis', 'Beau Bassin-Rose Hill', 'Curepipe'],
+  SC: ['Victoria', 'Anse Boileau'],
+  KM: ['Moroni', 'Mutsamudu'],
+  LY: ['Tripoli', 'Benghazi', 'Misrata', 'Bayda'],
+  US: ['New York', 'Los Angeles', 'Chicago', 'Houston', 'Phoenix', 'Philadelphia', 'San Antonio', 'San Diego', 'Dallas', 'San Jose', 'Austin', 'Washington'],
+  CA: ['Toronto', 'Montreal', 'Vancouver', 'Calgary', 'Ottawa', 'Edmonton', 'Winnipeg', 'Quebec City'],
+  MX: ['Mexico City', 'Guadalajara', 'Monterrey', 'Puebla', 'Tijuana', 'Cancún'],
+  BR: ['São Paulo', 'Rio de Janeiro', 'Brasília', 'Salvador', 'Fortaleza', 'Belo Horizonte', 'Manaus', 'Recife'],
+  AR: ['Buenos Aires', 'Córdoba', 'Rosario', 'Mendoza', 'La Plata'],
+  CL: ['Santiago', 'Valparaíso', 'Concepción', 'Antofagasta'],
+  CO: ['Bogotá', 'Medellín', 'Cali', 'Barranquilla', 'Cartagena'],
+  PE: ['Lima', 'Arequipa', 'Trujillo', 'Cusco'],
+  VE: ['Caracas', 'Maracaibo', 'Valencia', 'Barquisimeto'],
+  EC: ['Quito', 'Guayaquil', 'Cuenca'],
+  BO: ['La Paz', 'Santa Cruz', 'Cochabamba', 'Sucre'],
+  PY: ['Asunción', 'Ciudad del Este', 'San Lorenzo'],
+  UY: ['Montevideo', 'Salto', 'Paysandú'],
+  GB: ['London', 'Birmingham', 'Manchester', 'Glasgow', 'Liverpool', 'Edinburgh', 'Leeds', 'Cardiff', 'Belfast'],
+  IE: ['Dublin', 'Cork', 'Galway', 'Limerick'],
+  FR: ['Paris', 'Marseille', 'Lyon', 'Toulouse', 'Nice', 'Nantes', 'Bordeaux'],
+  DE: ['Berlin', 'Hamburg', 'Munich', 'Cologne', 'Frankfurt', 'Stuttgart', 'Düsseldorf'],
+  IT: ['Rome', 'Milan', 'Naples', 'Turin', 'Florence', 'Venice', 'Bologna'],
+  ES: ['Madrid', 'Barcelona', 'Valencia', 'Seville', 'Bilbao', 'Málaga'],
+  PT: ['Lisbon', 'Porto', 'Coimbra', 'Braga', 'Faro'],
+  NL: ['Amsterdam', 'Rotterdam', 'The Hague', 'Utrecht', 'Eindhoven'],
+  BE: ['Brussels', 'Antwerp', 'Ghent', 'Bruges'],
+  CH: ['Zurich', 'Geneva', 'Basel', 'Bern', 'Lausanne'],
+  AT: ['Vienna', 'Graz', 'Linz', 'Salzburg', 'Innsbruck'],
+  SE: ['Stockholm', 'Gothenburg', 'Malmö', 'Uppsala'],
+  NO: ['Oslo', 'Bergen', 'Trondheim', 'Stavanger'],
+  DK: ['Copenhagen', 'Aarhus', 'Odense', 'Aalborg'],
+  FI: ['Helsinki', 'Espoo', 'Tampere', 'Turku'],
+  PL: ['Warsaw', 'Kraków', 'Łódź', 'Wrocław', 'Gdańsk'],
+  CZ: ['Prague', 'Brno', 'Ostrava', 'Plzeň'],
+  SK: ['Bratislava', 'Košice', 'Prešov'],
+  HU: ['Budapest', 'Debrecen', 'Szeged', 'Pécs'],
+  RO: ['Bucharest', 'Cluj-Napoca', 'Timișoara', 'Iași'],
+  BG: ['Sofia', 'Plovdiv', 'Varna', 'Burgas'],
+  GR: ['Athens', 'Thessaloniki', 'Patras', 'Heraklion'],
+  TR: ['Istanbul', 'Ankara', 'Izmir', 'Bursa', 'Antalya', 'Adana'],
+  UA: ['Kyiv', 'Kharkiv', 'Odesa', 'Dnipro', 'Lviv'],
+  RU: ['Moscow', 'Saint Petersburg', 'Novosibirsk', 'Yekaterinburg', 'Kazan'],
+  AE: ['Dubai', 'Abu Dhabi', 'Sharjah', 'Ajman', 'Al Ain'],
+  SA: ['Riyadh', 'Jeddah', 'Mecca', 'Medina', 'Dammam'],
+  QA: ['Doha', 'Al Rayyan', 'Al Wakrah'],
+  KW: ['Kuwait City', 'Hawalli', 'Salmiya'],
+  BH: ['Manama', 'Riffa', 'Muharraq'],
+  OM: ['Muscat', 'Salalah', 'Sohar'],
+  JO: ['Amman', 'Zarqa', 'Irbid', 'Aqaba'],
+  LB: ['Beirut', 'Tripoli', 'Sidon'],
+  IL: ['Jerusalem', 'Tel Aviv', 'Haifa', 'Beersheba'],
+  PS: ['Gaza', 'Ramallah', 'Hebron', 'Nablus'],
+  IQ: ['Baghdad', 'Basra', 'Mosul', 'Erbil'],
+  IR: ['Tehran', 'Mashhad', 'Isfahan', 'Shiraz', 'Tabriz'],
+  SY: ['Damascus', 'Aleppo', 'Homs', 'Latakia'],
+  YE: ['Sana\'a', 'Aden', 'Taiz', 'Hodeidah'],
+  IN: ['Mumbai', 'Delhi', 'Bengaluru', 'Hyderabad', 'Chennai', 'Kolkata', 'Pune', 'Ahmedabad', 'Jaipur'],
+  PK: ['Karachi', 'Lahore', 'Islamabad', 'Rawalpindi', 'Faisalabad', 'Peshawar'],
+  BD: ['Dhaka', 'Chittagong', 'Khulna', 'Rajshahi', 'Sylhet'],
+  LK: ['Colombo', 'Kandy', 'Galle', 'Jaffna'],
+  NP: ['Kathmandu', 'Pokhara', 'Lalitpur', 'Biratnagar'],
+  CN: ['Beijing', 'Shanghai', 'Guangzhou', 'Shenzhen', 'Chengdu', 'Chongqing', 'Wuhan', 'Hangzhou'],
+  JP: ['Tokyo', 'Yokohama', 'Osaka', 'Nagoya', 'Sapporo', 'Fukuoka', 'Kyoto', 'Kobe'],
+  KR: ['Seoul', 'Busan', 'Incheon', 'Daegu', 'Daejeon'],
+  KP: ['Pyongyang', 'Hamhung', 'Chongjin'],
+  TW: ['Taipei', 'Kaohsiung', 'Taichung', 'Tainan'],
+  HK: ['Hong Kong', 'Kowloon'],
+  MO: ['Macau'],
+  SG: ['Singapore'],
+  MY: ['Kuala Lumpur', 'George Town', 'Johor Bahru', 'Ipoh', 'Kota Kinabalu'],
+  ID: ['Jakarta', 'Surabaya', 'Bandung', 'Medan', 'Bali', 'Makassar'],
+  TH: ['Bangkok', 'Chiang Mai', 'Phuket', 'Pattaya', 'Hat Yai'],
+  VN: ['Hanoi', 'Ho Chi Minh City', 'Da Nang', 'Hai Phong', 'Can Tho'],
+  PH: ['Manila', 'Quezon City', 'Cebu City', 'Davao City', 'Makati'],
+  KH: ['Phnom Penh', 'Siem Reap', 'Battambang'],
+  LA: ['Vientiane', 'Luang Prabang', 'Pakse'],
+  MM: ['Yangon', 'Mandalay', 'Naypyidaw'],
+  AU: ['Sydney', 'Melbourne', 'Brisbane', 'Perth', 'Adelaide', 'Canberra', 'Gold Coast'],
+  NZ: ['Auckland', 'Wellington', 'Christchurch', 'Hamilton', 'Dunedin'],
+  FJ: ['Suva', 'Nadi', 'Lautoka'],
+  PG: ['Port Moresby', 'Lae'],
+  JM: ['Kingston', 'Montego Bay', 'Spanish Town'],
+  TT: ['Port of Spain', 'San Fernando', 'Chaguanas'],
+  BB: ['Bridgetown'],
+  BS: ['Nassau', 'Freeport'],
+  CU: ['Havana', 'Santiago de Cuba', 'Camagüey'],
+  DO: ['Santo Domingo', 'Santiago de los Caballeros', 'Punta Cana'],
+  HT: ['Port-au-Prince', 'Cap-Haïtien'],
+  PR: ['San Juan', 'Bayamón', 'Ponce'],
+  PA: ['Panama City', 'Colón', 'David'],
+  CR: ['San José', 'Alajuela', 'Liberia'],
+  GT: ['Guatemala City', 'Mixco', 'Quetzaltenango'],
+  HN: ['Tegucigalpa', 'San Pedro Sula', 'La Ceiba'],
+  SV: ['San Salvador', 'Santa Ana', 'Soyapango'],
+  NI: ['Managua', 'León', 'Granada'],
+  BZ: ['Belize City', 'Belmopan'],
+};
+
+function countryName(code) {
+  try {
+    const name = displayNames.of(code);
+    if (!name || name.toUpperCase() === code) return '';
+    return name;
+  } catch {
+    return '';
+  }
+}
+
+const COUNTRY_CODES = [];
+for (let first = 65; first <= 90; first += 1) {
+  for (let second = 65; second <= 90; second += 1) {
+    const code = String.fromCharCode(first) + String.fromCharCode(second);
+    if (countryName(code)) COUNTRY_CODES.push(code);
+  }
+}
+
+export const COUNTRIES = COUNTRY_CODES.map((code) => countryName(code))
+  .filter(Boolean)
+  .sort((a, b) => a.localeCompare(b));
+
+const codeByName = new Map(COUNTRY_CODES.map((code) => [countryName(code), code]));
+
+export function citiesForCountry(country) {
+  const code = codeByName.get(String(country || ''));
+  if (!code) return [];
+  return CITIES[code] || [];
+}

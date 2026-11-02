@@ -45,13 +45,9 @@ const Layout = ({ children }) => {
   const [unread, setUnread] = useState(0);
   const { school, logout, isSuperAdmin, hasFeature, includesPlanFeature, isPlanApproved, token } =
     useAuth();
-  const { liteMode, toggleLiteMode } = useLiteMode();
+  const { liteMode, toggleLiteMode } = useLiteMode('admin');
   const location = useLocation();
   usePlatformTelemetry();
-
-  useEffect(() => {
-    document.documentElement.classList.toggle('lite', liteMode);
-  }, [liteMode]);
 
   const refreshUnread = useCallback(async () => {
     if (!token) return;

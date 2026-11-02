@@ -50,7 +50,7 @@ const StaffPortal = () => {
   const [schoolRecord, setSchoolRecord] = useState(restored?.school || null);
   const [financeTab, setFinanceTab] = useState('fees');
   const [owingSmsOpen, setOwingSmsOpen] = useState(false);
-  const { liteMode, toggleLiteMode } = useLiteMode();
+  const { liteMode, toggleLiteMode } = useLiteMode('staff');
 
   const themeToggle = (
     <button

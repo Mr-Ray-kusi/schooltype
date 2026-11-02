@@ -3,6 +3,7 @@ import axios from 'axios';
 import toast from 'react-hot-toast';
 import { Headphones, Mail, Phone, X } from 'lucide-react';
 import { SUPPORT_PHONE, telHref } from '../constants/support';
+import { COUNTRIES, citiesForCountry } from '../data/places';
 
 const emptyForm = {
   fullName: '',
@@ -54,7 +55,11 @@ export default function SupportWidget() {
 
   const onChange = (event) => {
     const { name, value } = event.target;
-    setForm((prev) => ({ ...prev, [name]: value }));
+    setForm((prev) => {
+      const next = { ...prev, [name]: value };
+      if (name === 'country' && value !== prev.country) next.location = '';
+      return next;
+    });
   };
 
   const submitEmail = async (event) => {
@@ -160,18 +165,32 @@ export default function SupportWidget() {
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="block text-sm font-semibold">
                     Country
-                    <input name="country" value={form.country} onChange={onChange} required className="mk-field mt-1" />
+                    <select name="country" value={form.country} onChange={onChange} required className="mk-field mt-1">
+                      <option value="">Select a country</option>
+                      {COUNTRIES.map((name) => (
+                        <option key={name} value={name}>
+                          {name}
+                        </option>
+                      ))}
+                    </select>
                   </label>
                   <label className="block text-sm font-semibold">
-                    Location
+                    City
                     <input
                       name="location"
                       value={form.location}
                       onChange={onChange}
                       required
-                      placeholder="City or town"
+                      list="support-cities"
+                      placeholder="Choose or type a city"
                       className="mk-field mt-1"
+                      autoComplete="address-level2"
                     />
+                    <datalist id="support-cities">
+                      {citiesForCountry(form.country).map((city) => (
+                        <option key={city} value={city} />
+                      ))}
+                    </datalist>
                   </label>
                 </div>
                 <label className="block text-sm font-semibold">
