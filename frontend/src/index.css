@@ -244,8 +244,22 @@
 .mk-brand {
   display: flex;
   min-width: 0;
-  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
   line-height: 1.1;
+}
+
+.mk-brand-logo {
+  flex: none;
+  width: 2.45rem;
+  height: 2.45rem;
+  color: var(--mk-brass);
+}
+
+.mk-brand-text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
 }
 
 .mk-brand-name {
@@ -305,6 +319,15 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .mk-brand {
+    gap: 0.45rem;
+  }
+
+  .mk-brand-logo {
+    width: 1.85rem;
+    height: 1.85rem;
   }
 
   .mk-header-bar {

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ArrowUpRight, Globe, Menu, X } from 'lucide-react';
 import { SOCIAL_LINKS } from '../constants/socials';
+import BrandLogo from './BrandLogo';
 import SupportWidget from './SupportWidget';
 
 export const MARKETING_NAV = [
@@ -30,8 +31,11 @@ const BrandMark = ({ onHome }) => (
       }
     }}
   >
-    <span className="mk-brand-name">SCHOOLTYPE</span>
-    <span className="mk-brand-tag">Connect. Track. Manage.</span>
+    <BrandLogo className="mk-brand-logo" />
+    <span className="mk-brand-text">
+      <span className="mk-brand-name">SCHOOLTYPE</span>
+      <span className="mk-brand-tag">Connect. Track. Manage.</span>
+    </span>
   </Link>
 );
 
@@ -189,9 +193,12 @@ export default function MarketingChrome({
       <footer className="mk-footer">
         <div className="mk-footer-shell">
           <div className="mk-footer-top">
-            <div>
-              <p className="mk-brand-name">SCHOOLTYPE</p>
-              <p className="mk-brand-tag">Connect. Track. Manage.</p>
+            <div className="mk-brand">
+              <BrandLogo className="mk-brand-logo" />
+              <div className="mk-brand-text">
+                <p className="mk-brand-name">SCHOOLTYPE</p>
+                <p className="mk-brand-tag">Connect. Track. Manage.</p>
+              </div>
             </div>
             <nav className="mk-footer-links" aria-label="Footer">
               <Link to="/#about">About</Link>
