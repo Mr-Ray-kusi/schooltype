@@ -106,7 +106,7 @@ export default function SupportWidget() {
               <div>
                 <p className="mk-kicker">Support</p>
                 <h2 id="support-title" className="mt-1 font-serif text-2xl font-bold text-[var(--mk-ink)]">
-                  {mode === 'email' ? 'Email Schooltype' : mode === 'call' ? 'Call Schooltype' : 'How can we help?'}
+                  {mode === 'email' ? 'Email Schooltype Team' : mode === 'call' ? 'Call Schooltype' : 'How can we help?'}
                 </h2>
               </div>
               <button type="button" className="mk-support-close" aria-label="Close" onClick={close}>

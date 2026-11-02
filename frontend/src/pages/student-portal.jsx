@@ -283,7 +283,7 @@ const StudentPortal = () => {
       <form onSubmit={signIn} className="mx-auto max-w-md rounded-3xl border border-[var(--mk-line)] bg-white p-6">
         <SchoolCover school={chosenSchool} />
         <h1 className="mt-4 font-serif text-3xl font-bold">Student portal</h1>
-        <p className="mt-2 text-sm text-[#3d4a45]">Enter the student ID and the password issued by the school.</p>
+        <p className="mt-2 text-sm text-[#3d4a45]">Enter your student ID and password.</p>
         <label className="mt-5 block text-sm font-semibold" htmlFor="portal-id">
           Student ID
         </label>
