@@ -20,7 +20,7 @@ services:
       - key: NODE_VERSION
         value: "22"
       - key: FRONTEND_URL
-        value: https://schootype.vercel.app
+        value: https://schooltype.vercel.app
       - key: WALLET_STORE
         value: supabase
       - key: SMS_STORE
@@ -61,4 +61,4 @@ services:
       - key: TWILIO_FROM_NUMBER
         sync: false
       - key: CORS_ORIGINS
-        value: https://schootype.vercel.app,http://localhost:3000
+        value: https://schooltype.vercel.app,https://schootype.vercel.app,http://localhost:3000

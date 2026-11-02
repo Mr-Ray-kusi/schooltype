@@ -175,10 +175,28 @@
   --mk-forest-deep: #0b1f1a;
   --mk-brass: #b08a3a;
   --mk-clay: #a3472a;
+  display: flex;
   min-height: 100vh;
+  min-height: 100dvh;
+  flex-direction: column;
   background: var(--mk-paper);
   color: var(--mk-ink);
   font-family: 'DM Sans', system-ui, sans-serif;
+}
+
+.mk > main {
+  flex: 1 0 auto;
+}
+
+.portal-school-name {
+  display: block;
+  padding: 0.85rem 1rem 1rem;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: 0;
+  color: #fffaf2;
 }
 
 .mk h1,

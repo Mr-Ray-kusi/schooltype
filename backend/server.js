@@ -181,7 +181,12 @@ const allowedOrigins = (() => {
     .split(',')
     .map((origin) => origin.trim().replace(/\/$/, ''))
     .filter(Boolean);
-  for (const extra of [process.env.FRONTEND_URL, process.env.APP_URL]) {
+  for (const extra of [
+    'https://schootype.vercel.app',
+    'https://schooltype.vercel.app',
+    process.env.FRONTEND_URL,
+    process.env.APP_URL,
+  ]) {
     const value = String(extra || '').trim().replace(/\/$/, '');
     if (value && !list.includes(value)) list.push(value);
   }

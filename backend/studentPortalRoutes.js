@@ -1,5 +1,5 @@
 import jwt from 'jsonwebtoken';
-import { supabase } from './supabaseClient.js';
+import { platformSupabase, supabase } from './supabaseClient.js';
 import { mergeSchoolWithExtras, schoolHasPaidPlan } from './schoolPlanStore.js';
 import { getSubscriptionInfo } from './subscription.js';
 import { listAcademicTerms } from './academicTerms.js';
@@ -62,6 +62,25 @@ async function publicSchoolCard(schoolId) {
   return portalSchoolCard(data);
 }
 
+function portalDb() {
+  return platformSupabase || supabase;
+}
+
+async function schoolStudent(schoolId, studentId, columns) {
+  const { data, error } = await portalDb()
+    .from('students')
+    .select(columns)
+    .eq('id', studentId)
+    .eq('school_id', schoolId)
+    .maybeSingle();
+  if (error) {
+    const err = new Error(error.message || 'Could not load the student');
+    err.status = 500;
+    throw err;
+  }
+  return data || null;
+}
+
 async function findStudentByPortalId(schoolId, rawId) {
   const wanted = String(rawId || '').trim().toUpperCase();
   if (!wanted) return null;
@@ -104,13 +123,32 @@ function chosenTerm(terms, termId) {
 export function registerStudentPortalRoutes(app, { authenticateToken }) {
   app.get('/api/student-portal/schools', async (_req, res) => {
     try {
-      const { data, error } = await supabase.from('schools').select('*');
-      if (error) throw error;
-      const schools = (data || []).map(portalSchoolCard).filter(Boolean);
+      const client = platformSupabase || supabase;
+      const columns =
+        'id, name, role, logo_url, payment_plan, plan_status, plan_selected_at, next_payment_due, last_payment_at, subscription_frozen, subscription_started_at, total_paid';
+      let rows;
+      const first = await client.from('schools').select(columns);
+      if (first.error) {
+        const retry = await client.from('schools').select('id, name, role, logo_url');
+        if (retry.error) throw retry.error;
+        rows = retry.data || [];
+      } else {
+        rows = first.data || [];
+      }
+      const schools = [];
+      for (const row of rows) {
+        try {
+          const card = portalSchoolCard(row);
+          if (card) schools.push(card);
+        } catch (err) {
+          console.warn('Skipped a school on the portal list:', err.message);
+        }
+      }
       schools.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
       res.json({ schools });
     } catch (error) {
-      res.status(500).json({ error: error.message || 'Failed to load schools' });
+      console.error('Student portal school list failed:', error.message || error);
+      res.status(500).json({ error: 'Could not load schools' });
     }
   });
 
@@ -309,13 +347,7 @@ export function registerStudentPortalRoutes(app, { authenticateToken }) {
   app.post('/api/students/:id/portal-password', authenticateToken, async (req, res) => {
     try {
       if (req.user.role === 'super_admin') return res.status(400).json({ error: 'Open a school account' });
-      const { data: student, error } = await supabase
-        .from('students')
-        .select('id')
-        .eq('id', req.params.id)
-        .eq('school_id', req.user.schoolId)
-        .maybeSingle();
-      if (error) throw error;
+      const student = await schoolStudent(req.user.schoolId, req.params.id, 'id');
       if (!student) return res.status(404).json({ error: 'Student not found' });
       const issued = await issueStudentPortalPassword(req.user.schoolId, student.id);
       res.json(issued);
@@ -328,13 +360,7 @@ export function registerStudentPortalRoutes(app, { authenticateToken }) {
     try {
       if (req.user.role === 'super_admin') return res.status(400).json({ error: 'Open a school account' });
       const schoolId = req.user.schoolId;
-      const { data: student, error } = await supabase
-        .from('students')
-        .select('id, name, roll_number, parent_phone')
-        .eq('id', req.params.id)
-        .eq('school_id', schoolId)
-        .maybeSingle();
-      if (error) throw error;
+      const student = await schoolStudent(schoolId, req.params.id, 'id, name, roll_number, parent_phone');
       if (!student) return res.status(404).json({ error: 'Student not found' });
       const password = await revealStudentPortalPassword(schoolId, student.id);
       if (!password) return res.status(400).json({ error: 'Issue a portal password before sending it' });

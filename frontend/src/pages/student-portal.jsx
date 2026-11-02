@@ -63,14 +63,21 @@ const StudentPortal = () => {
   useEffect(() => {
     if (session) return undefined;
     let cancelled = false;
+    const applySchools = (rows) => {
+      if (!cancelled) setSchools(Array.isArray(rows) ? rows : []);
+    };
+    const fail = (err) => {
+      if (!cancelled) setError(err.response?.data?.error || 'Could not load schools');
+    };
     axios
       .get('/api/student-portal/schools')
-      .then(({ data }) => {
-        if (!cancelled) setSchools(data.schools || []);
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err.response?.data?.error || 'Could not load schools');
-      })
+      .then(({ data }) => applySchools(data.schools))
+      .catch(() =>
+        axios
+          .get('/api/public/schools')
+          .then(({ data }) => applySchools(data.schools))
+          .catch(fail)
+      )
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
@@ -161,7 +168,7 @@ const StudentPortal = () => {
           <SchoolCover school={session.school} />
           <div className="flex flex-wrap items-end justify-between gap-3 px-5 py-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#6b7f78]">{session.school?.name}</p>
+              <p className="text-sm font-semibold text-[#fffaf2]">{session.school?.name}</p>
               <h1 className="mt-1 font-serif text-3xl font-bold">{session.student.name}</h1>
               <p className="text-sm text-[#3d4a45]">
                 {session.student.class} · {session.student.roll_number}
@@ -345,7 +352,7 @@ const StudentPortal = () => {
               className="overflow-hidden rounded-3xl border border-[var(--mk-line)] bg-white text-left"
             >
               <SchoolCover school={school} />
-              <span className="block px-4 py-3 font-serif text-xl font-bold">{school.name}</span>
+              <span className="portal-school-name">{school.name}</span>
             </button>
           ))}
         </div>
