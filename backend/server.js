@@ -254,6 +254,7 @@ const bumpSchoolCaches = (schoolId) => {
   if (!schoolId) return;
   cacheInvalidate(`dash:${schoolId}`);
   cacheInvalidate(`att-sum:${schoolId}`);
+  cacheInvalidate(`att-day:${schoolId}`);
   cacheInvalidate(`att-people:${schoolId}`);
   cacheInvalidate(`att-fill:${schoolId}`);
   cacheInvalidate(`att-person-fill:${schoolId}`);
@@ -2903,6 +2904,61 @@ const loadEnrolledStudents = async (schoolId) => {
       user_type: 'student',
       created_at: row.created_at || null,
     }));
+};
+
+const attendanceRoster = (people, dayRows, selectedDate, lateAfterTime, typeFilter) => {
+  const byPerson = new Map();
+  for (const row of dayRows || []) {
+    const type = normalizeAttendanceUserType(row.user_type);
+    const key = `${type}:${row.user_id}`;
+    const prev = byPerson.get(key);
+    if (!prev || String(row.timestamp || '') > String(prev.timestamp || '')) byPerson.set(key, row);
+  }
+  const wantedType =
+    typeFilter && typeFilter !== 'all' ? normalizeAttendanceUserType(typeFilter) : null;
+  const out = [];
+  for (const person of people || []) {
+    if (!person?.id) continue;
+    if (wantedType && person.user_type !== wantedType) continue;
+    if (!canHaveAttendanceOn(person.created_at, selectedDate)) continue;
+    const user = {
+      name: person.name,
+      class: person.user_type === 'student' ? person.label : null,
+      role: person.user_type === 'student' ? null : person.label,
+      roll_number: person.roll_number || null,
+    };
+    const existing = byPerson.get(`${person.user_type}:${person.id}`);
+    if (existing) {
+      const punctuality =
+        existing.status === 'absent' || existing.status === 'early' || existing.status === 'late'
+          ? existing.status
+          : getAttendancePunctuality(existing.timestamp, lateAfterTime);
+      out.push({
+        ...existing,
+        user_type: person.user_type,
+        user_name: existing.user_name || person.name,
+        user_label: existing.user_label || person.label,
+        user,
+        punctuality,
+        status: punctuality,
+      });
+      continue;
+    }
+    out.push({
+      id: `unmarked:${person.user_type}:${person.id}:${selectedDate}`,
+      user_id: person.id,
+      user_type: person.user_type,
+      user_name: person.name,
+      user_label: person.label,
+      date: selectedDate,
+      timestamp: null,
+      status: 'unmarked',
+      punctuality: 'unmarked',
+      user,
+    });
+  }
+  out.sort((a, b) => String(a.user_name || '').localeCompare(String(b.user_name || '')));
+  return out;
 };
 
 const loadSchoolPeopleForAttendance = async (schoolId) => {
@@ -6114,20 +6170,26 @@ app.get('/api/attendance', authenticateToken, enforcePlanApproval, async (req, r
     const { date, type } = req.query;
     const today = schoolLocalDate();
     const selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(String(date || '')) ? date : today;
-    const people = await loadSchoolPeopleForAttendance(req.user.schoolId);
-    const lateAfterTimePromise = getSchoolLateAfterTime(req.user.schoolId);
-    const attendancePromise = fetchAllQueryRows(() => {
-      let query = supabase
-        .from('attendance')
-        .select('*')
-        .eq('school_id', req.user.schoolId)
-        .order('timestamp', { ascending: false });
-      query = applyAttendanceDateFilter(query, selectedDate);
-      if (type && type !== 'all') query = query.eq('user_type', type);
-      return query;
-    });
-
-    const [attendance, lateAfterTime] = await Promise.all([attendancePromise, lateAfterTimePromise]);
+    const dayKey = `att-day:${req.user.schoolId}:${selectedDate}:${type || 'all'}`;
+    const cachedDay = cacheGet(dayKey);
+    if (cachedDay) {
+      res.json(cachedDay);
+      return;
+    }
+    const [people, lateAfterTime, attendance] = await Promise.all([
+      loadSchoolPeopleForAttendance(req.user.schoolId),
+      getSchoolLateAfterTime(req.user.schoolId),
+      fetchAllQueryRows(() => {
+        let query = supabase
+          .from('attendance')
+          .select('*')
+          .eq('school_id', req.user.schoolId)
+          .order('timestamp', { ascending: false });
+        query = applyAttendanceDateFilter(query, selectedDate);
+        if (type && type !== 'all') query = query.eq('user_type', type);
+        return query;
+      }),
+    ]);
     const dayRows = filterAttendanceForDate(attendance, selectedDate);
     const visibleAttendance = await pruneAttendanceBeforeEnrollment(
       req.user.schoolId,
@@ -6135,8 +6197,9 @@ app.get('/api/attendance', authenticateToken, enforcePlanApproval, async (req, r
       people,
       { persist: false }
     );
-    const enrichedAttendance = await enrichAttendanceRows(visibleAttendance, lateAfterTime);
-    res.json(enrichedAttendance);
+    const roster = attendanceRoster(people, visibleAttendance, selectedDate, lateAfterTime, type);
+    cacheSet(dayKey, roster, 15000);
+    res.json(roster);
 
     void ensureUnscannedStudentsMarkedLate(req.user.schoolId, selectedDate, { people });
   } catch (error) {
@@ -6402,10 +6465,10 @@ app.get('/api/attendance/summary', authenticateToken, enforcePlanApproval, async
     const today = schoolLocalDate();
     const requestedDate = req.query.date || today;
     const selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) ? requestedDate : today;
-    const filled = await ensureUnscannedStudentsMarkedLate(req.user.schoolId, selectedDate);
+    void ensureUnscannedStudentsMarkedLate(req.user.schoolId, selectedDate);
     const cacheKey = `att-sum:${req.user.schoolId}:${selectedDate}`;
     const cached = cacheGet(cacheKey);
-    if (cached && !filled) return res.json(cached);
+    if (cached) return res.json(cached);
 
     const [students, staff, nonStaff, attendanceRows] = await Promise.all([
       supabase.from('students').select('id', { count: 'exact', head: true }).eq('school_id', req.user.schoolId),

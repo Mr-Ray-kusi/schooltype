@@ -3,7 +3,7 @@ import axios from 'axios';
 import { AlertTriangle, ChevronDown, Clock, Download, Printer, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
-import { cachedGet, forceGet, invalidateCache, peekCache, staleGet } from '../utils/requestCache';
+import { cachedGet, invalidateCache, peekCache, staleGet } from '../utils/requestCache';
 import { schoolLocalDate } from '../utils/schoolDate';
 import { useLivePoll } from '../hooks/useLivePoll';
 import { useAuth } from '../contexts/authcontext';
@@ -54,23 +54,31 @@ const recordMatchesSearch = (record, query) => {
   return ids.some((value) => String(value || '').trim().toLowerCase().includes(q));
 };
 
-const getPunctuality = (record) =>
-  record.punctuality ||
-  (record.status === 'absent' || record.status === 'early' || record.status === 'late'
-    ? record.status
-    : null) ||
-  'early';
+const getPunctuality = (record) => {
+  const known = record.punctuality || record.status;
+  if (known === 'absent' || known === 'early' || known === 'late' || known === 'unmarked') return known;
+  return 'unmarked';
+};
 
 const statusTone = (status) => {
   if (status === 'absent') return 'text-rose-400';
   if (status === 'late') return 'text-amber-400';
+  if (status === 'unmarked') return 'text-slate-400';
   return 'text-emerald-400';
 };
 
 const statusLabel = (status) => {
   if (status === 'absent') return 'Absent';
   if (status === 'late') return 'Late';
+  if (status === 'unmarked') return 'Not marked';
   return 'Early';
+};
+
+const formatMarkTime = (timestamp) => {
+  if (!timestamp) return '—';
+  const parsed = new Date(timestamp);
+  if (Number.isNaN(parsed.getTime())) return '—';
+  return format(parsed, 'hh:mm a');
 };
 
 const personKey = (record) => `${record.user_type || 'student'}:${record.user_id || record.id}`;
@@ -273,7 +281,7 @@ const Attendance = () => {
       }
       try {
         const fetcher = async () => (await axios.get(`/api/attendance/summary?date=${selectedDate}`)).data;
-        const data = silent ? await cachedGet(cacheKey, fetcher, 4000) : await forceGet(cacheKey, fetcher);
+        const data = await cachedGet(cacheKey, fetcher, silent ? 20000 : 8000);
         setSummary(data);
       } catch (error) {
         if (!silent) console.error('Error fetching summary:', error);
@@ -565,7 +573,7 @@ const Attendance = () => {
           <p className="truncate text-xs text-slate-400">
             {format(new Date(`${selectedDate}T12:00:00`), 'EEE d MMM yyyy')}
             {' · '}
-            {filteredRecords.length} marked
+            {filteredRecords.length} people
             {lateCount > 0 ? ` · ${lateCount} late` : ''}
             {absentCount > 0 ? ` · ${absentCount} absent` : ''}
             {summaryItems.length
@@ -696,7 +704,7 @@ const Attendance = () => {
           <div className="flex h-full items-center justify-center px-4 text-center text-sm text-slate-400">
             {searchQuery.trim()
               ? 'No one matches that name or ID for this date.'
-              : 'No attendance records for this date.'}
+              : 'No students, staff, or non-staff for this date.'}
           </div>
         ) : (
           <div className="h-full divide-y divide-slate-700 overflow-y-auto">
@@ -723,9 +731,7 @@ const Attendance = () => {
                     </div>
                     <div className="flex shrink-0 items-center gap-3">
                       <div className="text-right">
-                        <p className="text-xs tabular-nums text-slate-300">
-                          {format(new Date(record.timestamp), 'hh:mm a')}
-                        </p>
+                        <p className="text-xs tabular-nums text-slate-300">{formatMarkTime(record.timestamp)}</p>
                         <p className={`inline-flex items-center gap-1 text-xs ${statusTone(status)}`}>
                           {status === 'late' || status === 'absent' ? (
                             <AlertTriangle className="h-3.5 w-3.5" />
