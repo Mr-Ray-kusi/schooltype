@@ -2832,8 +2832,6 @@ const fetchAllQueryRows = async (buildQuery, pageSize = 1000) => {
   return rows;
 };
 
-const ABSENT_AFTER_LATE_MINUTES = 120;
-
 const lateCutoffReached = (ymd, lateAfterTime, now = schoolNow()) => {
   const today = schoolLocalDate(now);
   if (ymd > today) return false;
@@ -2841,21 +2839,10 @@ const lateCutoffReached = (ymd, lateAfterTime, now = schoolNow()) => {
   return getAttendancePunctuality(now, lateAfterTime) === 'late';
 };
 
-const absentCutoffReached = (ymd, lateAfterTime, now = schoolNow()) => {
-  const today = schoolLocalDate(now);
-  if (ymd > today) return false;
-  if (ymd < today) return lateCutoffReached(ymd, lateAfterTime, now);
-  const [cutH, cutM] = normalizeLateAfterTime(lateAfterTime).split(':').map(Number);
-  const clock = schoolLocalHms(now);
-  return clock.hour * 60 + clock.minute >= cutH * 60 + cutM + ABSENT_AFTER_LATE_MINUTES;
-};
-
 const autoAttendanceStatus = (ymd, lateAfterTime, userType, now = schoolNow()) => {
-  if (normalizeAttendanceUserType(userType) === 'student' && absentCutoffReached(ymd, lateAfterTime, now)) {
-    return 'absent';
-  }
-  if (lateCutoffReached(ymd, lateAfterTime, now)) return 'late';
-  return null;
+  if (!lateCutoffReached(ymd, lateAfterTime, now)) return null;
+  if (normalizeAttendanceUserType(userType) === 'student') return 'absent';
+  return 'late';
 };
 
 const isAutoAttendanceStamp = (timestamp, ymd, lateAfterTime) => {
@@ -2928,7 +2915,7 @@ const attendanceRoster = (people, dayRows, selectedDate, lateAfterTime, typeFilt
       roll_number: person.roll_number || null,
     };
     const existing = byPerson.get(`${person.user_type}:${person.id}`);
-    if (existing) {
+    if (existing && !isAutoAttendanceStamp(existing.timestamp, selectedDate, lateAfterTime)) {
       const punctuality =
         existing.status === 'absent' || existing.status === 'early' || existing.status === 'late'
           ? existing.status
@@ -2944,16 +2931,17 @@ const attendanceRoster = (people, dayRows, selectedDate, lateAfterTime, typeFilt
       });
       continue;
     }
+    const auto = autoAttendanceStatus(selectedDate, lateAfterTime, person.user_type);
     out.push({
-      id: `unmarked:${person.user_type}:${person.id}:${selectedDate}`,
+      id: existing?.id || `unmarked:${person.user_type}:${person.id}:${selectedDate}`,
       user_id: person.id,
       user_type: person.user_type,
       user_name: person.name,
       user_label: person.label,
       date: selectedDate,
       timestamp: null,
-      status: 'unmarked',
-      punctuality: 'unmarked',
+      status: auto || 'unmarked',
+      punctuality: auto || 'unmarked',
       user,
     });
   }
@@ -3056,7 +3044,6 @@ const ensureUnscannedStudentsMarkedLate = async (schoolId, ymd, { people: givenP
 
   const lateAfterTime = await getSchoolLateAfterTime(schoolId);
   if (!lateCutoffReached(date, lateAfterTime)) return 0;
-  const markAbsent = absentCutoffReached(date, lateAfterTime);
 
   const [people, markedRows] = await Promise.all([
     givenPeople?.length ? Promise.resolve(givenPeople) : loadSchoolPeopleForAttendance(schoolId),
@@ -3107,7 +3094,6 @@ const ensureUnscannedStudentsMarkedLate = async (schoolId, ymd, { people: givenP
     }
 
     if (
-      markAbsent &&
       person.user_type === 'student' &&
       String(existing.status || '').toLowerCase() === 'late' &&
       isAutoAttendanceStamp(existing.timestamp, date, lateAfterTime)
