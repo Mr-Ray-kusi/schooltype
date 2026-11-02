@@ -1,7 +1,7 @@
 import { Clock, Lock } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/authcontext';
-import { FEATURE_LABELS, getPlan, formatPlanPriceGhs } from '../constants/plans';
+import { getPlan, formatPlanPriceGhs, planFeatureLabels } from '../constants/plans';
 
 const PlanPendingBanner = () => {
   const { school, isPlanApproved } = useAuth();
@@ -42,12 +42,12 @@ const PlanPendingBanner = () => {
           )}
           {school.pending_plan_features?.length > 0 && (
             <div className="flex flex-wrap gap-2 mt-3">
-              {school.pending_plan_features.map((feature) => (
+              {planFeatureLabels(school.pending_plan_features).map(({ key, label }) => (
                 <span
-                  key={feature}
+                  key={key}
                   className="px-2 py-1 text-xs rounded-full bg-slate-800/80 text-slate-200 border border-slate-600"
                 >
-                  {FEATURE_LABELS[feature] || feature}
+                  {label}
                 </span>
               ))}
             </div>

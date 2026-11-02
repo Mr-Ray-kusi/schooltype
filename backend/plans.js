@@ -11,7 +11,6 @@ const FULL_FEATURE_KEYS = [
   'classes',
   'report-cards',
   'fees-paid',
-  'fees-unpaid',
   'bank-settings',
   'school-wallet',
 ];
@@ -127,6 +126,7 @@ export const FEATURE_LABELS = {
   classes: 'Classes',
   'report-cards': 'Report Cards',
   'fees-paid': 'Fees',
+  // Paid and unpaid fees share one page now; schools saved before the merge still store this key.
   'fees-unpaid': 'Fees',
   'bank-settings': 'Bank Settings',
   'school-wallet': 'School Wallet',

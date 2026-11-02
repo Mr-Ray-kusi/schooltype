@@ -11,7 +11,6 @@ const FULL_FEATURE_KEYS = [
   'classes',
   'report-cards',
   'fees-paid',
-  'fees-unpaid',
   'bank-settings',
   'school-wallet',
 ];
@@ -109,16 +108,6 @@ export const formatPlanPriceGhs = (plan) => {
   return `₵${Number(plan.price || 0).toLocaleString()}`;
 };
 
-export const formatPlanPriceUsd = (plan) => {
-  if (!plan) return '';
-  if (plan.priceUsdMin != null && plan.priceUsdMax != null) {
-    return `$${plan.priceUsdMin.toLocaleString()} – $${plan.priceUsdMax.toLocaleString()}${
-      plan.id === 'large' ? '+' : ''
-    }`;
-  }
-  return '';
-};
-
 export const FEATURE_LABELS = {
   dashboard: 'Dashboard',
   students: 'Students',
@@ -132,47 +121,25 @@ export const FEATURE_LABELS = {
   classes: 'Classes',
   'report-cards': 'Report Cards',
   'fees-paid': 'Fees',
+  // Paid and unpaid fees share one page now; schools saved before the merge still store this key.
   'fees-unpaid': 'Fees',
   'bank-settings': 'Bank Settings',
   'school-wallet': 'School Wallet',
 };
 
-export const ROUTE_FEATURE_MAP = {
-  '/dashboard': 'dashboard',
-  '/students': 'students',
-  '/alumni': 'students',
-  '/staff': 'staff',
-  '/non-staff': 'non-staff',
-  '/attendance': 'attendance',
-  '/scanner': 'scanner',
-  '/add-student': 'add-student',
-  '/classes': 'classes',
-  '/messages': 'messages-sms',
-  '/report-cards': 'report-cards',
-  '/fees-paid': 'fees-paid',
-  '/fees-unpaid': 'fees-unpaid',
-  '/bank-settings': 'bank-settings',
-  '/school-wallet': 'school-wallet',
+/**
+ * Feature chips for a school, by label. Schools saved before paid and unpaid fees
+ * merged still store both keys, which would otherwise show "Fees" twice.
+ */
+export const planFeatureLabels = (features = []) => {
+  const seen = new Set();
+  return features.reduce((labels, feature) => {
+    const label = FEATURE_LABELS[feature] || String(feature).replace(/-/g, ' ');
+    if (!seen.has(label)) {
+      seen.add(label);
+      labels.push({ key: feature, label });
+    }
+    return labels;
+  }, []);
 };
 
-export const SYSTEM_CAPABILITY_GROUPS = [
-  {
-    title: 'People Management',
-    items: ['Student registry & QR codes', 'Staff & teacher profiles', 'Non-staff records', 'Enrollment forms'],
-  },
-  {
-    title: 'Attendance',
-    items: ['Daily check-in scanner', 'Attendance logs & filters', 'Summary charts & export'],
-  },
-  {
-    title: 'Communication',
-    items: ['Bulk SMS to parents & staff', 'Email broadcasts', 'In-app school notifications', 'Fee payment reminders'],
-  },
-  {
-    title: 'Academics & Finance',
-    items: ['Class organization', 'Report cards & teacher uploads', 'Fees tracking', 'School wallet & MoMo/bank payouts'],
-  },
-];
-
-export const hasMessagingAccess = (planFeatures = []) =>
-  planFeatures.includes('messages-sms') || planFeatures.includes('messages-email');

@@ -198,7 +198,7 @@ function App() {
                   <Route element={<PlanFeatureRoute feature="report-cards" />}>
                     <Route path="/report-cards" element={<ReportCards />} />
                   </Route>
-                  <Route element={<PlanFeatureRoute features={['fees-paid', 'fees-unpaid']} />}>
+                  <Route element={<PlanFeatureRoute feature="fees-paid" />}>
                     <Route path="/fees-paid" element={<FeesPaid />} />
                     <Route path="/fees-unpaid" element={<FeesUnpaid />} />
                   </Route>

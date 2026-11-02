@@ -152,7 +152,7 @@ const Dashboard = () => {
       value: formatGlanceMoney(stats.unpaidRevenue),
       icon: Receipt,
       accent: 'text-amber-300 bg-amber-500/15 border-amber-500/25',
-      feature: 'fees-unpaid',
+      feature: 'fees-paid',
     },
   ].filter((stat) => includesPlanFeature(stat.feature));
 

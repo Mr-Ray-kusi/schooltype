@@ -19,7 +19,7 @@ import {
   Users,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { FEATURE_LABELS } from '../constants/plans';
+import { planFeatureLabels } from '../constants/plans';
 
 const formatMoney = (amount) =>
   new Intl.NumberFormat('en-GH', { style: 'currency', currency: 'GHS', maximumFractionDigits: 0 }).format(amount || 0);
@@ -383,16 +383,16 @@ const SuperAdminSchool = () => {
             </h2>
             {features?.length ? (
               <div className="mt-5 flex flex-wrap gap-2">
-                {features.map((feature) => (
+                {planFeatureLabels(features).map(({ key, label }) => (
                   <span
-                    key={feature}
+                    key={key}
                     className={`rounded-full px-3 py-1 text-xs ${
                       featuresUnlocked
                         ? 'bg-violet-500/15 text-violet-200'
                         : 'border border-white/10 bg-white/5 text-zinc-400'
                     }`}
                   >
-                    {FEATURE_LABELS[feature] || feature.replace(/-/g, ' ')}
+                    {label}
                   </span>
                 ))}
               </div>

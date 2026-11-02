@@ -133,7 +133,7 @@ const Layout = ({ children }) => {
       title: 'Finance',
       items: [
         { name: 'School Wallet', href: '/school-wallet', icon: Wallet, featureKey: 'school-wallet' },
-        { name: 'Fees', href: '/fees-paid', icon: DollarSign, featureKeys: ['fees-paid', 'fees-unpaid'] },
+        { name: 'Fees', href: '/fees-paid', icon: DollarSign, featureKeys: ['fees-paid'] },
       ],
     },
   ];
