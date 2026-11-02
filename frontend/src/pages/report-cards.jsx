@@ -6,7 +6,6 @@ import { useAuth } from '../contexts/authcontext';
 import { useLivePoll } from '../hooks/useLivePoll';
 import { forceGet, invalidateCache, peekCache, staleGet, REPORT_CACHE_MS } from '../utils/requestCache';
 import PaginationBar from '../components/PaginationBar';
-import { LIST_PAGE_SIZE, fetchAllPages } from '../utils/listApi.js';
 import {
   downloadStudentReportCardsPdf,
   downloadSubjectRankingsPdf,
@@ -14,6 +13,8 @@ import {
   ordinal,
   rankStudentsForReports,
 } from '../utils/reportCardPdf';
+
+const REPORT_LIST_PAGE_SIZE = 6;
 
 const formatWhen = (iso) => {
   if (!iso) return '-';
@@ -56,13 +57,16 @@ const ReportCards = () => {
     }
     try {
       const fetcher = async () => {
-        const scores = await fetchAllPages(axios, '/api/report-cards/scores', {
-          class: selectedClass !== 'all' ? selectedClass : undefined,
-          subject: selectedSubject !== 'all' ? selectedSubject : undefined,
-          term: selectedTerm !== 'all' ? selectedTerm : undefined,
-          refresh: force ? '1' : undefined,
+        const res = await axios.get('/api/report-cards/scores', {
+          params: {
+            all: 1,
+            class: selectedClass !== 'all' ? selectedClass : undefined,
+            subject: selectedSubject !== 'all' ? selectedSubject : undefined,
+            term: selectedTerm !== 'all' ? selectedTerm : undefined,
+            refresh: force ? '1' : undefined,
+          },
         });
-        return { scores };
+        return res.data;
       };
       const data = silent
         ? await staleGet(cacheKey, fetcher, 0)
@@ -205,14 +209,21 @@ const ReportCards = () => {
   }, [scores, selectedClass, selectedSubject, selectedTerm]);
 
   const pagedScoreEntries = useMemo(() => {
-    const start = (entryPage - 1) * LIST_PAGE_SIZE;
-    return studentScoreEntries.slice(start, start + LIST_PAGE_SIZE);
+    const start = (entryPage - 1) * REPORT_LIST_PAGE_SIZE;
+    return studentScoreEntries.slice(start, start + REPORT_LIST_PAGE_SIZE);
   }, [studentScoreEntries, entryPage]);
 
   const pagedPrintStudents = useMemo(() => {
-    const start = (printPage - 1) * LIST_PAGE_SIZE;
-    return studentsForPrint.slice(start, start + LIST_PAGE_SIZE);
+    const start = (printPage - 1) * REPORT_LIST_PAGE_SIZE;
+    return studentsForPrint.slice(start, start + REPORT_LIST_PAGE_SIZE);
   }, [studentsForPrint, printPage]);
+
+  useEffect(() => {
+    const maxEntry = Math.max(1, Math.ceil(studentScoreEntries.length / REPORT_LIST_PAGE_SIZE) || 1);
+    const maxPrint = Math.max(1, Math.ceil(studentsForPrint.length / REPORT_LIST_PAGE_SIZE) || 1);
+    if (entryPage > maxEntry) setEntryPage(maxEntry);
+    if (printPage > maxPrint) setPrintPage(maxPrint);
+  }, [studentScoreEntries.length, studentsForPrint.length, entryPage, printPage]);
 
   const uniqueStudents = useMemo(
     () => new Set(filtered.map((row) => studentKey(row))).size,
@@ -267,12 +278,17 @@ const ReportCards = () => {
     }
   };
 
-  const loadFilteredScores = async () =>
-    fetchAllPages(axios, '/api/report-cards/scores', {
-      class: selectedClass !== 'all' ? selectedClass : undefined,
-      subject: selectedSubject !== 'all' ? selectedSubject : undefined,
-      term: selectedTerm !== 'all' ? selectedTerm : undefined,
+  const loadFilteredScores = async () => {
+    const { data } = await axios.get('/api/report-cards/scores', {
+      params: {
+        all: 1,
+        class: selectedClass !== 'all' ? selectedClass : undefined,
+        subject: selectedSubject !== 'all' ? selectedSubject : undefined,
+        term: selectedTerm !== 'all' ? selectedTerm : undefined,
+      },
     });
+    return data.scores || data.items || [];
+  };
 
   const handleRankingsPdf = async () => {
     const allScores = await loadFilteredScores();
@@ -450,6 +466,14 @@ const ReportCards = () => {
             </button>
           </div>
         </div>
+        <div className="mb-4">
+          <PaginationBar
+            page={entryPage}
+            total={studentScoreEntries.length}
+            limit={REPORT_LIST_PAGE_SIZE}
+            onPageChange={setEntryPage}
+          />
+        </div>
 
         <div className="overflow-x-auto rounded-3xl border border-slate-700 bg-slate-900">
           <table className="min-w-full text-left text-sm text-slate-200">
@@ -561,14 +585,6 @@ const ReportCards = () => {
             </tbody>
           </table>
         </div>
-        <div className="mt-4">
-          <PaginationBar
-            page={entryPage}
-            total={studentScoreEntries.length}
-            limit={LIST_PAGE_SIZE}
-            onPageChange={setEntryPage}
-          />
-        </div>
       </section>
 
       <section className="rounded-3xl border border-slate-700 bg-slate-800 p-6 shadow-xl">
@@ -593,6 +609,14 @@ const ReportCards = () => {
               Print selected ({selectedStudentKeys.length})
             </button>
           </div>
+        </div>
+        <div className="mb-4">
+          <PaginationBar
+            page={printPage}
+            total={studentsForPrint.length}
+            limit={REPORT_LIST_PAGE_SIZE}
+            onPageChange={setPrintPage}
+          />
         </div>
 
         <div className="overflow-x-auto rounded-3xl border border-slate-700 bg-slate-900">
@@ -666,14 +690,6 @@ const ReportCards = () => {
               )}
             </tbody>
           </table>
-        </div>
-        <div className="mt-4">
-          <PaginationBar
-            page={printPage}
-            total={studentsForPrint.length}
-            limit={LIST_PAGE_SIZE}
-            onPageChange={setPrintPage}
-          />
         </div>
       </section>
     </div>
