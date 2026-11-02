@@ -16,14 +16,16 @@ export function parseListResponse(data) {
 export async function fetchAllPages(axios, url, extraParams = {}) {
   const items = [];
   let page = 1;
-  let total = Infinity;
-  while (items.length < total && page <= 200) {
-    const params = { page, limit: 50, ...extraParams };
+  const pageLimit = 50;
+  while (page <= 200) {
+    const params = { ...extraParams, page, limit: pageLimit };
     const { data } = await axios.get(url, { params });
     const parsed = parseListResponse(data);
-    total = parsed.total;
     if (!parsed.items.length) break;
     items.push(...parsed.items);
+    const knownTotal = Number(parsed.total) || 0;
+    if (knownTotal > 0 && items.length >= knownTotal) break;
+    if (parsed.items.length < pageLimit) break;
     page += 1;
   }
   return items;
