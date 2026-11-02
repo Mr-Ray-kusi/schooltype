@@ -199,6 +199,25 @@
   color: #fffaf2;
 }
 
+.mk .portal-signin h1,
+.portal-signin label,
+.portal-signin a {
+  color: #fffaf2;
+  font-family: 'DM Sans', system-ui, sans-serif;
+}
+
+.portal-signin h1 {
+  letter-spacing: 0;
+}
+
+.portal-signin-note {
+  color: #e8e0d2;
+}
+
+.portal-signin a:hover {
+  color: #fff;
+}
+
 .mk h1,
 .mk h2,
 .mk h3,

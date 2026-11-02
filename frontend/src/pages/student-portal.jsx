@@ -292,10 +292,10 @@ const StudentPortal = () => {
     );
   } else if (schoolId) {
     body = (
-      <form onSubmit={signIn} className="mx-auto max-w-md rounded-3xl border border-[var(--mk-line)] bg-white p-6">
+      <form onSubmit={signIn} className="portal-signin mx-auto max-w-md rounded-3xl border border-[var(--mk-line)] bg-white p-6">
         <SchoolCover school={chosenSchool} />
-        <h1 className="mt-4 font-serif text-3xl font-bold">Student portal</h1>
-        <p className="mt-2 text-sm text-[#3d4a45]">Enter your student ID and password.</p>
+        <h1 className="mt-4 text-3xl font-semibold">Student portal</h1>
+        <p className="portal-signin-note mt-2 text-sm">Enter your student ID and password.</p>
         <label className="mt-5 block text-sm font-semibold" htmlFor="portal-id">
           Student ID
         </label>
@@ -327,7 +327,7 @@ const StudentPortal = () => {
           {signingIn ? 'Checking…' : 'Open portal'}
         </button>
         <p className="mt-4 text-sm">
-          <Link to="/portal" className="font-semibold text-[#123028]">
+          <Link to="/portal" className="font-semibold">
             Choose a different school
           </Link>
         </p>
