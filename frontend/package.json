@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "keywords": [],
   "author": "",
@@ -38,5 +39,8 @@
   },
   "allowScripts": {
     "core-js": false
+  },
+  "devDependencies": {
+    "vitest": "^5.0.5"
   }
 }

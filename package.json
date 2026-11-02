@@ -13,7 +13,9 @@
     "build": "npm run build --prefix frontend",
     "install:all": "npm install && npm install --prefix backend && npm install --prefix frontend",
     "docs:flow": "node scripts/system-flow-pdf.mjs",
-    "test": "npm test --prefix backend"
+    "test": "npm test --prefix backend && npm test --prefix frontend",
+    "test:backend": "npm test --prefix backend",
+    "test:frontend": "npm test --prefix frontend"
   },
   "keywords": [],
   "author": "",

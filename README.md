@@ -136,12 +136,14 @@ only after Paystack confirms payment.
 npm test
 ```
 
-Runs the backend suite with the Node test runner. It covers the parts where a mistake is
-expensive: tenant isolation, money handling, account lockout, plan features, student ID
-generation, SMS delivery, and the public endpoints that must not leak parent contact
-details.
+Runs both suites. Use `npm run test:backend` or `npm run test:frontend` for one side.
 
-The frontend has no test suite yet.
+The backend uses the Node test runner and covers the parts where a mistake is expensive:
+tenant isolation, money handling, account lockout, plan features, student ID generation,
+SMS delivery, and the public endpoints that must not leak parent contact details.
+
+The frontend uses Vitest and covers the pure utilities — extra fee amounts, list
+pagination, and report card ranking. Components are not covered yet.
 
 ## Deployment
 
