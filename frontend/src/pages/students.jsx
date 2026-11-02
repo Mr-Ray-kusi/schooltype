@@ -34,7 +34,6 @@ const Students = () => {
   const [pendingDelete, setPendingDelete] = useState(null);
   const [downloadingAll, setDownloadingAll] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [portalEnabled, setPortalEnabled] = useState(false);
   const [portalPassword, setPortalPassword] = useState('');
 
   useEffect(() => {
@@ -49,13 +48,6 @@ const Students = () => {
   useEffect(() => {
     fetchStudents();
   }, [page, debouncedSearch, selectedClass]);
-
-  useEffect(() => {
-    axios
-      .get('/api/student-portal/settings')
-      .then(({ data }) => setPortalEnabled(Boolean(data.enabled)))
-      .catch(() => {});
-  }, []);
 
   useEffect(() => {
     if (!editingStudent?.id) {
@@ -75,19 +67,6 @@ const Students = () => {
       cancelled = true;
     };
   }, [editingStudent?.id]);
-
-  const togglePortal = async () => {
-    const next = !portalEnabled;
-    setPortalEnabled(next);
-    try {
-      const { data } = await axios.put('/api/student-portal/settings', { enabled: next });
-      setPortalEnabled(Boolean(data.enabled));
-      toast.success(data.enabled ? 'Student portal is open' : 'Student portal is hidden');
-    } catch (error) {
-      setPortalEnabled(!next);
-      toast.error(error.response?.data?.error || 'Could not update the student portal');
-    }
-  };
 
   const replacePortalPassword = async () => {
     if (!editingStudent?.id) return;
@@ -279,9 +258,6 @@ const Students = () => {
           <div>
             <h1 className="text-2xl font-bold text-white sm:text-3xl">Students</h1>
             <p className="mt-1 text-slate-300">{total} student{total !== 1 ? 's' : ''} enrolled</p>
-            <button type="button" onClick={togglePortal} className="mt-2 text-left text-sm text-sky-300 hover:text-sky-200">
-              Student portal is {portalEnabled ? 'open on the website' : 'hidden from the website'}
-            </button>
           </div>
           <div className="flex flex-wrap gap-2">
             <div className="relative">

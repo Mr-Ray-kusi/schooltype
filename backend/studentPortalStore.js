@@ -112,64 +112,6 @@ function missingTable(error) {
   return error?.code === '42P01' || msg.includes('does not exist') || msg.includes('could not find the table');
 }
 
-export async function isStudentPortalEnabled(schoolId) {
-  if (!schoolId) return false;
-  const db = cloudDb();
-  if (db) {
-    const { data, error } = await db
-      .from('school_student_portals')
-      .select('enabled')
-      .eq('school_id', schoolId)
-      .maybeSingle();
-    if (!error && data) return Boolean(data.enabled);
-    if (error && !missingTable(error)) console.warn('Student portal flag:', error.message);
-  }
-  const local = await localDb();
-  if (!local) return false;
-  const row = await local.get('SELECT enabled FROM school_student_portals WHERE school_id = ?', [String(schoolId)]);
-  return Boolean(row?.enabled);
-}
-
-export async function setStudentPortalEnabled(schoolId, enabled) {
-  const next = Boolean(enabled);
-  const db = cloudDb();
-  if (db) {
-    const { error } = await db.from('school_student_portals').upsert(
-      { school_id: schoolId, enabled: next, updated_at: new Date().toISOString() },
-      { onConflict: 'school_id' }
-    );
-    if (error && !missingTable(error)) console.warn('Student portal flag save:', error.message);
-  }
-  const local = await localDb();
-  if (local) {
-    await local.run(
-      `INSERT INTO school_student_portals (school_id, enabled) VALUES (?, ?)
-       ON CONFLICT(school_id) DO UPDATE SET enabled = excluded.enabled`,
-      [String(schoolId), next ? 1 : 0]
-    );
-  }
-  return next;
-}
-
-export async function listEnabledPortalSchoolIds() {
-  const ids = new Set();
-  const db = cloudDb();
-  if (db) {
-    const { data, error } = await db.from('school_student_portals').select('school_id, enabled').eq('enabled', true);
-    if (!error) {
-      for (const row of data || []) ids.add(String(row.school_id));
-    } else if (!missingTable(error)) {
-      console.warn('Student portal schools:', error.message);
-    }
-  }
-  const local = await localDb();
-  if (local) {
-    const rows = await local.all('SELECT school_id FROM school_student_portals WHERE enabled = 1');
-    for (const row of rows || []) ids.add(String(row.school_id));
-  }
-  return [...ids];
-}
-
 async function usedPasswords(schoolId) {
   const passwords = [];
   const db = cloudDb();

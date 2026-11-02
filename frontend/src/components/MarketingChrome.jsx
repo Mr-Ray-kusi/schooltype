@@ -45,6 +45,7 @@ export default function MarketingChrome({
   active = 'home',
   observeHome = false,
   overlayNav = false,
+  showHeader = true,
 }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -114,7 +115,7 @@ export default function MarketingChrome({
 
   return (
     <div className="mk">
-      <header className={`mk-header ${overlayNav ? 'mk-header-overlay' : ''}`}>
+      {showHeader ? <header className={`mk-header ${overlayNav ? 'mk-header-overlay' : ''}`}>
         <div className="mk-header-bar">
           <BrandMark
             onHome={
@@ -187,7 +188,7 @@ export default function MarketingChrome({
             </div>
           </div>
         ) : null}
-      </header>
+      </header> : null}
 
       <main>{children}</main>
 
@@ -208,8 +209,8 @@ export default function MarketingChrome({
               <Link to="/fees">Fees payment</Link>
               <Link to="/#security">Security</Link>
               <Link to="/#faq">FAQ</Link>
-              <Link to="/login">Sign in</Link>
-              <Link to="/plans">Get started</Link>
+              {showHeader ? <Link to="/login">Sign in</Link> : null}
+              {showHeader ? <Link to="/plans">Get started</Link> : null}
             </nav>
           </div>
 

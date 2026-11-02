@@ -10,12 +10,9 @@ import { consumeSchoolAndPlatformUnits, refundSchoolAndPlatformUnits } from './p
 import {
   clearStudentPortalFailures,
   deleteStudentPortalPassword,
-  isStudentPortalEnabled,
   issueStudentPortalPassword,
-  listEnabledPortalSchoolIds,
   recordStudentPortalFailure,
   revealStudentPortalPassword,
-  setStudentPortalEnabled,
   studentPortalLocked,
   verifyStudentPortalPassword,
 } from './studentPortalStore.js';
@@ -47,10 +44,9 @@ function authenticateStudentPortal(req, res, next) {
   });
 }
 
-async function publicSchoolCard(schoolId) {
-  const { data, error } = await supabase.from('schools').select('*').eq('id', schoolId).maybeSingle();
-  if (error || !data || String(data.role || '') === 'super_admin') return null;
-  const merged = mergeSchoolWithExtras(data);
+function portalSchoolCard(row) {
+  if (!row || String(row.role || '') === 'super_admin') return null;
+  const merged = mergeSchoolWithExtras(row);
   if (!schoolHasPaidPlan(merged)) return null;
   if (!getSubscriptionInfo(merged).subscription_active) return null;
   return {
@@ -58,6 +54,12 @@ async function publicSchoolCard(schoolId) {
     name: merged.name,
     logo_url: merged.logo_url || null,
   };
+}
+
+async function publicSchoolCard(schoolId) {
+  const { data, error } = await supabase.from('schools').select('*').eq('id', schoolId).maybeSingle();
+  if (error || !data) return null;
+  return portalSchoolCard(data);
 }
 
 async function findStudentByPortalId(schoolId, rawId) {
@@ -102,12 +104,9 @@ function chosenTerm(terms, termId) {
 export function registerStudentPortalRoutes(app, { authenticateToken }) {
   app.get('/api/student-portal/schools', async (_req, res) => {
     try {
-      const ids = await listEnabledPortalSchoolIds();
-      const schools = [];
-      for (const id of ids) {
-        const card = await publicSchoolCard(id);
-        if (card) schools.push(card);
-      }
+      const { data, error } = await supabase.from('schools').select('*');
+      if (error) throw error;
+      const schools = (data || []).map(portalSchoolCard).filter(Boolean);
       schools.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
       res.json({ schools });
     } catch (error) {
@@ -122,9 +121,6 @@ export function registerStudentPortalRoutes(app, { authenticateToken }) {
       const password = String(req.body?.password || '').trim();
       if (!schoolId || !studentCode || !password) {
         return res.status(400).json({ error: 'School, student ID, and password are required' });
-      }
-      if (!(await isStudentPortalEnabled(schoolId))) {
-        return res.status(403).json({ error: 'This school has not opened the student portal' });
       }
       const card = await publicSchoolCard(schoolId);
       if (!card) return res.status(404).json({ error: 'School not found' });
@@ -297,27 +293,6 @@ export function registerStudentPortalRoutes(app, { authenticateToken }) {
       });
     } catch (error) {
       res.status(500).json({ error: error.message || 'Failed to load this term' });
-    }
-  });
-
-  app.get('/api/student-portal/settings', authenticateToken, async (req, res) => {
-    try {
-      if (req.user.role === 'super_admin') return res.json({ enabled: false });
-      res.json({ enabled: await isStudentPortalEnabled(req.user.schoolId) });
-    } catch (error) {
-      res.status(500).json({ error: error.message || 'Failed to load portal settings' });
-    }
-  });
-
-  app.put('/api/student-portal/settings', authenticateToken, async (req, res) => {
-    try {
-      if (req.user.role === 'super_admin') {
-        return res.status(400).json({ error: 'Open a school account to change the student portal' });
-      }
-      const enabled = await setStudentPortalEnabled(req.user.schoolId, Boolean(req.body?.enabled));
-      res.json({ enabled });
-    } catch (error) {
-      res.status(500).json({ error: error.message || 'Failed to update the student portal' });
     }
   });
 

@@ -232,7 +232,7 @@ const StudentPortal = () => {
                 <p className="text-sm">No scores were entered for this term.</p>
               )
             ) : (
-              <p className="text-sm">Results for this term have not been published yet.</p>
+              <p className="text-sm">The administrator has not published this term’s results yet.</p>
             )
           ) : null}
 
@@ -306,8 +306,8 @@ const StudentPortal = () => {
           inputMode="numeric"
           autoComplete="current-password"
           type="password"
-          className="mt-1 w-full rounded-xl border border-[var(--mk-line)] px-3 py-3 text-base tracking-[0.3em]"
-          placeholder="••••"
+          className="mt-1 w-full rounded-xl border border-[var(--mk-line)] px-3 py-3 text-base"
+          placeholder="Enter Password"
           required
         />
         {error ? <p className="mt-3 text-sm text-[#a3472a]">{error}</p> : null}
@@ -325,13 +325,11 @@ const StudentPortal = () => {
     body = (
       <div className="mx-auto max-w-5xl">
         <h1 className="font-serif text-4xl font-bold">Student portal</h1>
-        <p className="mt-2 max-w-2xl text-sm text-[#3d4a45]">
-          Choose the school you attend. You will sign in with your student ID and your own password.
-        </p>
+        <p className="mt-2 max-w-2xl text-sm text-[#3d4a45]">Choose the school you attend.</p>
         {error ? <p className="mt-4 text-sm text-[#a3472a]">{error}</p> : null}
         {loading ? <p className="mt-8 text-sm">Loading schools…</p> : null}
-        {!loading && !schools.length ? (
-          <p className="mt-8 text-sm">No school has opened the student portal yet.</p>
+        {!loading && !error && !schools.length ? (
+          <p className="mt-8 text-sm">No schools are available yet.</p>
         ) : null}
         <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {schools.map((school) => (
@@ -351,7 +349,7 @@ const StudentPortal = () => {
   }
 
   return (
-    <MarketingChrome active="portal">
+    <MarketingChrome active="portal" showHeader={false}>
       <div className="mk-page">{body}</div>
     </MarketingChrome>
   );
