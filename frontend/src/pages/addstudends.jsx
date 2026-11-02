@@ -26,6 +26,7 @@ const AddStudent = ({ onClose } = {}) => {
     else navigate('/students');
   };
   const [loading, setLoading] = useState(false);
+  const [issued, setIssued] = useState(null);
   const [schoolClasses, setSchoolClasses] = useState([]);
   const [formData, setFormData] = useState({
     name: '',
@@ -63,12 +64,13 @@ const AddStudent = ({ onClose } = {}) => {
       });
       invalidateCache('students');
       invalidateCache('dashboard');
-      if (data?.warning) {
-        toast.error(data.warning);
+      if (data?.warning) toast.error(data.warning);
+      if (data?.roll_number && data?.portal_password) {
+        setIssued({ name: data.name, id: data.roll_number, password: data.portal_password });
       } else {
         toast.success(data?.roll_number ? `Student added. ID ${data.roll_number}` : 'Student added successfully!');
+        finish();
       }
-      finish();
     } catch (error) {
       if (error.offlineQueued) {
         finish();
@@ -94,6 +96,31 @@ const AddStudent = ({ onClose } = {}) => {
       .then(({ data }) => setSchoolClasses(Array.isArray(data) ? data : []))
       .catch(() => setSchoolClasses([]));
   }, []);
+
+  if (issued) {
+    return (
+      <div className="mx-auto max-w-lg rounded-3xl border border-slate-700 bg-slate-900 p-6 text-white">
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300">Student portal</p>
+        <h1 className="mt-2 text-2xl font-bold">{issued.name} is enrolled</h1>
+        <p className="mt-2 text-sm text-slate-300">
+          Give this ID and password to the student or parent. The password is unique to this student.
+        </p>
+        <dl className="mt-5 space-y-3 text-sm">
+          <div className="rounded-xl bg-slate-950 px-4 py-3">
+            <dt className="text-slate-400">Student ID</dt>
+            <dd className="mt-1 font-mono text-lg">{issued.id}</dd>
+          </div>
+          <div className="rounded-xl bg-slate-950 px-4 py-3">
+            <dt className="text-slate-400">Password</dt>
+            <dd className="mt-1 font-mono text-lg tracking-[0.3em]">{issued.password}</dd>
+          </div>
+        </dl>
+        <button type="button" onClick={finish} className="mt-6 w-full rounded-xl bg-sky-500 py-3 font-semibold text-white">
+          Done
+        </button>
+      </div>
+    );
+  }
 
   return (
     <>

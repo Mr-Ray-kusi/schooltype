@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { platformSupabase } from './supabaseClient.js';
+import { isSharedRuntimeEnabled } from './sharedRuntime.js';
 
 export const SCHOOL_ADMIN_DEVICE_LIMIT = 2;
 export const SCANNER_DEVICE_LIMIT = 2;
@@ -98,18 +99,71 @@ export async function trimSchoolAdminSessions(schoolId, keepToken, limit = SCHOO
   }
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const SCANNER_BLOCKED =
+  'Attendance scanner is already open on two devices. Close one of those scanners to use this phone.';
+
+function isUuid(value) {
+  return UUID_RE.test(String(value || ''));
+}
+
+function useSharedRow(id) {
+  return Boolean(platformSupabase) && isSharedRuntimeEnabled() && isUuid(id);
+}
+
+function missingTable(error) {
+  return error?.code === '42P01' || error?.code === 'PGRST205';
+}
+
 export function setStaffSession(staffId, token) {
   const id = String(staffId || '').trim();
-  if (!id || !token) return;
-  staffCurrent.set(id, hashToken(token));
+  if (!id || !token) return undefined;
+  const tokenHash = hashToken(token);
+  staffCurrent.set(id, tokenHash);
+  if (!useSharedRow(id)) return undefined;
+  return platformSupabase
+    .from('staff_device_sessions')
+    .upsert({ staff_id: id, token_hash: tokenHash, updated_at: new Date().toISOString() }, { onConflict: 'staff_id' })
+    .then(({ error }) => {
+      if (error && !missingTable(error)) {
+        console.warn('Failed to share staff device session:', error.message);
+      }
+    })
+    .catch((error) => {
+      console.warn('Failed to share staff device session:', error.message);
+    });
 }
 
 export function isStaffSessionActive(staffId, token) {
   const id = String(staffId || '').trim();
   if (!id || !token) return false;
-  const current = staffCurrent.get(id);
-  if (!current) return true;
-  return current === hashToken(token);
+  const tokenHash = hashToken(token);
+  if (!useSharedRow(id)) {
+    const current = staffCurrent.get(id);
+    if (!current) return true;
+    return current === tokenHash;
+  }
+  return platformSupabase
+    .from('staff_device_sessions')
+    .select('token_hash')
+    .eq('staff_id', id)
+    .maybeSingle()
+    .then(({ data, error }) => {
+      if (error) {
+        if (!missingTable(error)) console.warn('Staff device session lookup failed:', error.message);
+        const current = staffCurrent.get(id);
+        if (!current) return true;
+        return current === tokenHash;
+      }
+      if (!data?.token_hash) return true;
+      staffCurrent.set(id, data.token_hash);
+      return data.token_hash === tokenHash;
+    })
+    .catch(() => {
+      const current = staffCurrent.get(id);
+      if (!current) return true;
+      return current === tokenHash;
+    });
 }
 
 function scannerKey(schoolId) {
@@ -124,7 +178,7 @@ function pruneScannerSlots(schoolId, now = Date.now()) {
   return live;
 }
 
-export function claimScannerSlot(schoolId, deviceId, limit = SCANNER_DEVICE_LIMIT) {
+function claimScannerSlotMemory(schoolId, deviceId, limit = SCANNER_DEVICE_LIMIT) {
   const id = String(deviceId || '').trim();
   if (!schoolId || !id) return { allowed: false, error: 'Scanner device is required' };
   const now = Date.now();
@@ -135,14 +189,77 @@ export function claimScannerSlot(schoolId, deviceId, limit = SCANNER_DEVICE_LIMI
     return { allowed: true, deviceId: id };
   }
   if (live.length >= limit) {
-    return {
-      allowed: false,
-      error: 'Attendance scanner is already open on two devices. Close one of those scanners to use this phone.',
-    };
+    return { allowed: false, error: SCANNER_BLOCKED };
   }
   live.push({ deviceId: id, lastSeen: now });
   scannerSlots.set(scannerKey(schoolId), live);
   return { allowed: true, deviceId: id };
+}
+
+async function claimScannerSlotShared(schoolId, deviceId, limit) {
+  const now = new Date().toISOString();
+  const idleBefore = new Date(Date.now() - SCANNER_IDLE_MS).toISOString();
+  const pruned = await platformSupabase
+    .from('scanner_slots')
+    .delete()
+    .eq('school_id', schoolId)
+    .lt('last_seen_at', idleBefore);
+  if (pruned.error) {
+    if (!missingTable(pruned.error)) console.warn('Scanner slot cleanup failed:', pruned.error.message);
+    return claimScannerSlotMemory(schoolId, deviceId, limit);
+  }
+
+  const existing = await platformSupabase
+    .from('scanner_slots')
+    .select('device_id')
+    .eq('school_id', schoolId)
+    .eq('device_id', deviceId)
+    .maybeSingle();
+  if (existing.error) return claimScannerSlotMemory(schoolId, deviceId, limit);
+  if (existing.data) {
+    await platformSupabase
+      .from('scanner_slots')
+      .update({ last_seen_at: now })
+      .eq('school_id', schoolId)
+      .eq('device_id', deviceId);
+    return { allowed: true, deviceId };
+  }
+
+  const live = await platformSupabase.from('scanner_slots').select('device_id').eq('school_id', schoolId);
+  if (live.error) return claimScannerSlotMemory(schoolId, deviceId, limit);
+  if ((live.data || []).length >= limit) {
+    return { allowed: false, error: SCANNER_BLOCKED };
+  }
+
+  const inserted = await platformSupabase
+    .from('scanner_slots')
+    .insert([{ school_id: schoolId, device_id: deviceId, last_seen_at: now }]);
+  if (inserted.error && inserted.error.code !== '23505') {
+    console.warn('Scanner slot insert failed:', inserted.error.message);
+    return { allowed: false, error: 'Could not open the scanner. Try again.' };
+  }
+
+  const after = await platformSupabase
+    .from('scanner_slots')
+    .select('device_id, last_seen_at')
+    .eq('school_id', schoolId)
+    .order('last_seen_at', { ascending: true });
+  const rows = after.data || [];
+  if (rows.length > limit) {
+    const keep = new Set(rows.slice(0, limit).map((row) => row.device_id));
+    if (!keep.has(deviceId)) {
+      await platformSupabase.from('scanner_slots').delete().eq('school_id', schoolId).eq('device_id', deviceId);
+      return { allowed: false, error: SCANNER_BLOCKED };
+    }
+  }
+  return { allowed: true, deviceId };
+}
+
+export function claimScannerSlot(schoolId, deviceId, limit = SCANNER_DEVICE_LIMIT) {
+  const id = String(deviceId || '').trim();
+  if (!schoolId || !id) return { allowed: false, error: 'Scanner device is required' };
+  if (!useSharedRow(schoolId)) return claimScannerSlotMemory(schoolId, id, limit);
+  return claimScannerSlotShared(schoolId, id, limit);
 }
 
 export function touchScannerSlot(schoolId, deviceId) {
@@ -154,6 +271,18 @@ export function releaseScannerSlot(schoolId, deviceId) {
   const id = String(deviceId || '').trim();
   const live = (scannerSlots.get(key) || []).filter((slot) => slot.deviceId !== id);
   scannerSlots.set(key, live);
+  if (!useSharedRow(schoolId) || !id) return undefined;
+  return platformSupabase
+    .from('scanner_slots')
+    .delete()
+    .eq('school_id', schoolId)
+    .eq('device_id', id)
+    .then(({ error }) => {
+      if (error && !missingTable(error)) console.warn('Scanner slot release failed:', error.message);
+    })
+    .catch((error) => {
+      console.warn('Scanner slot release failed:', error.message);
+    });
 }
 
 export async function getAuthSession(token) {

@@ -20,6 +20,7 @@ const StudentPublicId = lazyWithRetry(() => import('./pages/student-public-id'))
 const FeesPay = lazyWithRetry(() => import('./pages/fees-pay'));
 const FeesReceipt = lazyWithRetry(() => import('./pages/fees-receipt'));
 const StaffPortal = lazyWithRetry(() => import('./pages/staff-portal'));
+const StudentPortal = lazyWithRetry(() => import('./pages/student-portal'));
 
 const Dashboard = lazyWithRetry(() => import('./pages/Dashboard'));
 const Students = lazyWithRetry(() => import('./pages/students'));
@@ -164,6 +165,8 @@ function App() {
               <Route path="/signup/complete" element={<SignupComplete />} />
               <Route path="/verify-email" element={<VerifyEmail />} />
               <Route path="/id/:barcode" element={<StudentPublicId />} />
+              <Route path="/portal" element={<StudentPortal />} />
+              <Route path="/portal/:schoolId" element={<StudentPortal />} />
               <Route path="/fees" element={<FeesPay />} />
               <Route path="/pay/receipt" element={<FeesReceipt />} />
               <Route path="/pay/:barcode" element={<FeesPay />} />

@@ -3,6 +3,7 @@ import { supabase } from './supabaseClient.js';
 import { extraFeesJson } from './feePayments.js';
 import { mergeStudentFields, writeStudentProfileFields } from './studentFieldStore.js';
 import { syncStudentIds } from './studentId.js';
+import { issueStudentPortalPassword } from './studentPortalStore.js';
 
 const isMissingColumnError = (error, column) => {
   const msg = String(error?.message || error?.details || error?.hint || '').toLowerCase();
@@ -157,7 +158,9 @@ export async function createStudent(schoolId, body) {
     gender,
     extra_fees: record.extra_fees,
   });
-  return mergeStudentFields(data, schoolId);
+  const issued = await issueStudentPortalPassword(schoolId, data.id);
+  const created = await mergeStudentFields(data, schoolId);
+  return { ...created, portal_password: issued?.password || null };
 }
 
 export async function createStaff(schoolId, body) {

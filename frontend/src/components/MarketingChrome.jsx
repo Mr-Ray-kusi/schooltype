@@ -9,6 +9,7 @@ export const MARKETING_NAV = [
   { id: 'home', label: 'Home', href: '/#home' },
   { id: 'about', label: 'About', href: '/#about' },
   { id: 'features', label: 'Features', href: '/#features' },
+  { id: 'portal', label: 'Portal', href: '/portal' },
   { id: 'fees', label: 'Fees', href: '/fees' },
   { id: 'security', label: 'Security', href: '/#security' },
   { id: 'faq', label: 'FAQ', href: '/#faq' },
@@ -203,6 +204,7 @@ export default function MarketingChrome({
             <nav className="mk-footer-links" aria-label="Footer">
               <Link to="/#about">About</Link>
               <Link to="/#features">Features</Link>
+              <Link to="/portal">Portal</Link>
               <Link to="/fees">Fees payment</Link>
               <Link to="/#security">Security</Link>
               <Link to="/#faq">FAQ</Link>

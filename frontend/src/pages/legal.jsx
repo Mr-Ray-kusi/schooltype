@@ -68,6 +68,7 @@ const SITE_LINKS = [
   { to: '/', label: 'Home' },
   { to: '/#about', label: 'About' },
   { to: '/#features', label: 'Features' },
+  { to: '/portal', label: 'Student portal' },
   { to: '/fees', label: 'Fees payment' },
   { to: '/#security', label: 'Security' },
   { to: '/plans', label: 'Get started' },

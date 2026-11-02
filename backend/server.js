@@ -29,7 +29,7 @@ import {
 } from './publicIdGate.js';
 import { formatParsedStudentId, parseStudentId, syncStudentIds } from './studentId.js';
 import { buildHealthPayload, publicHealthView } from './runtimeHealth.js';
-import { pingDbPooler, ensureStudentProfileColumns } from './dbPooler.js';
+import { pingDbPooler, ensureStudentProfileColumns, ensureSharedRuntimeTables } from './dbPooler.js';
 import { mergeStudentFieldList, mergeStudentFields, writeStudentProfileFields } from './studentFieldStore.js';
 import { purgePersonRelated } from './personPurge.js';
 import nodemailer from 'nodemailer';
@@ -94,6 +94,8 @@ import {
 } from './schoolSignupPayment.js';
 import { getFeeOverviewPayload, registerFeeRoutes, registerStaffFeeRoutes } from './feeRoutes.js';
 import { registerStaffAdminRoutes } from './staffAdminRoutes.js';
+import { registerStudentPortalRoutes } from './studentPortalRoutes.js';
+import { deleteStudentPortalPassword, issueStudentPortalPassword } from './studentPortalStore.js';
 import { inspectScoreLock, loadScoreLocks } from './scorePublishStore.js';
 import { isProtectedStaffRole, staffPortalApiAllowed, staffPortalAsSchoolUser } from './staffSchoolAuth.js';
 import { parseRequiredGender, parseRequiredSalary } from './peopleCreate.js';
@@ -144,7 +146,8 @@ import { fromMinorUnits } from './paystack.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
-import { cacheGet, cacheSet, cacheInvalidate } from './ttlCache.js';
+import { cacheGet, cacheSet, cacheInvalidate, startSharedCacheSync } from './ttlCache.js';
+import { enableSharedRuntime } from './sharedRuntime.js';
 import { isProduction, isVercel } from './runtime.js';
 import { applyBaselineSecurityHeaders, corsOriginAllowed, sanitizePublicText, safeClientError } from './httpSecurity.js';
 
@@ -1145,7 +1148,7 @@ const authenticateToken = (req, res, next) => {
       return res.status(403).json({ error: 'Invalid or expired token' });
     }
     if (user?.purpose === 'staff_portal') {
-      if (!isStaffSessionActive(user.staffId, token)) {
+      if (!(await isStaffSessionActive(user.staffId, token))) {
         return res.status(401).json({
           error: 'This staff login is already used on another device. Sign in here to continue.',
         });
@@ -3613,6 +3616,7 @@ registerWalletRoutes(app, {
   onSchoolCheckoutPaid: fulfillSchoolCheckout,
 });
 registerFeeRoutes(app, { authenticateToken, enforcePlanApproval });
+registerStudentPortalRoutes(app, { authenticateToken });
 registerAlumniRoutes(app, { authenticateToken, enforcePlanApproval });
 registerSmsBillingRoutes(app, {
   authenticateToken,
@@ -3931,7 +3935,9 @@ app.post('/api/students', authenticateToken, enforcePlanApproval, async (req, re
       extra_fees: extraFeesJson(extraFees || extra_fees),
     });
     bumpSchoolCaches(req.user.schoolId);
-    res.status(201).json(mergeStudentPhoto(await mergeStudentFields(student, req.user.schoolId)));
+    const issued = await issueStudentPortalPassword(req.user.schoolId, student.id);
+    const created = mergeStudentPhoto(await mergeStudentFields(student, req.user.schoolId));
+    res.status(201).json({ ...created, portal_password: issued?.password || null });
   } catch (error) {
     res.status(error.status || 500).json({ error: error.message });
   }
@@ -4038,6 +4044,7 @@ app.delete('/api/students/:id', authenticateToken, enforcePlanApproval, async (r
 
     if (error) throw error;
     await deleteStudentPhoto(id);
+    await deleteStudentPortalPassword(id);
     bumpSchoolCaches(req.user.schoolId);
     res.json({ message: 'Student and related records deleted' });
   } catch (error) {
@@ -5097,11 +5104,11 @@ const authenticateStaffPortal = (req, res, next) => {
     return res.status(401).json({ error: 'Staff portal session required' });
   }
 
-  jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] }, (err, payload) => {
+  jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] }, async (err, payload) => {
     if (err || payload?.purpose !== 'staff_portal') {
       return res.status(401).json({ error: 'Invalid or expired staff portal session' });
     }
-    if (!isStaffSessionActive(payload.staffId, token)) {
+    if (!(await isStaffSessionActive(payload.staffId, token))) {
       return res.status(401).json({
         error: 'This staff login is already used on another device. Sign in here to continue.',
       });
@@ -5309,7 +5316,7 @@ async function issueStaffPortalSession(req, res, resolved) {
     JWT_SECRET,
     { expiresIn: '12h' }
   );
-  setStaffSession(staff.id, sessionToken);
+  await setStaffSession(staff.id, sessionToken);
 
   recordPlatformEvent({
     eventType: 'staff_login',
@@ -6027,9 +6034,9 @@ app.delete('/api/report-cards/scores', authenticateToken, enforcePlanApproval, a
 const readScannerDeviceId = (req) =>
   String(req.headers['x-device-id'] || req.body?.deviceId || req.query.deviceId || '').trim();
 
-const assertScannerDevice = (schoolId, req, res) => {
+const assertScannerDevice = async (schoolId, req, res) => {
   const deviceId = readScannerDeviceId(req);
-  const slot = claimScannerSlot(schoolId, deviceId);
+  const slot = await claimScannerSlot(schoolId, deviceId);
   if (!slot.allowed) {
     res.status(409).json({ error: slot.error });
     return null;
@@ -6045,7 +6052,7 @@ app.get('/api/scanner/school/:token', async (req, res) => {
       return res.status(404).json({ error: 'Invalid or inactive scanner link' });
     }
 
-    if (!assertScannerDevice(resolved.schoolId, req, res)) return;
+    if (!(await assertScannerDevice(resolved.schoolId, req, res))) return;
 
     const lateAfterTime = await getSchoolLateAfterTime(resolved.schoolId);
     const window = describeScannerWindow(lateAfterTime);
@@ -6066,7 +6073,7 @@ app.get('/api/scanner/school/:token', async (req, res) => {
 app.post('/api/scanner/release/:token', async (req, res) => {
   try {
     const resolved = await resolveScannerSchool(req.params.token);
-    if (resolved) releaseScannerSlot(resolved.schoolId, readScannerDeviceId(req));
+    if (resolved) await releaseScannerSlot(resolved.schoolId, readScannerDeviceId(req));
     res.json({ ok: true });
   } catch {
     res.json({ ok: true });
@@ -6085,8 +6092,8 @@ app.post('/api/scanner/mark/:token', async (req, res) => {
       return res.status(404).json({ error: 'Invalid or inactive scanner link' });
     }
 
-    if (!assertScannerDevice(resolved.schoolId, req, res)) return;
-    touchScannerSlot(resolved.schoolId, readScannerDeviceId(req));
+    if (!(await assertScannerDevice(resolved.schoolId, req, res))) return;
+    await touchScannerSlot(resolved.schoolId, readScannerDeviceId(req));
 
     const result = await markAttendanceForSchool(resolved.schoolId, attendanceCode);
     res.json(result);
@@ -7070,6 +7077,18 @@ async function initializeDatabase() {
     }
 
     await syncJwtClock();
+    const sharedTables = await ensureSharedRuntimeTables();
+    if (sharedTables.ok) {
+      enableSharedRuntime();
+      startSharedCacheSync();
+      console.log('Scanner locks and API cache clears are shared across servers');
+    } else if (!sharedTables.skipped) {
+      console.warn(
+        'Scanner locks stay on this server only:',
+        sharedTables.error?.message || 'shared tables were not created'
+      );
+    }
+
     const profileCols = await ensureStudentProfileColumns();
     if (profileCols.ok) {
       console.log('Student gender and extra charges columns are ready');

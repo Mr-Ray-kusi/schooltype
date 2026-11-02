@@ -123,6 +123,74 @@ export async function ensureStudentProfileColumns() {
   }
 }
 
+export async function ensureSharedRuntimeTables() {
+  const raw = rawDbUrl();
+  if (!raw) return { ok: false, skipped: true };
+  let pg;
+  try {
+    pg = await import('pg');
+  } catch {
+    return { ok: false, skipped: true };
+  }
+  const Client = pg.default?.Client || pg.Client;
+  const { url } = normalizePoolerUrl(raw);
+  const options = await connectOptions(url);
+  const client = new Client(options);
+  const statements = [
+    `CREATE TABLE IF NOT EXISTS scanner_slots (
+      school_id UUID NOT NULL,
+      device_id TEXT NOT NULL,
+      last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (school_id, device_id)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_scanner_slots_school_seen ON scanner_slots (school_id, last_seen_at)`,
+    `CREATE TABLE IF NOT EXISTS staff_device_sessions (
+      staff_id UUID PRIMARY KEY,
+      token_hash TEXT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE TABLE IF NOT EXISTS runtime_flags (
+      name TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `INSERT INTO runtime_flags (name, value) VALUES ('cache_generation', '1') ON CONFLICT (name) DO NOTHING`,
+    `CREATE TABLE IF NOT EXISTS school_student_portals (
+      school_id UUID PRIMARY KEY,
+      enabled BOOLEAN NOT NULL DEFAULT FALSE,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE TABLE IF NOT EXISTS student_portal_secrets (
+      student_id UUID PRIMARY KEY,
+      school_id UUID NOT NULL,
+      password_hash TEXT NOT NULL,
+      password_enc TEXT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_student_portal_secrets_school ON student_portal_secrets (school_id)`,
+  ];
+  try {
+    await client.connect();
+    for (const statement of statements) {
+      await client.query(statement);
+    }
+    try {
+      await client.query("NOTIFY pgrst, 'reload schema'");
+    } catch {
+      // schema reload is best-effort
+    }
+    await client.end();
+    return { ok: true };
+  } catch (error) {
+    try {
+      await client.end();
+    } catch {
+      // already closed
+    }
+    return { ok: false, error: safeError(error) };
+  }
+}
+
 export async function pingDbPooler() {
   const info = describeDbPooler();
   const raw = rawDbUrl();

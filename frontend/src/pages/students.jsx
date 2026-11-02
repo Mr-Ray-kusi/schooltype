@@ -34,6 +34,8 @@ const Students = () => {
   const [pendingDelete, setPendingDelete] = useState(null);
   const [downloadingAll, setDownloadingAll] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [portalEnabled, setPortalEnabled] = useState(false);
+  const [portalPassword, setPortalPassword] = useState('');
 
   useEffect(() => {
     const id = setTimeout(() => setDebouncedSearch(searchTerm), 300);
@@ -47,6 +49,66 @@ const Students = () => {
   useEffect(() => {
     fetchStudents();
   }, [page, debouncedSearch, selectedClass]);
+
+  useEffect(() => {
+    axios
+      .get('/api/student-portal/settings')
+      .then(({ data }) => setPortalEnabled(Boolean(data.enabled)))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!editingStudent?.id) {
+      setPortalPassword('');
+      return undefined;
+    }
+    let cancelled = false;
+    axios
+      .get(`/api/students/${editingStudent.id}/portal-password`)
+      .then(({ data }) => {
+        if (!cancelled) setPortalPassword(data.password || '');
+      })
+      .catch(() => {
+        if (!cancelled) setPortalPassword('');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [editingStudent?.id]);
+
+  const togglePortal = async () => {
+    const next = !portalEnabled;
+    setPortalEnabled(next);
+    try {
+      const { data } = await axios.put('/api/student-portal/settings', { enabled: next });
+      setPortalEnabled(Boolean(data.enabled));
+      toast.success(data.enabled ? 'Student portal is open' : 'Student portal is hidden');
+    } catch (error) {
+      setPortalEnabled(!next);
+      toast.error(error.response?.data?.error || 'Could not update the student portal');
+    }
+  };
+
+  const replacePortalPassword = async () => {
+    if (!editingStudent?.id) return;
+    try {
+      const { data } = await axios.post(`/api/students/${editingStudent.id}/portal-password`);
+      setPortalPassword(data.password || '');
+      toast.success('New portal password issued');
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Could not issue a password');
+    }
+  };
+
+  const sendPortalPassword = async () => {
+    if (!editingStudent?.id) return;
+    try {
+      await axios.post(`/api/students/${editingStudent.id}/portal-password/sms`);
+      toast.success('Password sent to the parent phone');
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Could not send the password');
+    }
+  };
 
   const fetchStudents = async ({ force = false } = {}) => {
     const cacheKey = `students:${page}:${debouncedSearch}:${selectedClass}`;
@@ -217,6 +279,9 @@ const Students = () => {
           <div>
             <h1 className="text-2xl font-bold text-white sm:text-3xl">Students</h1>
             <p className="mt-1 text-slate-300">{total} student{total !== 1 ? 's' : ''} enrolled</p>
+            <button type="button" onClick={togglePortal} className="mt-2 text-left text-sm text-sky-300 hover:text-sky-200">
+              Student portal is {portalEnabled ? 'open on the website' : 'hidden from the website'}
+            </button>
           </div>
           <div className="flex flex-wrap gap-2">
             <div className="relative">
@@ -471,6 +536,18 @@ const Students = () => {
                   className="w-full px-4 py-2 border border-slate-500 rounded-lg text-slate-300"
                   aria-label="Student ID"
                 />
+                <div className="rounded-lg border border-slate-600 p-3">
+                  <p className="text-sm font-medium text-slate-200">Portal password</p>
+                  <p className="mt-2 font-mono text-lg tracking-[0.3em] text-white">{portalPassword || 'Not issued yet'}</p>
+                  <div className="mt-3 flex gap-2">
+                    <button type="button" onClick={replacePortalPassword} className="rounded-lg bg-slate-700 px-3 py-2 text-xs text-white">
+                      New password
+                    </button>
+                    <button type="button" onClick={sendPortalPassword} className="rounded-lg bg-slate-700 px-3 py-2 text-xs text-white">
+                      Text parent
+                    </button>
+                  </div>
+                </div>
                 <div className="flex gap-2">
                   <button type="submit" className="flex-1 bg-primary-600 text-white py-2 rounded-lg hover:bg-primary-700">
                     Update

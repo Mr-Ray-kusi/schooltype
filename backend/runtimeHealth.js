@@ -1,5 +1,6 @@
 import { cacheStats } from './ttlCache.js';
 import { platformSupabase } from './supabaseClient.js';
+import { isSharedRuntimeEnabled } from './sharedRuntime.js';
 
 const REQUIRED_INDEXES = [
   'idx_students_school_created',
@@ -78,8 +79,10 @@ export async function buildHealthPayload({ checkDb = false } = {}) {
     memory,
     db_pooler: pooler,
     instance: process.env.RENDER_INSTANCE_ID || null,
-    plan_hint:
-      'Use one larger Render instance. Do not add a second instance until scanner locks and this cache live in Supabase.',
+    shared_runtime: isSharedRuntimeEnabled(),
+    plan_hint: isSharedRuntimeEnabled()
+      ? 'Scanner locks and cache clears are stored in Supabase, so more than one API server can run.'
+      : 'Use one API server until scanner locks and cache clears are stored in Supabase.',
   };
   if (memory.rss_mb >= 400) {
     payload.status = 'degraded';
