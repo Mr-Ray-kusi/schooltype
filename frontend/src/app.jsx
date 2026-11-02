@@ -1,6 +1,7 @@
 import React, { Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import Layout from './components/layout';
+import PublicAnalytics from './components/PublicAnalytics';
 import ErrorBoundary from './components/ErrorBoundary';
 import { AuthProvider, useAuth, isSchoolPaid } from './contexts/authcontext';
 import { lazyWithRetry } from './utils/lazyWithRetry';
@@ -147,6 +148,7 @@ function App() {
     <ErrorBoundary>
       <AuthProvider>
         <Router>
+          <PublicAnalytics />
           <Suspense fallback={<LoadingScreen />}>
             <Routes>
               <Route path="/" element={<Home />} />

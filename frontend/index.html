@@ -2,6 +2,47 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- Google tag (gtag.js). Loaded only for public marketing pages. -->
+    <script>
+      (function () {
+        var id = 'G-36VTFTQT1T';
+        var allowed = {
+          '/': 1,
+          '/login': 1,
+          '/plans': 1,
+          '/signup': 1,
+          '/signup/complete': 1,
+          '/privacy': 1,
+          '/terms': 1,
+          '/refunds': 1,
+          '/cookies': 1,
+          '/image-licensing': 1,
+          '/sitemap': 1
+        };
+        var path = (location.pathname || '/').split('?')[0].split('#')[0].replace(/\/+$/, '') || '/';
+        window['ga-disable-' + id] = !allowed[path];
+        if (!allowed[path]) return;
+        var script = document.createElement('script');
+        script.async = true;
+        script.src = 'https://www.googletagmanager.com/gtag/js?id=' + id;
+        document.head.appendChild(script);
+        window.dataLayer = window.dataLayer || [];
+        window.gtag = function () { window.dataLayer.push(arguments); };
+        window.gtag('js', new Date());
+        var page = location.origin + path;
+        window.gtag('config', id, {
+          send_page_view: false,
+          anonymize_ip: true,
+          page_location: page,
+          page_path: path
+        });
+        window.gtag('event', 'page_view', {
+          page_location: page,
+          page_path: path,
+          page_referrer: location.origin
+        });
+      })();
+    </script>
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
     <!-- iOS ignores SVG here, so the home screen icon has to be a PNG. -->
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
