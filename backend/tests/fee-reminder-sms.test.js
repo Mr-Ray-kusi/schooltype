@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { resolveStudentFeeAmount } from '../feePayments.js';
+import { parseExtraFees, resolveStudentFeeAmount } from '../feePayments.js';
 import { attachFeePayLink, toE164 } from '../smsProvider.js';
 import { buildOwingFeeSmsBodies, groupOwingParents } from '../feeReminderSms.js';
 
@@ -36,6 +36,15 @@ test('extra student charges sit on top of the class school fee', () => {
   assert.equal(resolveStudentFeeAmount({ extra_fees: [{ label: 'School bus', amount: 150 }] }, 800), 950);
   assert.equal(resolveStudentFeeAmount({ monthly_fee: 1200 }, 800), 1200);
   assert.equal(resolveStudentFeeAmount({}, 800), 800);
+});
+
+test('an extra charge counts with or without a reason saved beside it', () => {
+  assert.equal(resolveStudentFeeAmount({ extra_fees: [{ amount: 150 }] }, 800), 950);
+  assert.deepEqual(parseExtraFees([{ amount: 150 }]), [{ label: 'Extra', amount: 150 }]);
+  assert.deepEqual(parseExtraFees([{ label: 'School bus', amount: 150 }]), [
+    { label: 'School bus', amount: 150 },
+  ]);
+  assert.deepEqual(parseExtraFees([{ label: 'School bus' }, { amount: 0 }, { amount: -5 }]), []);
 });
 
 test('fee reminder copy drops the generic /fees page when a student link is added', () => {

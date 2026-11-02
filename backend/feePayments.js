@@ -37,6 +37,9 @@ export async function getClassFeeAmount(schoolId, className) {
   return Number(named?.fee_amount) || 0;
 }
 
+/** The form collects an amount only; older rows still carry a reason such as "School bus". */
+export const DEFAULT_EXTRA_FEE_LABEL = 'Extra';
+
 export function parseExtraFees(value) {
   if (!value) return [];
   let rows = value;
@@ -52,9 +55,9 @@ export function parseExtraFees(value) {
   if (!Array.isArray(rows)) return [];
   return rows
     .map((row) => {
-      const label = String(row?.label || row?.reason || row?.name || '').trim();
+      const label = String(row?.label || row?.reason || row?.name || '').trim() || DEFAULT_EXTRA_FEE_LABEL;
       const amount = Number(row?.amount ?? row?.fee);
-      if (!label || !Number.isFinite(amount) || amount <= 0) return null;
+      if (!Number.isFinite(amount) || amount <= 0) return null;
       return { label, amount: roundMoney(amount) };
     })
     .filter(Boolean);
@@ -69,11 +72,6 @@ export function extraFeesTotal(student) {
 export function extraFeesJson(value) {
   const rows = parseExtraFees(value);
   return rows.length ? rows : null;
-}
-
-export function extraFeesText(value) {
-  const rows = parseExtraFees(value);
-  return rows.length ? JSON.stringify(rows) : null;
 }
 
 export function resolveStudentFeeAmount(student, classFee) {

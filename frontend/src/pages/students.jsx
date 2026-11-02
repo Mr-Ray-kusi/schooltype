@@ -15,7 +15,7 @@ import { useAuth } from '../contexts/authcontext';
 import { useStaffEmbed } from '../contexts/staffEmbed';
 import AddStudent from './addstudends';
 import { buildTermAttendancePdfBytes } from '../utils/attendanceTermPdf';
-import { EXTRA_FEE_REASONS, emptyExtraFee, extraFeesPayload, formatExtraFees, parseExtraFees } from '../utils/extraFees';
+import { emptyExtraFee, extraFeesPayload, formatExtraFees, parseExtraFees } from '../utils/extraFees';
 
 const Students = () => {
   const { school } = useAuth();
@@ -430,23 +430,7 @@ const Students = () => {
                     </button>
                   </div>
                   {(editingStudent.extraFees || []).map((row, index) => (
-                    <div key={`edit-extra-${index}`} className="mb-2 grid grid-cols-[1fr_6rem_auto] gap-2">
-                      <select
-                        value={row.label}
-                        onChange={(e) => {
-                          const extraFees = editingStudent.extraFees.map((item, i) =>
-                            i === index ? { ...item, label: e.target.value } : item
-                          );
-                          setEditingStudent({ ...editingStudent, extraFees });
-                        }}
-                        className="w-full px-2 py-2 border border-slate-500 rounded-lg"
-                      >
-                        {EXTRA_FEE_REASONS.map((reason) => (
-                          <option key={reason} value={reason}>
-                            {reason}
-                          </option>
-                        ))}
-                      </select>
+                    <div key={`edit-extra-${index}`} className="mb-2 grid grid-cols-[1fr_auto] gap-2">
                       <input
                         type="number"
                         min="0.01"
@@ -460,6 +444,7 @@ const Students = () => {
                         }}
                         className="w-full px-2 py-2 border border-slate-500 rounded-lg"
                         placeholder="GHS"
+                        aria-label="Extra charge amount"
                       />
                       <button
                         type="button"

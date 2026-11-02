@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { invalidateCache } from '../utils/requestCache';
-import { EXTRA_FEE_REASONS, emptyExtraFee, extraFeesPayload } from '../utils/extraFees';
+import { emptyExtraFee, extraFeesPayload } from '../utils/extraFees';
 
 const fieldClass =
   'w-full rounded-xl border border-slate-600/80 bg-slate-950/60 px-4 py-3 text-base text-white placeholder:text-slate-500 outline-none transition focus:border-sky-500/60 focus:ring-2 focus:ring-sky-500/30';
@@ -326,7 +326,7 @@ const AddStudent = ({ onClose } = {}) => {
                   Extra charges (optional)
                 </h2>
                 <p className="mt-2 text-sm text-slate-400">
-                  Add school bus, lunch, hostel, or another cost on top of the class school fee.
+                  Add an amount on top of the class school fee.
                 </p>
               </div>
               <button
@@ -346,23 +346,7 @@ const AddStudent = ({ onClose } = {}) => {
             {(formData.extraFees || []).length ? (
               <div className="mt-5 space-y-3">
                 {formData.extraFees.map((row, index) => (
-                  <div key={`extra-${index}`} className="grid gap-3 sm:grid-cols-[1fr_8rem_auto]">
-                    <select
-                      value={row.label}
-                      onChange={(e) => {
-                        const extraFees = formData.extraFees.map((item, i) =>
-                          i === index ? { ...item, label: e.target.value } : item
-                        );
-                        setFormData({ ...formData, extraFees });
-                      }}
-                      className={fieldClass}
-                    >
-                      {EXTRA_FEE_REASONS.map((reason) => (
-                        <option key={reason} value={reason}>
-                          {reason}
-                        </option>
-                      ))}
-                    </select>
+                  <div key={`extra-${index}`} className="grid gap-3 sm:grid-cols-[1fr_auto]">
                     <input
                       type="number"
                       min="0.01"
@@ -375,7 +359,8 @@ const AddStudent = ({ onClose } = {}) => {
                         setFormData({ ...formData, extraFees });
                       }}
                       className={fieldClass}
-                      placeholder="Amount"
+                      placeholder="Amount (GHS)"
+                      aria-label="Extra charge amount"
                     />
                     <button
                       type="button"
