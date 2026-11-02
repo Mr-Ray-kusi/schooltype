@@ -1,0 +1,10 @@
+* text=auto
+
+*.pdf binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.jfif binary
+*.webp binary
+*.ico binary
+*.db binary
