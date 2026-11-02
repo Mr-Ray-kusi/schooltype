@@ -39,7 +39,7 @@ function PromoPanel({ mode }) {
       <div className={`absolute inset-0 ${flyerBg ? 'bg-gradient-to-t from-[#0b1f1a]/80 via-[#0b1f1a]/15 to-transparent' : 'bg-[#0b1f1a]/72'}`} />
 
       {flyerBg ? (
-        <div className="relative mt-auto flex justify-center">
+        <div className="absolute left-1/2 top-[62%] z-10 -translate-x-1/2 -translate-y-1/2">
           <Link
             to="/plans"
             className="auth-accent inline-flex min-w-[160px] items-center justify-center rounded-sm px-8 py-2.5 text-sm font-semibold text-[#fffaf2] shadow-md transition hover:bg-[#8c3b22]"
