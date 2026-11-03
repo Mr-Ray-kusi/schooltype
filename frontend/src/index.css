@@ -734,16 +734,84 @@ body:has(.portal-shell),
   margin-right: 0.35rem;
 }
 
-/* Below desktop width, keep the desktop composition and scale it to the
-   device so the sidebar, signed-in bar, and full result sheet fit at once. */
+/* Below desktop width, keep the 1200px composition and scale it to the
+   device. Transform (not zoom) so Safari and Chrome both shrink the shell.
+   scale() needs a unitless number. Dividing two lengths in calc() is typed
+   arithmetic: Chrome 140+ accepts it, and Safari does not until version 26.
+   Safari 15.4+ can still form that ratio with tan(atan2()) after both
+   lengths are registered and resolved to px. The fit frame is the viewport;
+   the shell's layout box stays 1200px wide and tall enough that, after
+   scale, it fills the screen. */
+@property --portal-fit-vw {
+  syntax: "<length>";
+  initial-value: 0px;
+  inherits: false;
+}
+
+@property --portal-fit-design {
+  syntax: "<length>";
+  initial-value: 1200px;
+  inherits: false;
+}
+
+.portal-fit {
+  width: 100%;
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+}
+
 @media (max-width: 1199px) {
+  .portal-fit {
+    position: relative;
+    width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    overflow: hidden;
+  }
+
   .portal-shell {
+    --portal-fit-vw: 100vw;
+    --portal-fit-design: 1200px;
+    --portal-fit-vw-n: calc(tan(atan2(var(--portal-fit-vw), 1px)));
+    --portal-fit-design-n: calc(tan(atan2(var(--portal-fit-design), 1px)));
+    --portal-fit-scale: calc(var(--portal-fit-vw-n) / var(--portal-fit-design-n));
+    position: absolute;
+    top: 0;
+    left: 0;
     width: 1200px;
     max-width: none;
-    height: calc(100dvh * (1200px / 100vw));
+    height: calc(100dvh / var(--portal-fit-scale));
     max-height: none;
     flex: none;
-    zoom: calc(100vw / 1200px);
+    overflow: visible;
+    transform: scale(var(--portal-fit-scale));
+    transform-origin: top left;
+  }
+
+  /* Scroll stays on the content region. Overflow hidden on the transformed
+     shell can swallow that scrollport in Safari, so the fit frame clips the
+     scaled box, the sidebar stays fixed, and .portal-scroll is what scrolls. */
+  .portal-side {
+    height: 100%;
+    max-height: 100%;
+    overflow: hidden;
+  }
+
+  .portal-main {
+    height: 100%;
+    max-height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .portal-scroll {
+    flex: 1 1 0%;
+    height: auto;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
 }
 

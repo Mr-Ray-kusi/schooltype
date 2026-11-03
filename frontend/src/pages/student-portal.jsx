@@ -502,6 +502,7 @@ const StudentPortal = () => {
       }))
       .filter((year) => year.terms.length);
     return (
+      <div className="portal-fit">
       <div className="portal-shell">
         <aside className="portal-side">
           <div className="portal-brand">
@@ -681,6 +682,7 @@ const StudentPortal = () => {
           </div>
           </div>
         </div>
+      </div>
       </div>
     );
   }
