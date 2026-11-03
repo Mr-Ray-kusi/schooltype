@@ -36,8 +36,25 @@ function money(amount) {
 }
 
 function SchoolCover({ school }) {
-  if (school?.logo_url) {
-    return <img src={school.logo_url} alt="" className="h-36 w-full object-cover object-[68%_center]" />;
+  const [logo, setLogo] = useState(school?.logo_url || '');
+
+  useEffect(() => {
+    setLogo(school?.logo_url || '');
+    if (school?.logo_url || !school?.id) return undefined;
+    let cancelled = false;
+    axios
+      .get(`/api/public/schools/${school.id}/logo`)
+      .then(({ data }) => {
+        if (!cancelled && data?.logo_url) setLogo(data.logo_url);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [school?.id, school?.logo_url]);
+
+  if (logo) {
+    return <img src={logo} alt="" className="h-36 w-full object-cover object-[68%_center]" />;
   }
   return <div className="flex h-36 items-center justify-center bg-[#123028] text-3xl font-bold text-[#b08a3a]">{String(school?.name || 'S').slice(0, 1)}</div>;
 }

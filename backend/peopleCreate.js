@@ -158,9 +158,17 @@ export async function createStudent(schoolId, body) {
     gender,
     extra_fees: record.extra_fees,
   });
-  const issued = await issueStudentPortalPassword(schoolId, data.id);
+  let portalPassword = null;
+  let warning = null;
+  try {
+    const issued = await issueStudentPortalPassword(schoolId, data.id);
+    portalPassword = issued?.password || null;
+    if (!portalPassword) warning = 'The student was added, but a portal password was not issued.';
+  } catch (passwordError) {
+    warning = passwordError.message || 'The student was added, but the portal password was not saved.';
+  }
   const created = await mergeStudentFields(data, schoolId);
-  return { ...created, portal_password: issued?.password || null };
+  return { ...created, portal_password: portalPassword, warning };
 }
 
 export async function createStaff(schoolId, body) {

@@ -35,6 +35,7 @@ const Students = () => {
   const [downloadingAll, setDownloadingAll] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [portalPassword, setPortalPassword] = useState('');
+  const [portalPasswordState, setPortalPasswordState] = useState('idle');
 
   useEffect(() => {
     const id = setTimeout(() => setDebouncedSearch(searchTerm), 300);
@@ -49,33 +50,50 @@ const Students = () => {
     fetchStudents();
   }, [page, debouncedSearch, selectedClass]);
 
+  const passwordStudentId = viewingStudent?.id || editingStudent?.id;
+
   useEffect(() => {
-    if (!editingStudent?.id) {
+    if (!passwordStudentId) {
       setPortalPassword('');
+      setPortalPasswordState('idle');
       return undefined;
     }
     let cancelled = false;
-    axios
-      .get(`/api/students/${editingStudent.id}/portal-password`)
-      .then(({ data }) => {
-        if (!cancelled) setPortalPassword(data.password || '');
-      })
-      .catch(() => {
-        if (!cancelled) setPortalPassword('');
-      });
+    setPortalPassword('');
+    setPortalPasswordState('loading');
+    const loadPassword = async () => {
+      try {
+        const { data } = await axios.get(`/api/students/${passwordStudentId}/portal-password`);
+        let password = data?.password || '';
+        if (!password) {
+          const issued = await axios.post(`/api/students/${passwordStudentId}/portal-password`);
+          password = issued.data?.password || '';
+        }
+        if (cancelled) return;
+        setPortalPassword(password);
+        setPortalPasswordState(password ? 'ready' : 'missing');
+      } catch {
+        if (cancelled) return;
+        setPortalPassword('');
+        setPortalPasswordState('missing');
+      }
+    };
+    loadPassword();
     return () => {
       cancelled = true;
     };
-  }, [editingStudent?.id]);
+  }, [passwordStudentId]);
 
   const replacePortalPassword = async () => {
     if (!editingStudent?.id) return;
     try {
       const { data } = await axios.post(`/api/students/${editingStudent.id}/portal-password`);
-      setPortalPassword(data.password || '');
+      if (!data?.password) throw new Error('The server did not return a password');
+      setPortalPassword(data.password);
+      setPortalPasswordState('ready');
       toast.success('New portal password issued');
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Could not issue a password');
+      toast.error(error.response?.data?.error || error.message || 'Could not issue a password');
     }
   };
 
@@ -333,7 +351,18 @@ const Students = () => {
           badge={viewingStudent?.class || 'No class'}
           accent="sky"
           fields={[
-            { group: 'School', label: 'Student ID', value: viewingStudent?.roll_number },
+            { group: 'School', label: 'Student ID', value: viewingStudent?.roll_number, copy: Boolean(viewingStudent?.roll_number) },
+            {
+              group: 'School',
+              label: 'Portal password',
+              value:
+                portalPasswordState === 'loading'
+                  ? 'Loading…'
+                  : portalPassword || 'Not issued yet',
+              copy: portalPasswordState === 'ready' && Boolean(portalPassword),
+              mono: true,
+              wide: true,
+            },
             { group: 'School', label: 'Gender', value: viewingStudent?.gender },
             {
               group: 'School',
@@ -514,7 +543,9 @@ const Students = () => {
                 />
                 <div className="rounded-lg border border-slate-600 p-3">
                   <p className="text-sm font-medium text-slate-200">Portal password</p>
-                  <p className="mt-2 font-mono text-lg tracking-[0.3em] text-white">{portalPassword || 'Not issued yet'}</p>
+                  <p className="mt-2 font-mono text-lg tracking-[0.3em] text-white">
+                    {portalPasswordState === 'loading' ? 'Loading…' : portalPassword || 'Not issued yet'}
+                  </p>
                   <div className="mt-3 flex gap-2">
                     <button type="button" onClick={replacePortalPassword} className="rounded-lg bg-slate-700 px-3 py-2 text-xs text-white">
                       New password

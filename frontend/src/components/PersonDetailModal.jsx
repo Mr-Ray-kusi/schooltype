@@ -93,13 +93,15 @@ const PersonDetailModal = ({
                   {group.items.map((field) => (
                     <div
                       key={`${group.title}-${field.label}`}
-                      className="rounded-2xl border border-slate-800 bg-slate-950/50 px-4 py-3"
+                      className={`rounded-2xl border border-slate-800 bg-slate-950/50 px-4 py-3 ${field.wide ? 'sm:col-span-2' : ''}`}
                     >
                       <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                         {field.label}
                       </dt>
                       <dd className="mt-1.5 flex items-start justify-between gap-2 break-words text-sm text-slate-100">
-                        <span className="min-w-0">{field.value || '—'}</span>
+                        <span className={`min-w-0 ${field.mono ? 'font-mono text-lg tracking-[0.25em] text-white' : ''}`}>
+                          {field.value || '—'}
+                        </span>
                         {field.copy && field.value ? (
                           <button
                             type="button"

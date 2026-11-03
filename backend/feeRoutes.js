@@ -1461,21 +1461,50 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
   app.get('/api/public/schools', async (_req, res) => {
     try {
       let rows;
-      const first = await supabase.from('schools').select('id, name, role').order('name', { ascending: true });
+      const first = await supabase
+        .from('schools')
+        .select('id, name, role, logo_url')
+        .order('name', { ascending: true });
       if (first.error) {
-        const retry = await supabase.from('schools').select('id, name').order('name', { ascending: true });
-        if (retry.error) throw retry.error;
-        rows = retry.data || [];
+        const retry = await supabase.from('schools').select('id, name, role').order('name', { ascending: true });
+        if (retry.error) {
+          const plain = await supabase.from('schools').select('id, name').order('name', { ascending: true });
+          if (plain.error) throw plain.error;
+          rows = plain.data || [];
+        } else {
+          rows = retry.data || [];
+        }
       } else {
         rows = first.data || [];
       }
       const schools = rows
         .filter((school) => school.name && String(school.role || '') !== 'super_admin')
-        .map((school) => ({ id: school.id, name: school.name }));
+        .map((school) => ({
+          id: school.id,
+          name: school.name,
+          logo_url: school.logo_url || null,
+        }));
       res.json({ schools });
     } catch (err) {
       console.error('Public schools list error:', err);
       res.status(500).json({ error: 'Failed to load schools' });
+    }
+  });
+
+  app.get('/api/public/schools/:id/logo', async (req, res) => {
+    try {
+      const { data, error } = await supabase
+        .from('schools')
+        .select('id, role, logo_url')
+        .eq('id', req.params.id)
+        .maybeSingle();
+      if (error || !data || String(data.role || '') === 'super_admin') {
+        return res.json({ logo_url: null });
+      }
+      res.json({ logo_url: data.logo_url || null });
+    } catch (err) {
+      console.error('Public school logo error:', err);
+      res.json({ logo_url: null });
     }
   });
 

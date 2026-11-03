@@ -6,6 +6,7 @@ import { openLocalDb } from './localDb.js';
 import { getDataDir } from './dataPaths.js';
 import { useLocalDiskStore } from './runtime.js';
 import { platformSupabase, supabase } from './supabaseClient.js';
+import { ensureSharedRuntimeTables } from './dbPooler.js';
 
 const DB_PATH = path.join(getDataDir(), 'school-extras.db');
 const FAIL_WINDOW_MS = 15 * 60 * 1000;
@@ -47,10 +48,14 @@ export function decryptPortalPassword(payload) {
 }
 
 export function generatePortalPassword(used = []) {
-  const taken = new Set(used.map((value) => String(value)));
+  const taken = new Set((Array.isArray(used) ? used : []).map((value) => String(value)));
   for (const blocked of BLOCKED_PASSWORDS) taken.add(blocked);
-  for (let attempt = 0; attempt < 40; attempt += 1) {
+  for (let attempt = 0; attempt < 80; attempt += 1) {
     const password = String(crypto.randomInt(0, 10000)).padStart(4, '0');
+    if (!taken.has(password)) return password;
+  }
+  for (let value = 0; value < 10000; value += 1) {
+    const password = String(value).padStart(4, '0');
     if (!taken.has(password)) return password;
   }
   const error = new Error('Could not issue a unique student password. Reset one and try again.');
@@ -149,11 +154,20 @@ async function writeSecret(schoolId, studentId, password) {
     updated_at: new Date().toISOString(),
   };
   const db = cloudDb();
+  let saved = false;
+  let cloudMessage = '';
   if (db) {
-    const { error } = await db.from('student_portal_secrets').upsert(row, { onConflict: 'student_id' });
-    if (error && !missingTable(error)) {
-      console.warn('Student portal password save:', error.message);
+    let { error } = await db.from('student_portal_secrets').upsert(row, { onConflict: 'student_id' });
+    if (error && missingTable(error)) {
+      await ensureSharedRuntimeTables().catch(() => {});
+      ({ error } = await db.from('student_portal_secrets').upsert(row, { onConflict: 'student_id' }));
     }
+    if (error && /updated_at/i.test(String(error.message || error.details || ''))) {
+      const { updated_at: _updated, ...withoutStamp } = row;
+      ({ error } = await db.from('student_portal_secrets').upsert(withoutStamp, { onConflict: 'student_id' }));
+    }
+    if (!error) saved = true;
+    else cloudMessage = error.message || 'Could not save the portal password';
   }
   const local = await localDb();
   if (local) {
@@ -166,6 +180,12 @@ async function writeSecret(schoolId, studentId, password) {
          password_enc = excluded.password_enc`,
       [String(studentId), String(schoolId), row.password_hash, row.password_enc]
     );
+    saved = true;
+  }
+  if (!saved) {
+    const error = new Error(cloudMessage || 'Could not save the portal password');
+    error.status = 500;
+    throw error;
   }
   return row;
 }

@@ -3940,9 +3940,17 @@ app.post('/api/students', authenticateToken, enforcePlanApproval, async (req, re
       extra_fees: extraFeesJson(extraFees || extra_fees),
     });
     bumpSchoolCaches(req.user.schoolId);
-    const issued = await issueStudentPortalPassword(req.user.schoolId, student.id);
+    let portalPassword = null;
+    let warning = null;
+    try {
+      const issued = await issueStudentPortalPassword(req.user.schoolId, student.id);
+      portalPassword = issued?.password || null;
+      if (!portalPassword) warning = 'The student was added, but a portal password was not issued.';
+    } catch (passwordError) {
+      warning = passwordError.message || 'The student was added, but the portal password was not saved.';
+    }
     const created = mergeStudentPhoto(await mergeStudentFields(student, req.user.schoolId));
-    res.status(201).json({ ...created, portal_password: issued?.password || null });
+    res.status(201).json({ ...created, portal_password: portalPassword, warning });
   } catch (error) {
     res.status(error.status || 500).json({ error: error.message });
   }

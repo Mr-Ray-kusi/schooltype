@@ -96,6 +96,8 @@ const mutationKey = (item) => {
 
 export const isOfflineMutationUrl = (url = '') => {
   const path = String(url).split('?')[0];
+  // A portal password must be created and shown now. Replaying it later would change the password unseen.
+  if (path.includes('/portal-password')) return false;
   return OFFLINE_MUTATION_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
 };
 
