@@ -24,21 +24,6 @@ function writeSession(value) {
   else sessionStorage.setItem(TOKEN_KEY, JSON.stringify(value));
 }
 
-function subjectCode(name) {
-  const words = String(name || '')
-    .replace(/[^A-Za-z0-9 ]/g, ' ')
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
-  if (!words.length) return 'SUB';
-  if (words.length === 1) return words[0].slice(0, 6).toUpperCase();
-  return words
-    .map((word) => word.slice(0, 3))
-    .join('')
-    .slice(0, 8)
-    .toUpperCase();
-}
-
 function ordinal(value) {
   const num = Number(value);
   if (!Number.isFinite(num) || num <= 0) return '—';
@@ -603,7 +588,6 @@ const StudentPortal = () => {
                               <table>
                                 <thead>
                                   <tr>
-                                    <th>Code</th>
                                     <th>Title</th>
                                     <th>Status</th>
                                     <th>Score</th>
@@ -617,7 +601,6 @@ const StudentPortal = () => {
                                     const passed = row.percent != null && row.percent >= 50;
                                     return (
                                       <tr key={row.subject}>
-                                        <td>{subjectCode(row.subject)}</td>
                                         <td>{row.subject}</td>
                                         <td>{row.percent == null ? '—' : passed ? 'Pass' : 'Fail'}</td>
                                         <td>{row.score ?? '—'}</td>

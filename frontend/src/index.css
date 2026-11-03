@@ -734,89 +734,16 @@ body:has(.portal-shell),
   margin-right: 0.35rem;
 }
 
-@media (max-width: 800px) {
+/* Below desktop width, keep the desktop composition and scale it to the
+   device so the sidebar, signed-in bar, and full result sheet fit at once. */
+@media (max-width: 1199px) {
   .portal-shell {
-    flex-direction: row;
-  }
-
-  .portal-side {
-    width: clamp(8.65rem, 36vw, 15.5rem);
+    width: 1200px;
+    max-width: none;
+    height: calc(100dvh * (1200px / 100vw));
+    max-height: none;
     flex: none;
-    border-right: 1px solid #e2e8f0;
-    border-bottom: 0;
-  }
-
-  .portal-nav {
-    flex-direction: column;
-    overflow-x: hidden;
-  }
-}
-
-@media (max-width: 480px) {
-  .portal-side {
-    width: 8.65rem;
-  }
-
-  .portal-brand {
-    gap: 0.4rem;
-    padding: 0.7rem 0.45rem 0.5rem;
-  }
-
-  .portal-brand-logo,
-  .portal-brand-mark {
-    height: 1.9rem;
-    width: 1.9rem;
-  }
-
-  .portal-brand-title {
-    font-size: 0.76rem;
-  }
-
-  .portal-nav {
-    padding: 0.2rem 0.35rem 0.7rem;
-  }
-
-  .portal-nav button {
-    padding: 0.48rem 0.4rem;
-    font-size: 0.76rem;
-  }
-
-  .portal-top {
-    gap: 0.35rem;
-    padding: 0.45rem 0.4rem;
-  }
-
-  .portal-signed span {
-    font-size: 0.56rem;
-    letter-spacing: 0.04em;
-  }
-
-  .portal-signed strong {
-    display: block;
-    max-width: 6.25rem;
-    overflow: hidden;
-    font-size: 0.74rem;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .portal-avatar {
-    height: 1.8rem;
-    width: 1.8rem;
-    flex: none;
-    font-size: 0.72rem;
-  }
-
-  .portal-logout {
-    flex: none;
-    gap: 0.2rem;
-    padding: 0.28rem 0.4rem;
-    font-size: 0.7rem;
-  }
-
-  .portal-logout svg {
-    height: 0.85rem;
-    width: 0.85rem;
+    zoom: calc(100vw / 1200px);
   }
 }
 
