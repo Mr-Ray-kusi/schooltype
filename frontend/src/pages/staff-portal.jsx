@@ -545,7 +545,7 @@ const StaffPortal = () => {
                 Payment details
               </p>
               <p className={`mt-1 text-xs ${liteMode ? 'text-slate-600' : 'text-slate-400'}`}>
-                Enter your MoMo number and hit Update. It will show automatically in the Payments MoMo inbox.
+                Enter the MoMo number the school should pay you on, then Update.
               </p>
               <input
                 value={momoPhone}
@@ -583,6 +583,7 @@ const StaffPortal = () => {
                   </p>
                   {[
                     { id: 'fees', label: 'Fees' },
+                    { id: 'lists', label: 'Paid & unpaid' },
                     { id: 'wallet', label: 'School wallet' },
                   ].map((item) => (
                     <button
@@ -610,16 +611,18 @@ const StaffPortal = () => {
                 </div>
               </aside>
               <div className="min-w-0 flex-1">
-                {financeTab === 'fees' ? (
+                {financeTab === 'wallet' ? (
+                  <SchoolWallet viewOnly />
+                ) : (
                   <AccountantFees
+                    section={financeTab === 'lists' ? 'list' : 'overview'}
                     schoolName={schoolName}
                     authHeaders={authHeaders}
                     hideReminderButton
                     reminderOpen={owingSmsOpen}
                     onReminderOpenChange={setOwingSmsOpen}
+                    onOpenList={() => setFinanceTab('lists')}
                   />
-                ) : (
-                  <SchoolWallet viewOnly />
                 )}
               </div>
             </div>

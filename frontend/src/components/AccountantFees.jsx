@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
-import { Copy, FileSpreadsheet, Plus, RefreshCw } from 'lucide-react';
+import { FileSpreadsheet, Plus, RefreshCw } from 'lucide-react';
 import RecordFeePaymentModal from './RecordFeePaymentModal';
 import FeePaymentReceiptModal from './FeePaymentReceiptModal';
 import { formatGhs } from '../utils/feeReceiptPdf';
@@ -32,8 +32,76 @@ const channelLabel = (row) => {
   return '—';
 };
 
+const niceMax = (maxValue) => {
+  const max = Number(maxValue) || 0;
+  if (max <= 0) return 4;
+  const padded = max * 1.15;
+  const pow = 10 ** Math.floor(Math.log10(padded));
+  const n = padded / pow;
+  const nice = n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10;
+  return nice * pow;
+};
+
+const formatAxis = (value) => {
+  if (value >= 1_000_000) return `${Number((value / 1_000_000).toFixed(value % 1_000_000 ? 1 : 0))}m`;
+  if (value >= 1000) return `${Number((value / 1000).toFixed(value % 1000 ? 1 : 0))}k`;
+  return String(Math.round(value));
+};
+
 const FeeClassChart = ({ rows }) => {
-  const max = Math.max(1, ...rows.flatMap((row) => [Number(row.paid_amount) || 0, Number(row.outstanding) || 0]));
+  const wrapRef = useRef(null);
+  const [width, setWidth] = useState(720);
+  const [hover, setHover] = useState(null);
+  const height = 300;
+
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return undefined;
+    const sync = () => setWidth(Math.max(el.clientWidth, 1));
+    sync();
+    const observer = new ResizeObserver(sync);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const layout = useMemo(() => {
+    const pad = { l: 52, r: 16, t: 18, b: 58 };
+    const minGroup = 86;
+    const chartW = Math.max(width, rows.length * minGroup + pad.l + pad.r);
+    const innerW = Math.max(1, chartW - pad.l - pad.r);
+    const innerH = Math.max(1, height - pad.t - pad.b);
+    const max = niceMax(
+      Math.max(0, ...rows.flatMap((row) => [Number(row.paid_amount) || 0, Number(row.outstanding) || 0]))
+    );
+    const groupW = innerW / Math.max(rows.length, 1);
+    const barW = Math.min(22, Math.max(8, groupW * 0.28));
+    const gap = 5;
+    const ticks = [0, 0.25, 0.5, 0.75, 1].map((part) => {
+      const value = max * (1 - part);
+      return { value, y: pad.t + innerH * part, label: formatAxis(value) };
+    });
+    const groups = rows.map((row, index) => {
+      const paid = Number(row.paid_amount) || 0;
+      const due = Number(row.outstanding) || 0;
+      const cx = pad.l + groupW * index + groupW / 2;
+      return {
+        key: row.className,
+        className: row.className,
+        students: row.students,
+        paid,
+        due,
+        paidX: cx - gap / 2 - barW,
+        dueX: cx + gap / 2,
+        paidH: max ? (paid / max) * innerH : 0,
+        dueH: max ? (due / max) * innerH : 0,
+        baseY: pad.t + innerH,
+        barW,
+        cx,
+      };
+    });
+    return { pad, chartW, innerH, ticks, groups };
+  }, [rows, width]);
+
   if (!rows.length) {
     return (
       <div className="rounded-3xl border border-dashed border-slate-700 bg-slate-900/40 px-5 py-10 text-center text-sm text-slate-400">
@@ -41,6 +109,9 @@ const FeeClassChart = ({ rows }) => {
       </div>
     );
   }
+
+  const active = hover == null ? null : layout.groups[hover];
+
   return (
     <div className="rounded-3xl border border-slate-700 bg-slate-900/60 p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -54,39 +125,72 @@ const FeeClassChart = ({ rows }) => {
           </span>
         </div>
       </div>
-      <div className="mt-5 space-y-4">
-        {rows.map((row) => {
-          const paid = Number(row.paid_amount) || 0;
-          const due = Number(row.outstanding) || 0;
-          return (
-            <div key={row.className}>
-              <div className="mb-1 flex items-baseline justify-between gap-3 text-sm">
-                <p className="font-medium text-slate-200">{row.className}</p>
-                <p className="text-xs text-slate-500">{row.students} student{row.students === 1 ? '' : 's'}</p>
-              </div>
-              <div className="grid gap-1.5">
-                <div className="flex items-center gap-2">
-                  <div className="h-3 flex-1 overflow-hidden rounded-full bg-slate-800">
-                    <div
-                      className="h-full rounded-full bg-emerald-400"
-                      style={{ width: paid > 0 ? `${Math.max(2, (paid / max) * 100)}%` : '0%' }}
-                    />
-                  </div>
-                  <span className="w-28 shrink-0 text-right text-xs tabular-nums text-emerald-300">{formatGhs(paid)}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="h-3 flex-1 overflow-hidden rounded-full bg-slate-800">
-                    <div
-                      className="h-full rounded-full bg-amber-400"
-                      style={{ width: due > 0 ? `${Math.max(2, (due / max) * 100)}%` : '0%' }}
-                    />
-                  </div>
-                  <span className="w-28 shrink-0 text-right text-xs tabular-nums text-amber-300">{formatGhs(due)}</span>
-                </div>
-              </div>
-            </div>
-          );
-        })}
+      <div ref={wrapRef} className="relative mt-4 overflow-x-auto">
+        <svg
+          width={layout.chartW}
+          height={height}
+          viewBox={`0 0 ${layout.chartW} ${height}`}
+          className="block min-w-full"
+          onMouseLeave={() => setHover(null)}
+        >
+          {layout.ticks.map((tick) => (
+            <g key={tick.label}>
+              <line
+                x1={layout.pad.l}
+                x2={layout.chartW - layout.pad.r}
+                y1={tick.y}
+                y2={tick.y}
+                stroke="#334155"
+                strokeDasharray="4 6"
+              />
+              <text x={layout.pad.l - 8} y={tick.y + 4} textAnchor="end" fill="#64748b" className="text-[11px]">
+                {tick.label}
+              </text>
+            </g>
+          ))}
+          {layout.groups.map((group, index) => (
+            <g key={group.key} onMouseEnter={() => setHover(index)}>
+              <rect
+                x={group.cx - group.barW - 8}
+                y={layout.pad.t}
+                width={group.barW * 2 + 16}
+                height={layout.innerH}
+                fill="transparent"
+              />
+              <rect
+                x={group.paidX}
+                y={group.baseY - group.paidH}
+                width={group.barW}
+                height={Math.max(group.paidH, 0)}
+                rx="4"
+                className="fill-emerald-400"
+              />
+              <rect
+                x={group.dueX}
+                y={group.baseY - group.dueH}
+                width={group.barW}
+                height={Math.max(group.dueH, 0)}
+                rx="4"
+                className="fill-amber-400"
+              />
+              <text x={group.cx} y={height - 18} textAnchor="middle" fill="#475569" className="text-[11px]">
+                {String(group.className || '—').length > 10
+                  ? `${String(group.className).slice(0, 9)}…`
+                  : group.className}
+              </text>
+            </g>
+          ))}
+        </svg>
+        {active ? (
+          <div className="pointer-events-none absolute left-4 top-2 rounded-xl border border-slate-600 bg-slate-950/95 px-3 py-2 text-xs text-slate-200 shadow-lg">
+            <p className="font-semibold text-white">{active.className}</p>
+            <p className="mt-1 text-emerald-300">Collected {formatGhs(active.paid)}</p>
+            <p className="text-amber-300">Outstanding {formatGhs(active.due)}</p>
+            <p className="mt-1 text-slate-500">
+              {active.students} student{active.students === 1 ? '' : 's'}
+            </p>
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -99,6 +203,8 @@ const AccountantFees = ({
   reminderOpen,
   onReminderOpenChange,
   hideReminderButton = false,
+  section = 'overview',
+  onOpenList,
 }) => {
   const requestConfig = useMemo(() => ({ headers: authHeaders }), [authHeaders]);
   const [data, setData] = useState(null);
@@ -137,16 +243,6 @@ const AccountantFees = ({
       setShowReminder(true);
     }
   }, [reminderOpen]);
-
-  const copyLink = async (path) => {
-    const url = `${window.location.origin}${path}`;
-    try {
-      await navigator.clipboard.writeText(url);
-      toast.success('Payment link copied');
-    } catch {
-      toast.error('Could not copy link');
-    }
-  };
 
   const sendReminder = async () => {
     setSending(true);
@@ -274,17 +370,21 @@ const AccountantFees = ({
     }
   };
 
+  const showList = section === 'list';
+
   return (
     <div className="space-y-6">
       <div className="space-y-3">
         <div>
-          <h2 className="text-2xl font-bold text-white">Fees paid and unpaid</h2>
+          <h2 className="text-2xl font-bold text-white">{showList ? 'Paid and unpaid' : 'Fees'}</h2>
           <p className="mt-1 text-sm text-slate-400">
             {periodLabel || 'This term'}
             {classFilter ? ` · ${classFilter}` : ''}.{' '}
-            {readOnly
-              ? 'View only. The accountant records payments and sends reminders.'
-              : 'Record cash payments, print receipts, and export reports.'}
+            {showList
+              ? 'Open a student to view or print the receipt.'
+              : readOnly
+                ? 'View only. The accountant records payments and sends reminders.'
+                : 'Record cash payments and see totals for this term.'}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap sm:overflow-x-auto">
@@ -312,7 +412,7 @@ const AccountantFees = ({
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </button>
-          {readOnly ? null : (
+          {readOnly || showList ? null : (
             <button
               type="button"
               onClick={() => setShowManual(true)}
@@ -325,6 +425,7 @@ const AccountantFees = ({
         </div>
       </div>
 
+      {showList ? null : (
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-3xl border border-slate-700 bg-slate-800 p-5">
           <p className="text-sm uppercase tracking-wide text-slate-300">Collected this term</p>
@@ -334,18 +435,29 @@ const AccountantFees = ({
           <p className="text-sm uppercase tracking-wide text-slate-300">Still unpaid</p>
           <p className="mt-3 text-2xl font-semibold text-white">{formatGhs(totals.unpaid_amount)}</p>
         </div>
-        <div className="rounded-3xl border border-slate-700 bg-slate-800 p-5">
+        <button
+          type="button"
+          onClick={() => {
+            setTab('unpaid');
+            onOpenList?.();
+          }}
+          className="rounded-3xl border border-slate-700 bg-slate-800 p-5 text-left hover:border-slate-500 hover:bg-slate-700"
+        >
           <p className="text-sm uppercase tracking-wide text-slate-300">Students owing</p>
           <p className="mt-3 text-2xl font-semibold text-white">{totals.unpaid || 0}</p>
-        </div>
+          <p className="mt-2 text-xs text-sky-300">Open unpaid list</p>
+        </button>
         <div className="rounded-3xl border border-slate-700 bg-slate-800 p-5">
           <p className="text-sm uppercase tracking-wide text-slate-300">Collected this year</p>
           <p className="mt-3 text-2xl font-semibold text-white">{formatGhs(totals.year_collected)}</p>
         </div>
       </div>
+      )}
 
-      <FeeClassChart rows={chartRows} />
+      {showList ? null : <FeeClassChart rows={chartRows} />}
 
+      {showList ? (
+      <>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="inline-flex rounded-full border border-slate-700 bg-slate-900 p-1 text-sm">
           <button
@@ -405,7 +517,7 @@ const AccountantFees = ({
         </div>
       ) : (
         <div className="overflow-x-auto rounded-3xl border border-slate-700">
-          <table className="w-full min-w-[880px] text-left text-sm">
+          <table className="w-full min-w-[760px] text-left text-sm">
             <thead className="bg-slate-800 text-slate-300">
               <tr>
                 <th className="px-4 py-3">Student</th>
@@ -414,7 +526,7 @@ const AccountantFees = ({
                 <th className="px-4 py-3">Paid</th>
                 <th className="px-4 py-3">Outstanding</th>
                 <th className="px-4 py-3">Recorded by</th>
-                <th className="px-4 py-3">{tab === 'paid' ? 'Channel' : 'Pay link'}</th>
+                {tab === 'paid' ? <th className="px-4 py-3">Channel</th> : null}
               </tr>
             </thead>
             <tbody>
@@ -434,42 +546,11 @@ const AccountantFees = ({
                       {outstanding >= 0.01 ? formatGhs(outstanding) : 'None'}
                     </td>
                     <td className="px-4 py-3 text-slate-300">{row.recorded_by || '—'}</td>
-                    <td className="px-4 py-3">
-                      {tab === 'paid' ? (
-                        <div className="flex items-center gap-2">
-                          <span className="capitalize">
-                            {row.payment?.channel || row.payment?.payment_method || 'Paystack'}
-                          </span>
-                          {row.pay_path ? (
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                copyLink(row.pay_path);
-                              }}
-                              className="text-sky-400 hover:text-sky-300"
-                              title="Copy pay link"
-                            >
-                              <Copy className="h-4 w-4" />
-                            </button>
-                          ) : null}
-                        </div>
-                      ) : row.pay_path ? (
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            copyLink(row.pay_path);
-                          }}
-                          className="inline-flex items-center gap-1 text-sky-400 hover:text-sky-300"
-                        >
-                          <Copy className="h-4 w-4" />
-                          Copy
-                        </button>
-                      ) : (
-                        '—'
-                      )}
-                    </td>
+                    {tab === 'paid' ? (
+                      <td className="px-4 py-3 capitalize">
+                        {row.payment?.channel || row.payment?.payment_method || 'Paystack'}
+                      </td>
+                    ) : null}
                   </tr>
                 );
               })}
@@ -477,6 +558,8 @@ const AccountantFees = ({
           </table>
         </div>
       )}
+      </>
+      ) : null}
 
       {showManual && !readOnly ? (
         <RecordFeePaymentModal
