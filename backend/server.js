@@ -31,6 +31,7 @@ import { formatParsedStudentId, parseStudentId, syncStudentIds } from './student
 import { buildHealthPayload, publicHealthView } from './runtimeHealth.js';
 import { pingDbPooler, ensureStudentProfileColumns, ensureSharedRuntimeTables } from './dbPooler.js';
 import { mergeStudentFieldList, mergeStudentFields, writeStudentProfileFields } from './studentFieldStore.js';
+import { FEE_CURRENCIES, normalizeFeeCurrency } from './feeCurrency.js';
 import { purgePersonRelated } from './personPurge.js';
 import nodemailer from 'nodemailer';
 import { getPlan, getPlanFeatures, getPlansList, VALID_PLAN_IDS, hasPlanFeature, resolvePlanId } from './plans.js';
@@ -283,6 +284,7 @@ const SCHOOL_PLAN_COLUMNS = [
   'subscription_started_at',
   'email_verified',
   'logo_url',
+  'fee_currency',
 ];
 
 const SCHOOL_AUTH_COLUMNS = [
@@ -332,6 +334,7 @@ const selectSchoolById = async (id, columns) => {
     'email_verified',
     'late_after_time',
     'logo_url',
+    'fee_currency',
   ];
   let cols = [...columns];
   for (let attempt = 0; attempt <= optional.length; attempt++) {
@@ -483,6 +486,7 @@ const formatSchool = (school, { includeCredentials = false, light = false } = {}
         ? merged.payment_records.slice(0, 20)
         : [],
     email_verified: isSchoolEmailVerified(merged),
+    fee_currency: String(merged.fee_currency || 'GHS').toUpperCase(),
   };
 
   // Never return plaintext passwords — includeCredentials kept for API compat only.
@@ -575,6 +579,7 @@ const insertSchoolRecord = async (record) => {
     'plan_selected_at',
     'plan_status',
     'logo_url',
+    'fee_currency',
     'scanner_token',
     'staff_portal_token',
     'late_after_time',
@@ -652,6 +657,7 @@ const updateSchoolRecord = async (id, updates) => {
     'plan_selected_at',
     'plan_status',
     'logo_url',
+    'fee_currency',
     'scanner_token',
     'staff_portal_token',
     'late_after_time',
@@ -717,6 +723,7 @@ const SCHOOL_OPTIONAL_COLUMNS = [
   'plan_selected_at',
   'plan_status',
   'logo_url',
+  'fee_currency',
   'scanner_token',
   'staff_portal_token',
   'late_after_time',
@@ -2091,6 +2098,53 @@ app.put('/api/school/branding', authenticateToken, async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ error: error.message || 'Failed to save school image' });
+  }
+});
+
+app.get('/api/school/fees-settings', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role === 'super_admin') {
+      return res.json({ fee_currency: 'GHS', currencies: FEE_CURRENCIES });
+    }
+    const { data: school, error } = await selectSchoolById(req.user.schoolId, ['id', 'fee_currency', 'logo_url']);
+    if (error || !school) {
+      return res.status(404).json({ error: 'School not found' });
+    }
+    const merged = mergeSchoolWithExtras(school);
+    res.json({
+      fee_currency: normalizeFeeCurrency(merged.fee_currency),
+      currencies: FEE_CURRENCIES,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Failed to load fees settings' });
+  }
+});
+
+app.put('/api/school/fees-settings', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role === 'super_admin') {
+      return res.status(400).json({ error: 'Open a school account to set fees currency' });
+    }
+    const feeCurrency = normalizeFeeCurrency(req.body?.fee_currency || req.body?.currency);
+    const { data: current, error: fetchError } = await selectSchoolById(req.user.schoolId, ['id', 'fee_currency']);
+    if (fetchError || !current) {
+      return res.status(404).json({ error: 'School not found' });
+    }
+    const { data: updated, error: updateError } = await updateSchoolRecord(current.id, {
+      fee_currency: feeCurrency,
+    });
+    if (updateError) {
+      return res.status(500).json({ error: updateError.message || 'Failed to save fees currency' });
+    }
+    await upsertSchoolExtras(current.id, { fee_currency: feeCurrency });
+    const merged = mergeSchoolWithExtras(updated || current);
+    res.json({
+      fee_currency: feeCurrency,
+      currencies: FEE_CURRENCIES,
+      school: { ...formatSchool(merged), fee_currency: feeCurrency },
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Failed to save fees currency' });
   }
 });
 

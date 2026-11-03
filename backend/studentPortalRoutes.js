@@ -54,6 +54,7 @@ function portalSchoolCard(row) {
     id: merged.id,
     name: merged.name,
     logo_url: merged.logo_url || null,
+    fee_currency: String(merged.fee_currency || 'GHS').toUpperCase(),
   };
 }
 
@@ -411,7 +412,10 @@ export function registerStudentPortalRoutes(app, { authenticateToken }) {
         }
       }
 
-      const classFee = await getClassFeeAmount(schoolId, student.class);
+      const [classFee, card] = await Promise.all([
+        getClassFeeAmount(schoolId, student.class),
+        publicSchoolCard(schoolId),
+      ]);
       const billed = resolveStudentFeeAmount(student, classFee);
       let payments = [];
       const { data: feeRows, error: feeError } = await supabase
@@ -441,6 +445,7 @@ export function registerStudentPortalRoutes(app, { authenticateToken }) {
           extra: extraFeesTotal(student),
           paid,
           outstanding: roundMoney(Math.max(0, billed - paid)),
+          currency: String(card?.fee_currency || 'GHS').toUpperCase(),
           payments,
         },
       });

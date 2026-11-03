@@ -24,6 +24,7 @@ const ACADEMIC_PREFIXES = [
   '/api/report-cards',
   '/api/alumni',
   '/api/school/branding',
+  '/api/school/fees-settings',
   '/api/staff-portal/session/admin',
   '/api/staff-portal/link',
   '/api/staff-portal/regenerate',

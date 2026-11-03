@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { BookOpen, Calendar, GraduationCap, ImagePlus, Plus, RefreshCw, Save, Trash2, X } from 'lucide-react';
+import { Banknote, BookOpen, Calendar, GraduationCap, ImagePlus, Plus, RefreshCw, Save, Trash2, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/authcontext';
 import { forceGet, invalidateCache, peekCache, staleGet } from '../utils/requestCache';
@@ -9,6 +9,7 @@ import PersonRecordTable from '../components/PersonRecordTable';
 import PaginationBar from '../components/PaginationBar';
 import { LIST_PAGE_SIZE } from '../utils/listApi';
 import { sortClasses } from '../utils/classHierarchy';
+import { FEE_CURRENCIES, formatMoney, normalizeFeeCurrency } from '../utils/feeCurrency';
 
 const TERM_NAMES = ['First Term', 'Second Term', 'Third Term', 'Fourth Term'];
 
@@ -87,6 +88,8 @@ const Setup = () => {
   const [savingTerms, setSavingTerms] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [termModal, setTermModal] = useState(null);
+  const [feeCurrency, setFeeCurrency] = useState(normalizeFeeCurrency(school?.fee_currency));
+  const [savingCurrency, setSavingCurrency] = useState(false);
 
   const load = async ({ force = false } = {}) => {
     const apply = ([classData, subjectData]) => {
@@ -117,6 +120,12 @@ const Setup = () => {
       apply([classData, subjectData]);
       applyTerms(termData?.terms || []);
       setCurrentTerm(termData?.current || null);
+      axios
+        .get('/api/school/fees-settings')
+        .then(({ data }) => {
+          if (data?.fee_currency) setFeeCurrency(normalizeFeeCurrency(data.fee_currency));
+        })
+        .catch(() => {});
     } catch (error) {
       if (error.response) toast.error(error.response?.data?.error || 'Failed to load setup');
     } finally {
@@ -152,6 +161,21 @@ const Setup = () => {
       setLogoPreview(reader.result);
     };
     reader.readAsDataURL(file);
+  };
+
+  const saveFeeCurrency = async () => {
+    setSavingCurrency(true);
+    try {
+      const { data } = await axios.put('/api/school/fees-settings', { fee_currency: feeCurrency });
+      const next = normalizeFeeCurrency(data.fee_currency || feeCurrency);
+      setFeeCurrency(next);
+      persistSchool({ ...(data.school || school || {}), fee_currency: next });
+      toast.success('Fees currency saved');
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Failed to save fees currency');
+    } finally {
+      setSavingCurrency(false);
+    }
   };
 
   const saveDashboardImage = async () => {
@@ -522,6 +546,41 @@ const Setup = () => {
       </section>
 
       <section className="rounded-2xl border border-slate-700/80 bg-slate-900/50 p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <Banknote className="h-4 w-4 text-sky-300" />
+          <h2 className="text-sm font-semibold text-white">Fees currency</h2>
+        </div>
+        <p className="mb-3 text-xs text-slate-400">
+          This is the currency shown on student fees, class fees, and receipts for this school.
+        </p>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+          <label className="block min-w-0 flex-1 text-xs font-medium text-slate-300">
+            Currency
+            <select
+              className={`${fieldClass} mt-1.5`}
+              value={feeCurrency}
+              onChange={(e) => setFeeCurrency(e.target.value)}
+            >
+              {FEE_CURRENCIES.map((item) => (
+                <option key={item.code} value={item.code}>
+                  {item.code} — {item.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            onClick={saveFeeCurrency}
+            disabled={savingCurrency}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50"
+          >
+            <Save className="h-3.5 w-3.5" />
+            {savingCurrency ? 'Saving…' : 'Save currency'}
+          </button>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-700/80 bg-slate-900/50 p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <Calendar className="h-4 w-4 text-sky-300" />
@@ -608,10 +667,10 @@ const Setup = () => {
                 },
                 {
                   key: 'fee_amount',
-                  header: 'Term fee',
+                  header: `Term fee (${feeCurrency})`,
                   render: (row) => {
                     const fee = Number(row.fee_amount);
-                    return Number.isFinite(fee) && fee > 0 ? fee.toLocaleString() : '—';
+                    return Number.isFinite(fee) && fee > 0 ? formatMoney(fee, feeCurrency) : '—';
                   },
                 },
               ]}
@@ -914,7 +973,9 @@ const Setup = () => {
                     />
                   </div>
                   <div>
-                    <label className="mb-1.5 block text-sm font-medium text-slate-200">Term fee</label>
+                    <label className="mb-1.5 block text-sm font-medium text-slate-200">
+                      Term fee ({feeCurrency})
+                    </label>
                     <input
                       type="number"
                       min="0"

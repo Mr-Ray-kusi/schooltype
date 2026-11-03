@@ -2,6 +2,7 @@
 -- Extend schools table
 
 ALTER TABLE schools ADD COLUMN IF NOT EXISTS logo_url TEXT;
+ALTER TABLE schools ADD COLUMN IF NOT EXISTS fee_currency TEXT DEFAULT 'GHS';
 ALTER TABLE schools ADD COLUMN IF NOT EXISTS subscription_plan TEXT;
 ALTER TABLE schools ADD COLUMN IF NOT EXISTS subscription_status TEXT DEFAULT 'pending';
 ALTER TABLE schools ADD COLUMN IF NOT EXISTS subscription_expires_at TIMESTAMPTZ;

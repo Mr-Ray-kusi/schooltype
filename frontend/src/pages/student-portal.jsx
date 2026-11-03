@@ -6,6 +6,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import MarketingChrome from '../components/MarketingChrome';
 import { applyLiteClass } from '../hooks/useLiteMode';
+import { formatMoney, normalizeFeeCurrency } from '../utils/feeCurrency';
 
 const TOKEN_KEY = 'studentPortalSession';
 
@@ -106,8 +107,22 @@ function downloadGroupedResults({ schoolName, student, years }) {
   doc.save(`${safeName}-results.pdf`);
 }
 
-function money(amount) {
-  return `GHS ${Number(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+function money(amount, currency) {
+  return formatMoney(amount, currency);
+}
+
+function formatFeeDate(value) {
+  if (!value) return '—';
+  try {
+    return new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Africa/Accra',
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    }).format(new Date(value));
+  } catch {
+    return String(value).slice(0, 10);
+  }
 }
 
 const ATTENDANCE_WEEKDAYS = [
@@ -658,26 +673,71 @@ const StudentPortal = () => {
             ) : null}
 
             {tab === 'fees' ? (
-              <section className="portal-card">
-                <h3>School fees</h3>
-                <p>
-                  Billed {money(record?.fees?.billed)} · Paid {money(record?.fees?.paid)} · Outstanding{' '}
-                  {money(record?.fees?.outstanding)}
-                </p>
-                <ul>
-                  {(record?.fees?.payments || []).map((row) => (
-                    <li key={row.id}>
-                      <span>
-                        {String(row.created_at || '').slice(0, 10)} · {row.channel || 'Payment'}
-                      </span>
-                      <span>
-                        {money(row.amount)} · {row.paid ? 'Paid' : row.status}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-                {record?.fees?.payments?.length ? null : <p>No fee payments yet. The amount billed is shown above.</p>}
-              </section>
+              (() => {
+                const fees = record?.fees || {};
+                const currency = normalizeFeeCurrency(fees.currency || session.school?.fee_currency);
+                const billed = Number(fees.billed || 0);
+                const paid = Number(fees.paid || 0);
+                const outstanding = Number(fees.outstanding || 0);
+                const payments = fees.payments || [];
+                const settled = billed > 0 && outstanding < 0.01;
+                const statusLabel = billed <= 0 ? 'Not billed' : settled ? 'Paid' : paid > 0 ? 'Part paid' : 'Outstanding';
+                const statusClass = billed <= 0 ? '' : settled ? 'is-paid' : paid > 0 ? 'is-part' : 'is-due';
+                return (
+                  <section className="portal-sheet">
+                    <div className="portal-sheet-head">
+                      <h2>School fees</h2>
+                      <span className={statusClass}>{statusLabel}</span>
+                    </div>
+                    <div className="portal-fee-stats">
+                      <div className="portal-fee-stat">
+                        <span>Billed</span>
+                        <strong>{money(billed, currency)}</strong>
+                      </div>
+                      <div className="portal-fee-stat is-paid">
+                        <span>Paid</span>
+                        <strong>{money(paid, currency)}</strong>
+                      </div>
+                      <div className={`portal-fee-stat ${outstanding >= 0.01 ? 'is-due' : 'is-paid'}`}>
+                        <span>Outstanding</span>
+                        <strong>{money(outstanding, currency)}</strong>
+                      </div>
+                    </div>
+                    {payments.length ? (
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Date</th>
+                            <th>Method</th>
+                            <th>Amount</th>
+                            <th>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {payments.map((row) => (
+                            <tr key={row.id}>
+                              <td>{formatFeeDate(row.created_at)}</td>
+                              <td>{row.channel || 'Payment'}</td>
+                              <td>{money(row.amount, currency)}</td>
+                              <td>
+                                <span className={`portal-fee-chip ${row.paid ? 'is-paid' : 'is-due'}`}>
+                                  {row.paid ? 'Paid' : row.status || 'Pending'}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <p className="portal-fee-empty">
+                        {billed > 0
+                          ? `No payments recorded yet. ${money(outstanding, currency)} is still due for this term.`
+                          : 'No school fee has been set for your class yet.'}
+                      </p>
+                    )}
+                  </section>
+                );
+              })()
             ) : null}
           </div>
           </div>
