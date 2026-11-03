@@ -543,6 +543,14 @@ body:has(.portal-shell),
   color: #92400e;
 }
 
+.portal-sheet-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.45rem;
+}
+
 .portal-fee-stats {
   display: flex;
   flex-direction: column;
@@ -593,6 +601,14 @@ body:has(.portal-shell),
 
 .portal-fee-stat.is-due strong {
   color: #b45309;
+}
+
+.portal-fee-charge span {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: #334155;
 }
 
 .portal-fee-chip {
@@ -1734,9 +1750,11 @@ html.lite [class*='text-green-2'],
 html.lite [class*='text-green-3'] {
   color: #15803d !important;
 }
+html.lite .text-amber-100,
 html.lite .text-amber-200,
 html.lite .text-amber-200\/90,
 html.lite .text-amber-300,
+html.lite [class*='text-amber-1'],
 html.lite [class*='text-amber-2'],
 html.lite [class*='text-amber-3'] {
   color: #b45309 !important;

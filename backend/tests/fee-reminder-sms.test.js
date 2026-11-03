@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { parseExtraFees, resolveStudentFeeAmount } from '../feePayments.js';
+import { listStudentFeeCharges, parseExtraFees, resolveStudentFeeAmount } from '../feePayments.js';
 import { attachFeePayLink, toE164 } from '../smsProvider.js';
 import { buildOwingFeeSmsBodies, groupOwingParents } from '../feeReminderSms.js';
 
@@ -37,6 +37,20 @@ test('extra student charges sit on top of the class school fee', () => {
   assert.equal(resolveStudentFeeAmount({ monthly_fee: 1200 }, 800), 1200);
   assert.equal(resolveStudentFeeAmount({}, 800), 800);
 });
+
+test('term fee charges list the class fee and each extra on its own line', () => {
+  assert.deepEqual(listStudentFeeCharges({ extra_fees: [{ label: 'School bus', amount: 150 }] }, 800), [
+    { label: 'Term fee', amount: 800 },
+    { label: 'School bus', amount: 150 },
+  ]);
+  assert.deepEqual(listStudentFeeCharges({ extra_fees: [{ amount: 40 }, { amount: 20 }] }, 500), [
+    { label: 'Term fee', amount: 500 },
+    { label: 'Extra 1', amount: 40 },
+    { label: 'Extra 2', amount: 20 },
+  ]);
+  assert.deepEqual(listStudentFeeCharges({ monthly_fee: 1200 }, 800), [{ label: 'Term fee', amount: 1200 }]);
+});
+
 
 test('an extra charge counts with or without a reason saved beside it', () => {
   assert.equal(resolveStudentFeeAmount({ extra_fees: [{ amount: 150 }] }, 800), 950);

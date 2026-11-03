@@ -35,6 +35,7 @@ const FeesPaid = lazyWithRetry(() => import('./pages/fees-paid'));
 const FeesUnpaid = lazyWithRetry(() => import('./pages/fees-unpaid'));
 const BankSettings = lazyWithRetry(() => import('./pages/bank-settings'));
 const SchoolWallet = lazyWithRetry(() => import('./pages/school-wallet'));
+const Payments = lazyWithRetry(() => import('./pages/payments'));
 const SuperAdmin = lazyWithRetry(() => import('./pages/super-admin'));
 const SuperAdminSchool = lazyWithRetry(() => import('./pages/super-admin-school'));
 const SuperAdminBroadcast = lazyWithRetry(() => import('./pages/super-admin-broadcast'));
@@ -227,6 +228,7 @@ function App() {
               <Route element={<FinanceRoute feature="school-wallet" />}>
                 <Route element={<Layout />}>
                   <Route path="/school-wallet" element={<SchoolWallet />} />
+                  <Route path="/payments" element={<Payments />} />
                 </Route>
               </Route>
 

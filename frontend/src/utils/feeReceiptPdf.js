@@ -1,8 +1,10 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { formatMoney, normalizeFeeCurrency } from './feeCurrency';
 
-export const formatGhs = (value) =>
-  `GHS ${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+export const formatGhs = (value) => formatMoney(value, 'GHS');
+
+const money = (value, currency = 'GHS') => formatMoney(value, currency);
 
 const formatWhen = (value) => {
   if (!value) return '—';
@@ -47,7 +49,11 @@ export function buildFeeReceiptPdf({
   payments = [],
   reference,
   recordedBy,
+  charges = [],
+  currency = 'GHS',
+  title = 'School fees receipt',
 } = {}) {
+  const code = normalizeFeeCurrency(currency);
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   const pageWidth = doc.internal.pageSize.getWidth();
   let y = 48;
@@ -56,7 +62,7 @@ export function buildFeeReceiptPdf({
   doc.text(schoolName, pageWidth / 2, y, { align: 'center' });
   y += 22;
   doc.setFontSize(13);
-  doc.text('School fees receipt', pageWidth / 2, y, { align: 'center' });
+  doc.text(title, pageWidth / 2, y, { align: 'center' });
   y += 28;
 
   doc.setFontSize(11);
@@ -84,14 +90,28 @@ export function buildFeeReceiptPdf({
   }
 
   y += 8;
+  if ((charges || []).length) {
+    autoTable(doc, {
+      startY: y,
+      head: [['Fee for this term', 'Amount']],
+      body: [
+        ...charges.map((row) => [row.label || 'Fee', money(row.amount, code)]),
+        ['Total billed', money(feeAmount, code)],
+      ],
+      styles: { fontSize: 10, cellPadding: 6 },
+      headStyles: { fillColor: [30, 27, 75] },
+      margin: { left: 48, right: 48 },
+    });
+    y = (doc.lastAutoTable?.finalY || y) + 14;
+  }
   autoTable(doc, {
     startY: y,
     head: [['Fee billed', 'Amount paid', 'Outstanding']],
     body: [
       [
-        formatGhs(feeAmount),
-        formatGhs(paidAmount),
-        Number(outstanding) >= 0.01 ? formatGhs(outstanding) : 'None',
+        money(feeAmount, code),
+        money(paidAmount, code),
+        Number(outstanding) >= 0.01 ? money(outstanding, code) : 'None',
       ],
     ],
     styles: { fontSize: 10, cellPadding: 6 },
@@ -107,12 +127,12 @@ export function buildFeeReceiptPdf({
   const rows = (payments || []).length
     ? payments.map((row) => [
         paymentLine(row),
-        formatGhs(row.amount),
+        money(row.amount, code),
         formatWhen(row.created_at),
         row.recorded_by_label || row.recorded_by || '—',
         String(row.payment_reference || row.reference || '—').replace(/^manual:/, ''),
       ])
-    : [['No payments listed', formatGhs(paidAmount), '—', recordedBy || '—', reference || '—']];
+    : [['No payments listed', money(paidAmount, code), '—', recordedBy || '—', reference || '—']];
 
   autoTable(doc, {
     startY: y,
@@ -128,7 +148,7 @@ export function buildFeeReceiptPdf({
   doc.setTextColor(100);
   const note =
     Number(outstanding) >= 0.01
-      ? `Balance still due: ${formatGhs(outstanding)}. Keep this receipt for your records.`
+      ? `Balance still due: ${money(outstanding, code)}. Keep this receipt for your records.`
       : 'This student is fully paid for the period shown.';
   doc.text(note, 48, y);
   doc.text(`Issued ${formatWhen(new Date().toISOString())}`, 48, y + 14);
@@ -154,7 +174,8 @@ export function receiptOptionsFromStudent(student, extras = {}) {
 
 export function downloadFeeReceiptPdf(options) {
   const doc = buildFeeReceiptPdf(options);
-  doc.save(`fee-receipt-${safeName(options.studentName)}.pdf`);
+  const label = options.fileLabel || options.studentName;
+  doc.save(`fee-${safeName(label)}.pdf`);
 }
 
 const escapeHtml = (value) =>
@@ -171,8 +192,11 @@ export function printFeeReceipt(options) {
     return;
   }
   const outstanding = Number(options.outstanding) || 0;
-  const payments = (options.payments || []).length
-    ? options.payments
+  const code = normalizeFeeCurrency(options.currency);
+  const heading = options.title || 'School fees receipt';
+  const listed = Array.isArray(options.payments) ? options.payments : null;
+  const payments = listed
+    ? listed
     : [
         {
           channel: options.channel,
@@ -182,22 +206,33 @@ export function printFeeReceipt(options) {
           payment_reference: options.reference,
         },
       ];
-  const rows = payments
-    .map(
-      (row) => `<tr>
+  const rows = payments.length
+    ? payments
+        .map(
+          (row) => `<tr>
         <td>${escapeHtml(paymentLine(row))}</td>
-        <td>${escapeHtml(formatGhs(row.amount))}</td>
+        <td>${escapeHtml(money(row.amount, code))}</td>
         <td>${escapeHtml(formatWhen(row.created_at))}</td>
         <td>${escapeHtml(row.recorded_by_label || row.recorded_by || '—')}</td>
         <td>${escapeHtml(String(row.payment_reference || row.reference || '—').replace(/^manual:/, ''))}</td>
       </tr>`
-    )
+        )
+        .join('')
+    : '<tr><td colspan="5">No payments recorded yet.</td></tr>';
+  const chargeRows = (options.charges || [])
+    .map((row) => `<tr><td>${escapeHtml(row.label || 'Fee')}</td><td>${escapeHtml(money(row.amount, code))}</td></tr>`)
     .join('');
+  const chargesTable = chargeRows
+    ? `<table>
+    <thead><tr><th>Fee for this term</th><th>Amount</th></tr></thead>
+    <tbody>${chargeRows}<tr class="totals"><td>Total billed</td><td>${escapeHtml(money(options.feeAmount, code))}</td></tr></tbody>
+  </table>`
+    : '';
   win.document.write(`<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Fee receipt · ${escapeHtml(options.studentName || 'Student')}</title>
+  <title>${escapeHtml(heading)} · ${escapeHtml(options.studentName || 'Student')}</title>
   <style>
     body { font-family: Georgia, "Times New Roman", serif; color: #0f172a; margin: 32px; }
     h1 { font-size: 20px; margin: 0 0 4px; text-align: center; }
@@ -214,18 +249,19 @@ export function printFeeReceipt(options) {
 </head>
 <body>
   <h1>${escapeHtml(options.schoolName || 'School')}</h1>
-  <h2>School fees receipt</h2>
+  <h2>${escapeHtml(heading)}</h2>
   <p><strong>Student:</strong> ${escapeHtml(options.studentName || 'Student')}</p>
   ${options.className ? `<p><strong>Class:</strong> ${escapeHtml(options.className)}</p>` : ''}
   ${options.rollNumber ? `<p><strong>Student ID / roll:</strong> ${escapeHtml(options.rollNumber)}</p>` : ''}
   ${options.periodLabel ? `<p><strong>Period:</strong> ${escapeHtml(options.periodLabel)}</p>` : ''}
   ${options.reference ? `<p><strong>Reference:</strong> ${escapeHtml(options.reference)}</p>` : ''}
+  ${chargesTable}
   <table>
     <thead><tr><th>Fee billed</th><th>Amount paid</th><th>Outstanding</th></tr></thead>
     <tbody class="totals"><tr>
-      <td>${escapeHtml(formatGhs(options.feeAmount))}</td>
-      <td class="paid">${escapeHtml(formatGhs(options.paidAmount))}</td>
-      <td class="${outstanding >= 0.01 ? 'overdue' : 'paid'}">${outstanding >= 0.01 ? escapeHtml(formatGhs(outstanding)) : 'None'}</td>
+      <td>${escapeHtml(money(options.feeAmount, code))}</td>
+      <td class="paid">${escapeHtml(money(options.paidAmount, code))}</td>
+      <td class="${outstanding >= 0.01 ? 'overdue' : 'paid'}">${outstanding >= 0.01 ? escapeHtml(money(outstanding, code)) : 'None'}</td>
     </tr></tbody>
   </table>
   <table>
@@ -234,7 +270,7 @@ export function printFeeReceipt(options) {
   </table>
   <p class="note">${
     outstanding >= 0.01
-      ? `Balance still due: ${escapeHtml(formatGhs(outstanding))}. Keep this receipt for your records.`
+      ? `Balance still due: ${escapeHtml(money(outstanding, code))}. Keep this receipt for your records.`
       : 'This student is fully paid for the period shown.'
   }</p>
 </body>

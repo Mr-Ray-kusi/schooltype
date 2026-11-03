@@ -7,6 +7,7 @@ import autoTable from 'jspdf-autotable';
 import MarketingChrome from '../components/MarketingChrome';
 import { applyLiteClass } from '../hooks/useLiteMode';
 import { formatMoney, normalizeFeeCurrency } from '../utils/feeCurrency';
+import { downloadFeeReceiptPdf } from '../utils/feeReceiptPdf';
 
 const TOKEN_KEY = 'studentPortalSession';
 
@@ -109,6 +110,24 @@ function downloadGroupedResults({ schoolName, student, years }) {
 
 function money(amount, currency) {
   return formatMoney(amount, currency);
+}
+
+function termFeeStatement(session, fees, currency) {
+  return {
+    schoolName: session.school?.name,
+    studentName: session.student?.name,
+    className: session.student?.class,
+    rollNumber: session.student?.roll_number,
+    periodLabel: fees.period_label || fees.term,
+    feeAmount: fees.billed,
+    paidAmount: fees.paid,
+    outstanding: fees.outstanding,
+    payments: fees.payments || [],
+    charges: fees.charges || [],
+    currency,
+    title: fees.term ? `School fees · ${fees.term}` : 'School fees statement',
+    fileLabel: `${session.student?.roll_number || 'student'}-fees`,
+  };
 }
 
 function formatFeeDate(value) {
@@ -680,6 +699,8 @@ const StudentPortal = () => {
                 const paid = Number(fees.paid || 0);
                 const outstanding = Number(fees.outstanding || 0);
                 const payments = fees.payments || [];
+                const charges = fees.charges || [];
+                const termName = fees.term || '';
                 const settled = billed > 0 && outstanding < 0.01;
                 const due = outstanding >= 0.01;
                 const statusLabel = billed <= 0 ? 'Not billed' : settled ? 'Paid' : paid > 0 ? 'Part paid' : 'Outstanding';
@@ -690,13 +711,27 @@ const StudentPortal = () => {
                   (session.school?.id && payCode
                     ? `/fees?school=${encodeURIComponent(session.school.id)}&student=${encodeURIComponent(payCode)}`
                     : '/fees');
+                const statement = termFeeStatement(session, { ...fees, billed, paid, outstanding, payments, charges }, currency);
                 return (
+                  <>
+                  <button type="button" className="portal-download" onClick={() => downloadFeeReceiptPdf(statement)}>
+                    Download
+                  </button>
                   <section className="portal-sheet">
                     <div className="portal-sheet-head">
                       <h2>School fees</h2>
-                      <span className={statusClass}>{statusLabel}</span>
+                      <div className="portal-sheet-tags">
+                        {termName ? <span>{termName}</span> : null}
+                        <span className={statusClass}>{statusLabel}</span>
+                      </div>
                     </div>
                     <div className="portal-fee-stats">
+                      {charges.map((row, index) => (
+                        <div className="portal-fee-stat portal-fee-charge" key={`${row.label}-${index}`}>
+                          <span>{row.label}</span>
+                          <strong>{money(row.amount, currency)}</strong>
+                        </div>
+                      ))}
                       <div className="portal-fee-stat">
                         <span>Billed</span>
                         <strong>{money(billed, currency)}</strong>
@@ -750,6 +785,7 @@ const StudentPortal = () => {
                       </p>
                     )}
                   </section>
+                  </>
                 );
               })()
             ) : null}

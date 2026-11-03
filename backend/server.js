@@ -96,6 +96,7 @@ import {
 import { getFeeOverviewPayload, registerFeeRoutes, registerStaffFeeRoutes } from './feeRoutes.js';
 import { registerStaffAdminRoutes } from './staffAdminRoutes.js';
 import { registerStudentPortalRoutes } from './studentPortalRoutes.js';
+import { registerPayrollRoutes } from './payrollRoutes.js';
 import { deleteStudentPortalPassword, issueStudentPortalPassword } from './studentPortalStore.js';
 import { inspectScoreLock, loadScoreLocks } from './scorePublishStore.js';
 import { isProtectedStaffRole, staffPortalApiAllowed, staffPortalAsSchoolUser } from './staffSchoolAuth.js';
@@ -143,7 +144,7 @@ import {
 } from './platformTelemetry.js';
 import { getSchoolAnalytics } from './schoolAnalytics.js';
 import { getGoogleAuthConfig, verifyGoogleIdentity } from './googleAuth.js';
-import { fromMinorUnits } from './paystack.js';
+import { fromMinorUnits, normalizeGhanaPhone } from './paystack.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
@@ -306,8 +307,8 @@ const SCHOOL_AUTH_COLUMNS = [
 const STUDENT_LIST_COLUMNS =
   'id, school_id, name, class, gender, extra_fees, roll_number, parent_name, parent_phone, parent_email, parent_relationship, house_address, date_of_birth, barcode, qr_code, created_at';
 const STAFF_LIST_COLUMNS =
-  'id, school_id, name, role, salary, barcode, qr_code, secret_code, subjects, class_names, created_at';
-const NONSTAFF_LIST_COLUMNS = 'id, school_id, name, role, barcode, qr_code, created_at';
+  'id, school_id, name, role, salary, momo_phone, barcode, qr_code, secret_code, subjects, class_names, created_at';
+const NONSTAFF_LIST_COLUMNS = 'id, school_id, name, role, salary, momo_phone, barcode, qr_code, created_at';
 
 const wantsPhotos = (req) =>
   ['1', 'true', 'yes'].includes(String(req.query.includePhotos || '').toLowerCase());
@@ -3723,6 +3724,7 @@ registerWalletRoutes(app, {
   onSchoolCheckoutPaid: fulfillSchoolCheckout,
 });
 registerFeeRoutes(app, { authenticateToken, enforcePlanApproval });
+registerPayrollRoutes(app, { authenticateToken, enforcePlanApproval });
 registerStudentPortalRoutes(app, { authenticateToken });
 registerAlumniRoutes(app, { authenticateToken, enforcePlanApproval });
 registerSmsBillingRoutes(app, {
@@ -4285,7 +4287,8 @@ const slugifySchoolName = schoolNameSlug;
 
 const insertStaffRecord = async (record) => {
   const payload = fillIdentityCodes({ ...record });
-  const optionalColumns = ['secret_code', 'subjects', 'class_names', 'photo_url', 'barcode', 'qr_code'];
+  const optionalColumns = ['secret_code', 'subjects', 'class_names', 'photo_url', 'barcode', 'qr_code', 'momo_phone'];
+  let retriedMomo = false;
 
   for (let attempt = 0; attempt <= optionalColumns.length + 4; attempt++) {
     const { data, error } = await supabase.from('staffs').insert([payload]).select().single();
@@ -4294,6 +4297,11 @@ const insertStaffRecord = async (record) => {
     const missingColumn = optionalColumns.find(
       (column) => payload[column] !== undefined && isMissingColumnError(error, column)
     );
+    if (missingColumn === 'momo_phone' && !retriedMomo) {
+      retriedMomo = true;
+      await ensureStudentProfileColumns();
+      continue;
+    }
     if (missingColumn) {
       delete payload[missingColumn];
       continue;
@@ -4310,9 +4318,10 @@ const insertStaffRecord = async (record) => {
 
 const updateStaffRecord = async (id, schoolId, updates) => {
   const payload = { ...updates };
-  const optionalColumns = ['secret_code', 'subjects', 'class_names', 'photo_url'];
+  const optionalColumns = ['secret_code', 'subjects', 'class_names', 'photo_url', 'momo_phone'];
+  let retriedMomo = false;
 
-  for (let attempt = 0; attempt <= optionalColumns.length; attempt++) {
+  for (let attempt = 0; attempt <= optionalColumns.length + 2; attempt++) {
     const { data, error } = await supabase
       .from('staffs')
       .update(payload)
@@ -4326,6 +4335,11 @@ const updateStaffRecord = async (id, schoolId, updates) => {
     const missingColumn = optionalColumns.find(
       (column) => payload[column] !== undefined && isMissingColumnError(error, column)
     );
+    if (missingColumn === 'momo_phone' && !retriedMomo) {
+      retriedMomo = true;
+      await ensureStudentProfileColumns();
+      continue;
+    }
     if (missingColumn) {
       delete payload[missingColumn];
       continue;
@@ -4370,7 +4384,7 @@ app.get('/api/staff', authenticateToken, enforcePlanApproval, async (req, res) =
 
 app.post('/api/staff', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
-    const { name, role, secretCode, subjects, classNames, class_names, salary } = req.body;
+    const { name, role, secretCode, subjects, classNames, class_names, salary, momo_phone } = req.body;
 
     if (!name?.trim()) {
       return res.status(400).json({ error: 'Staff name is required' });
@@ -4390,6 +4404,7 @@ app.post('/api/staff', authenticateToken, enforcePlanApproval, async (req, res) 
       name: name.trim(),
       role: role.trim(),
       salary: salaryAmount,
+      momo_phone: normalizeGhanaPhone(momo_phone) || null,
       barcode,
       qr_code: barcode,
       secret_code: accessCode,
@@ -4423,6 +4438,7 @@ app.put('/api/staff/:id', authenticateToken, enforcePlanApproval, async (req, re
       classNames,
       class_names,
       salary,
+      momo_phone,
     } = req.body;
 
     const { data: currentStaff, error: fetchError } = await supabase
@@ -4451,6 +4467,7 @@ app.put('/api/staff/:id', authenticateToken, enforcePlanApproval, async (req, re
     if (name) updates.name = name.trim();
     if (role) updates.role = role.trim();
     updates.salary = parseRequiredSalary(salary);
+    if (momo_phone !== undefined) updates.momo_phone = normalizeGhanaPhone(momo_phone) || null;
     if (subjects !== undefined) updates.subjects = toCsvField(subjects);
     if (classNames !== undefined || class_names !== undefined) {
       updates.class_names = toCsvField(classNames !== undefined ? classNames : class_names);
@@ -4552,23 +4569,26 @@ app.get('/api/non-staff', authenticateToken, enforcePlanApproval, async (req, re
 
 app.post('/api/non-staff', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
-    const { name, role } = req.body;
+    const { name, role, salary, momo_phone } = req.body;
 
     if (!name?.trim()) {
       return res.status(400).json({ error: 'Name is required' });
     }
 
     const barcode = `${req.user.schoolId}-NONSTAFF-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const salaryAmount = salary === undefined || salary === null || salary === '' ? null : Number(salary);
     const payload = fillIdentityCodes({
       school_id: req.user.schoolId,
       name: name.trim(),
       role: role?.trim() || null,
+      salary: Number.isFinite(salaryAmount) && salaryAmount > 0 ? salaryAmount : null,
+      momo_phone: normalizeGhanaPhone(momo_phone) || null,
       barcode,
       qr_code: barcode,
       created_at: new Date(),
     });
 
-    const optionalColumns = ['photo_url', 'barcode', 'qr_code'];
+    const optionalColumns = ['photo_url', 'barcode', 'qr_code', 'salary', 'momo_phone'];
     let nonStaff = null;
     let error = null;
     for (let attempt = 0; attempt <= optionalColumns.length + 4; attempt++) {
@@ -4620,17 +4640,23 @@ app.get('/api/non-staff/:id', authenticateToken, enforcePlanApproval, async (req
 app.put('/api/non-staff/:id', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, role } = req.body;
+    const { name, role, salary, momo_phone } = req.body;
 
     const updates = {};
     if (name !== undefined) updates.name = name;
     if (role !== undefined) updates.role = role;
+    if (salary !== undefined) {
+      const salaryAmount = salary === null || salary === '' ? null : Number(salary);
+      updates.salary = Number.isFinite(salaryAmount) && salaryAmount > 0 ? salaryAmount : null;
+    }
+    if (momo_phone !== undefined) updates.momo_phone = normalizeGhanaPhone(momo_phone) || null;
 
-    const optionalColumns = ['photo_url'];
+    const optionalColumns = ['photo_url', 'salary', 'momo_phone'];
     let nonStaff = null;
     let error = null;
+    let retriedMomo = false;
     const payload = { ...updates };
-    for (let attempt = 0; attempt <= optionalColumns.length; attempt++) {
+    for (let attempt = 0; attempt <= optionalColumns.length + 2; attempt++) {
       const result = await supabase
         .from('nonstaffs')
         .update(payload)
@@ -4646,6 +4672,11 @@ app.put('/api/non-staff/:id', authenticateToken, enforcePlanApproval, async (req
       const missingColumn = optionalColumns.find(
         (column) => payload[column] !== undefined && isMissingColumnError(error, column)
       );
+      if (missingColumn === 'momo_phone' && !retriedMomo) {
+        retriedMomo = true;
+        await ensureStudentProfileColumns();
+        continue;
+      }
       if (missingColumn) {
         delete payload[missingColumn];
         continue;
@@ -5390,11 +5421,19 @@ async function issueStaffPortalSession(req, res, resolved) {
     return res.status(400).json({ error: 'Access code and role are required' });
   }
 
-  const { data: staffRows, error } = await supabase
+  let { data: staffRows, error } = await supabase
     .from('staffs')
-    .select('id, name, role, subjects, class_names, school_id, secret_code')
+    .select('id, name, role, subjects, class_names, school_id, secret_code, momo_phone')
     .eq('school_id', resolved.schoolId)
     .eq('secret_code', accessCode);
+
+  if (error && isMissingColumnError(error, 'momo_phone')) {
+    ({ data: staffRows, error } = await supabase
+      .from('staffs')
+      .select('id, name, role, subjects, class_names, school_id, secret_code')
+      .eq('school_id', resolved.schoolId)
+      .eq('secret_code', accessCode));
+  }
 
   if (error) throw error;
 
@@ -5465,6 +5504,7 @@ async function issueStaffPortalSession(req, res, resolved) {
       role: staff.role,
       subjects: parseCsvList(staff.subjects),
       classNames: parseCsvList(staff.class_names),
+      momo_phone: staff.momo_phone ? normalizeGhanaPhone(staff.momo_phone) : '',
     },
   });
 }
@@ -5576,10 +5616,42 @@ app.get('/api/staff-portal/session/me', authenticateStaffPortal, async (req, res
         role: staff.role,
         subjects: parseCsvList(staff.subjects),
         classNames: parseCsvList(staff.class_names),
+        momo_phone: staff.momo_phone ? normalizeGhanaPhone(staff.momo_phone) : '',
       },
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+app.patch('/api/staff-portal/session/me', authenticateStaffPortal, async (req, res) => {
+  try {
+    const phone = normalizeGhanaPhone(req.body?.momo_phone);
+    if (phone && !/^0\d{9}$/.test(phone)) {
+      return res.status(400).json({ error: 'Enter a Ghana MoMo number, like 0241234567.' });
+    }
+
+    const { data: staff, error } = await updateStaffRecord(req.staffPortal.staffId, req.staffPortal.schoolId, {
+      momo_phone: phone || null,
+    });
+    if (error) throw error;
+    if (!staff) return res.status(404).json({ error: 'Staff member not found' });
+
+    const momoPhone = staff.momo_phone ? normalizeGhanaPhone(staff.momo_phone) : '';
+    res.json({
+      momo_phone: momoPhone,
+      staff: {
+        id: staff.id,
+        name: staff.name,
+        role: staff.role,
+        subjects: parseCsvList(staff.subjects),
+        classNames: parseCsvList(staff.class_names),
+        momo_phone: momoPhone,
+      },
+    });
+  } catch (error) {
+    console.error('Staff portal payment details error:', error);
+    res.status(500).json({ error: 'Could not update payment details' });
   }
 });
 
@@ -7206,9 +7278,9 @@ async function initializeDatabase() {
 
     const profileCols = await ensureStudentProfileColumns();
     if (profileCols.ok) {
-      console.log('Student gender and extra charges columns are ready');
+      console.log('Student gender, extra charges, and staff MoMo columns are ready');
     } else if (profileCols.error) {
-      console.warn('Could not add student gender/extra charges columns:', profileCols.error.message);
+      console.warn('Could not add profile columns:', profileCols.error.message);
     }
 
     // Perform a lightweight test query to verify Supabase connectivity.

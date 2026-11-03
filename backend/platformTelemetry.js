@@ -247,6 +247,7 @@ export function pageLabel(path) {
   if (p.startsWith('/classes')) return 'Setup';
   if (p.startsWith('/dashboard')) return 'Dashboard';
   if (p.startsWith('/school-wallet') || p.startsWith('/super-admin/platform-wallet')) return 'Wallet';
+  if (p.startsWith('/payments')) return 'Payments';
   if (p.startsWith('/bank-settings')) return 'Bank settings';
   if (p.startsWith('/notifications')) return 'Notifications';
   if (p.startsWith('/super-admin/analytics')) return 'Platform analytics';

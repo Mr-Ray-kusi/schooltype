@@ -13,6 +13,7 @@ const FULL_FEATURE_KEYS = [
   'fees-paid',
   'bank-settings',
   'school-wallet',
+  'payments',
 ];
 
 /** Shared feature bullets for every plan; only the student-capacity line changes. */
@@ -31,6 +32,7 @@ const SHARED_FEATURE_BULLETS = [
   'Report cards and teacher result uploads',
   'Fees tracking',
   'School wallet with Paystack bank and MoMo',
+  'Staff and non-staff salary payments',
   'In-app notifications with platform admin',
 ];
 
@@ -125,6 +127,7 @@ export const FEATURE_LABELS = {
   'fees-unpaid': 'Fees',
   'bank-settings': 'Bank Settings',
   'school-wallet': 'School Wallet',
+  payments: 'Payments',
 };
 
 /**

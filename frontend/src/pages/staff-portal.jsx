@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import toast from 'react-hot-toast';
-import { BookOpen, GraduationCap, LogOut, MessageSquare, Moon, Pencil, Save, Sun, Users } from 'lucide-react';
+import { BookOpen, GraduationCap, LogOut, MessageSquare, Moon, Pencil, Save, Smartphone, Sun, Users } from 'lucide-react';
 import AdministratorSchool from '../components/AdministratorSchool';
 import AccountantFees from '../components/AccountantFees';
 import SchoolWallet from './school-wallet';
@@ -50,6 +50,8 @@ const StaffPortal = () => {
   const [schoolRecord, setSchoolRecord] = useState(restored?.school || null);
   const [financeTab, setFinanceTab] = useState('fees');
   const [owingSmsOpen, setOwingSmsOpen] = useState(false);
+  const [momoPhone, setMomoPhone] = useState(restored?.staff?.momo_phone || '');
+  const [savingPay, setSavingPay] = useState(false);
   const { liteMode, toggleLiteMode } = useLiteMode('staff');
 
   const themeToggle = (
@@ -159,14 +161,23 @@ const StaffPortal = () => {
     setStudents([]);
     setDraftScores({});
     setSchoolRecord(null);
+    setMomoPhone('');
   };
 
   useEffect(() => {
     if (!sessionToken) return undefined;
     const id = axios.interceptors.request.use((config) => {
       config.headers = config.headers || {};
-      const url = String(config.url || '');
-      if (url.includes('/api/staff-portal/session')) {
+      const path = String(config.url || '')
+        .replace(/^https?:\/\/[^/]+/i, '')
+        .split('?')[0];
+      const staffPortalSchoolApi =
+        path.includes('/api/staff-portal/session') ||
+        /^\/api\/(payroll|students|staff|non-staff|classes|subjects|academic-terms|attendance|scanner|report-cards|alumni|fees|wallet)(\/|$)/.test(
+          path
+        ) ||
+        /^\/api\/school\/(branding|fees-settings)(\/|$)/.test(path);
+      if (staffPortalSchoolApi) {
         config.headers.Authorization = `Bearer ${sessionToken}`;
       }
       return config;
@@ -226,9 +237,11 @@ const StaffPortal = () => {
         const { data } = await axios.get('/api/staff-portal/session/me', { headers: authHeaders });
         if (cancelled) return;
         setStaff(data.staff);
+        setMomoPhone(data.staff?.momo_phone || '');
         setSchoolName(data.schoolName || schoolName);
         if (data.school) setSchoolRecord(data.school);
         if (data.currentTerm) setTerm(data.currentTerm);
+        persistSession(sessionToken, data.staff, data.schoolName || schoolName, data.school || schoolRecord);
         const firstSubject = data.staff.subjects?.[0] || '';
         const firstClass = data.staff.classNames?.[0] || '';
         setSelectedSubject((prev) => prev || firstSubject);
@@ -293,6 +306,7 @@ const StaffPortal = () => {
       const { data } = await axios.post(loginUrl, { accessCode, role });
       setSessionToken(data.sessionToken);
       setStaff(data.staff);
+      setMomoPhone(data.staff?.momo_phone || '');
       setSchoolName(data.schoolName || schoolName);
       if (data.school) setSchoolRecord(data.school);
       persistSession(data.sessionToken, data.staff, data.schoolName, data.school);
@@ -358,6 +372,32 @@ const StaffPortal = () => {
       toast.error(err.response?.data?.error || 'Failed to save scores');
     } finally {
       setSavingAll(false);
+    }
+  };
+
+  const savePaymentDetails = async (event) => {
+    event.preventDefault();
+    if (savingPay) return;
+    setSavingPay(true);
+    try {
+      const { data } = await axios.patch(
+        '/api/staff-portal/session/me',
+        { momo_phone: momoPhone },
+        { headers: authHeaders }
+      );
+      const nextStaff = {
+        ...staff,
+        ...(data.staff || {}),
+        momo_phone: data.momo_phone || data.staff?.momo_phone || '',
+      };
+      setStaff(nextStaff);
+      setMomoPhone(nextStaff.momo_phone);
+      persistSession(sessionToken, nextStaff, schoolName, schoolRecord);
+      toast.success('Payment details updated. They now show on Payments.');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Could not update payment details');
+    } finally {
+      setSavingPay(false);
     }
   };
 
@@ -493,6 +533,42 @@ const StaffPortal = () => {
       </header>
 
       <main className={`mx-auto space-y-6 px-4 py-8 ${wideLayout ? 'max-w-7xl' : 'max-w-5xl'}`}>
+        <section
+          className={`rounded-2xl border px-4 py-4 ${
+            liteMode ? 'border-slate-200 bg-white' : 'border-slate-700 bg-slate-900/60'
+          }`}
+        >
+          <form onSubmit={savePaymentDetails} className="flex flex-col gap-3 sm:flex-row sm:items-end">
+            <div className="min-w-0 flex-1">
+              <p className="flex items-center gap-2 text-xs uppercase tracking-wide text-slate-500">
+                <Smartphone className="h-3.5 w-3.5" />
+                Payment details
+              </p>
+              <p className={`mt-1 text-xs ${liteMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                Enter your MoMo number and hit Update. It will show automatically in the Payments MoMo inbox.
+              </p>
+              <input
+                value={momoPhone}
+                onChange={(e) => setMomoPhone(e.target.value)}
+                inputMode="tel"
+                autoComplete="tel"
+                placeholder="024xxxxxxx"
+                className={`mt-3 w-full rounded-xl border px-4 py-3 text-sm ${
+                  liteMode
+                    ? 'border-slate-300 bg-white text-slate-900'
+                    : 'border-slate-600 bg-slate-950/70 text-white'
+                }`}
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={savingPay}
+              className="inline-flex shrink-0 items-center justify-center rounded-full bg-sky-500 px-5 py-3 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-50"
+            >
+              {savingPay ? 'Updating…' : 'Update'}
+            </button>
+          </form>
+        </section>
         {isAdministrator ? (
           <AuthContext.Provider value={portalAuth}>
             <AdministratorSchool schoolName={schoolName} authHeaders={authHeaders} />

@@ -69,6 +69,29 @@ export function extraFeesTotal(student) {
   );
 }
 
+export function listStudentFeeCharges(student, classFee) {
+  const extras = parseExtraFees(student?.extra_fees ?? student?.extraFees);
+  const classAmount = roundMoney(Number(classFee) || 0);
+  if (extras.length) {
+    const charges = [];
+    if (classAmount > 0) charges.push({ label: 'Term fee', amount: classAmount });
+    extras.forEach((row, index) => {
+      const unnamed = row.label === DEFAULT_EXTRA_FEE_LABEL;
+      charges.push({
+        label: unnamed && extras.length > 1 ? `Extra ${index + 1}` : row.label,
+        amount: row.amount,
+      });
+    });
+    return charges;
+  }
+  const personal = Number(student?.monthly_fee);
+  if (Number.isFinite(personal) && personal > 0) {
+    return [{ label: 'Term fee', amount: roundMoney(personal) }];
+  }
+  if (classAmount > 0) return [{ label: 'Term fee', amount: classAmount }];
+  return [];
+}
+
 export function extraFeesJson(value) {
   const rows = parseExtraFees(value);
   return rows.length ? rows : null;

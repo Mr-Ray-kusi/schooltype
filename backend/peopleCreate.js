@@ -194,6 +194,7 @@ export async function createStaff(schoolId, body) {
     name,
     role,
     salary,
+    momo_phone: String(body.momo_phone || '').trim() || null,
     barcode,
     qr_code: barcode,
     secret_code: accessCode,
@@ -209,6 +210,7 @@ export async function createStaff(schoolId, body) {
     'photo_url',
     'barcode',
     'qr_code',
+    'momo_phone',
   ]);
   if (error) throw error;
   return { ...data, secret_code: data.secret_code || accessCode, secretCode: data.secret_code || accessCode };
@@ -222,10 +224,14 @@ export async function createNonStaff(schoolId, body) {
     throw error;
   }
   const barcode = `${schoolId}-NONSTAFF-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+  const salaryRaw = String(body.salary ?? '').trim().replace(/[,\s]/g, '');
+  const salaryAmount = Number(salaryRaw);
   const record = {
     school_id: schoolId,
     name,
     role: String(body.role || '').trim() || null,
+    salary: salaryRaw && Number.isFinite(salaryAmount) && salaryAmount > 0 ? Math.round(salaryAmount * 100) / 100 : null,
+    momo_phone: String(body.momo_phone || '').trim() || null,
     barcode,
     qr_code: barcode,
     created_at: new Date(),
@@ -234,6 +240,8 @@ export async function createNonStaff(schoolId, body) {
     'photo_url',
     'barcode',
     'qr_code',
+    'salary',
+    'momo_phone',
   ]);
   if (error) throw error;
   return data;

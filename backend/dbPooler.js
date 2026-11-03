@@ -106,6 +106,9 @@ export async function ensureStudentProfileColumns() {
     await client.connect();
     await client.query('ALTER TABLE students ADD COLUMN IF NOT EXISTS gender TEXT');
     await client.query('ALTER TABLE students ADD COLUMN IF NOT EXISTS extra_fees TEXT');
+    await client.query('ALTER TABLE staffs ADD COLUMN IF NOT EXISTS momo_phone TEXT');
+    await client.query('ALTER TABLE nonstaffs ADD COLUMN IF NOT EXISTS momo_phone TEXT');
+    await client.query('ALTER TABLE nonstaffs ADD COLUMN IF NOT EXISTS salary NUMERIC');
     try {
       await client.query("NOTIFY pgrst, 'reload schema'");
     } catch {

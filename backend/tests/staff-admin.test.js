@@ -39,7 +39,7 @@ test('administrator and accountant records are protected from other staff', () =
   assert.equal(isProtectedStaffRole('Teacher'), false);
 });
 
-test('staff administrator can use academic APIs and not wallet transfers', () => {
+test('staff administrator can use academic APIs and salary payments, not wallet transfers', () => {
   const admin = { role: 'Administrator' };
   assert.equal(staffPortalApiAllowed(admin, { method: 'POST', path: '/api/students' }).ok, true);
   assert.equal(staffPortalApiAllowed(admin, { method: 'PUT', path: '/api/classes/1' }).ok, true);
@@ -50,7 +50,13 @@ test('staff administrator can use academic APIs and not wallet transfers', () =>
   assert.equal(staffPortalApiAllowed(admin, { method: 'POST', path: '/api/scanner/regenerate' }).ok, true);
   assert.equal(staffPortalApiAllowed(admin, { method: 'GET', path: '/api/staff-portal/link' }).ok, true);
   assert.equal(staffPortalApiAllowed(admin, { method: 'POST', path: '/api/staff-portal/regenerate' }).ok, true);
+  assert.equal(staffPortalApiAllowed(admin, { method: 'GET', path: '/api/payroll' }).ok, true);
+  assert.equal(staffPortalApiAllowed(admin, { method: 'POST', path: '/api/payroll/pay' }).ok, true);
+  assert.equal(staffPortalApiAllowed(admin, { method: 'POST', path: '/api/payroll/pay-all' }).ok, true);
+  assert.equal(staffPortalApiAllowed(admin, { method: 'PATCH', path: '/api/payroll/phone' }).ok, true);
+  assert.equal(staffPortalApiAllowed(admin, { method: 'GET', path: '/api/wallet' }).ok, true);
   assert.equal(staffPortalApiAllowed(admin, { method: 'POST', path: '/api/wallet/deposit' }).ok, false);
+  assert.equal(staffPortalApiAllowed(admin, { method: 'POST', path: '/api/wallet/withdraw' }).ok, false);
 });
 
 test('accountant can manage fees and view wallet but cannot deposit or withdraw', () => {
@@ -61,5 +67,9 @@ test('accountant can manage fees and view wallet but cannot deposit or withdraw'
   assert.equal(staffPortalApiAllowed(accountant, { method: 'GET', path: '/api/wallet' }).ok, true);
   assert.equal(staffPortalApiAllowed(accountant, { method: 'POST', path: '/api/wallet/deposit' }).ok, false);
   assert.equal(staffPortalApiAllowed(accountant, { method: 'POST', path: '/api/wallet/withdraw' }).ok, false);
+  assert.equal(staffPortalApiAllowed(accountant, { method: 'GET', path: '/api/payroll' }).ok, true);
+  assert.equal(staffPortalApiAllowed(accountant, { method: 'POST', path: '/api/payroll/pay' }).ok, false);
+  assert.equal(staffPortalApiAllowed(accountant, { method: 'POST', path: '/api/payroll/pay-all' }).ok, false);
+  assert.equal(staffPortalApiAllowed(accountant, { method: 'PATCH', path: '/api/payroll/phone' }).ok, false);
   assert.equal(staffPortalApiAllowed(accountant, { method: 'POST', path: '/api/students' }).ok, false);
 });

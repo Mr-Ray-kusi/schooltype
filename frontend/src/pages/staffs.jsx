@@ -92,6 +92,7 @@ const Staff = () => {
     name: '',
     role: '',
     salary: '',
+    momo_phone: '',
     secretCode: '',
     subjects: [],
     classNames: [],
@@ -99,6 +100,8 @@ const Staff = () => {
   const [nonStaffForm, setNonStaffForm] = useState({
     name: '',
     role: '',
+    salary: '',
+    momo_phone: '',
   });
   const [peopleFilter, setPeopleFilter] = useState(canStaff ? 'staff' : 'non-staff');
   const [setupSubjects, setSetupSubjects] = useState([]);
@@ -234,6 +237,7 @@ const Staff = () => {
       name: '',
       role: '',
       salary: '',
+      momo_phone: '',
       secretCode: generateStrongPassword(16),
       subjects: [],
       classNames: [],
@@ -242,7 +246,7 @@ const Staff = () => {
   };
 
   const resetNonStaffForm = () => {
-    setNonStaffForm({ name: '', role: '' });
+    setNonStaffForm({ name: '', role: '', salary: '', momo_phone: '' });
     setEditingNonStaff(null);
   };
 
@@ -257,6 +261,7 @@ const Staff = () => {
       const payload = {
         ...staffForm,
         salary: salaryAmount,
+        momo_phone: String(staffForm.momo_phone || '').trim(),
         subjects: staffForm.subjects.join(', '),
         classNames: staffForm.classNames.join(', '),
         secretCode: staffForm.secretCode || generateSecretCode(),
@@ -269,7 +274,7 @@ const Staff = () => {
         resetStaffForm();
         invalidateCache('staff');
         invalidateCache('dashboard');
-        fetchPeople();
+        await fetchPeople({ force: true });
         return;
       }
       const { data } = await axios.post('/api/staff', payload);
@@ -295,7 +300,10 @@ const Staff = () => {
   const handleNonStaffSubmit = async (e) => {
     e.preventDefault();
     try {
-      const payload = { ...nonStaffForm };
+      const payload = {
+        ...nonStaffForm,
+        momo_phone: String(nonStaffForm.momo_phone || '').trim(),
+      };
       if (editingNonStaff) {
         await axios.put(`/api/non-staff/${editingNonStaff.id}`, payload);
         toast.success('Non-staff updated');
@@ -304,7 +312,7 @@ const Staff = () => {
         invalidateCache('non-staff');
         invalidateCache('staff');
         invalidateCache('dashboard');
-        fetchPeople();
+        await fetchPeople({ force: true });
         return;
       }
       const { data } = await axios.post('/api/non-staff', payload);
@@ -392,30 +400,36 @@ const Staff = () => {
     );
   };
 
-  const handleEdit = (person) => {
+  const handleEdit = async (person) => {
     if (embed.embedded && isProtectedStaffPerson(person)) {
       toast.error('Only the school account can edit the administrator or accountant.');
       return;
     }
     setViewingPerson(null);
+    const url = person.kind === 'staff' ? `/api/staff/${person.id}` : `/api/non-staff/${person.id}`;
+    const full = await fetchRecord(axios, url, person);
+    const row = { ...person, ...full };
     if (person.kind === 'staff') {
       fetchSetupOptions();
-      setEditingStaff(person);
+      setEditingStaff(row);
       setStaffForm({
-        name: person.name,
-        role: person.role || '',
-        salary: person.salary != null && person.salary !== '' ? String(person.salary) : '',
-        secretCode: person.secretCode || person.secret_code || generateSecretCode(),
-        subjects: parseCsvList(person.subjects),
-        classNames: parseCsvList(person.classNames || person.class_names),
+        name: row.name,
+        role: row.role || '',
+        salary: row.salary != null && row.salary !== '' ? String(row.salary) : '',
+        momo_phone: row.momo_phone || '',
+        secretCode: row.secretCode || row.secret_code || generateSecretCode(),
+        subjects: parseCsvList(row.subjects),
+        classNames: parseCsvList(row.classNames || row.class_names),
       });
       setShowStaffModal(true);
       return;
     }
-    setEditingNonStaff(person);
+    setEditingNonStaff(row);
     setNonStaffForm({
-      name: person.name,
-      role: person.role || '',
+      name: row.name,
+      role: row.role || '',
+      salary: row.salary != null && row.salary !== '' ? String(row.salary) : '',
+      momo_phone: row.momo_phone || '',
     });
     setShowNonStaffModal(true);
   };
@@ -621,6 +635,11 @@ const Staff = () => {
                           })}`
                         : '',
                   },
+                  {
+                    group: 'Assignment',
+                    label: 'MoMo number',
+                    value: viewingStaff.momo_phone,
+                  },
                   ...(String(viewingStaff.role || '').toLowerCase() === 'teacher'
                     ? [
                         { group: 'Assignment', label: 'Subjects', value: viewingStaff.subjects },
@@ -641,6 +660,22 @@ const Staff = () => {
               : [
                   { group: 'Assignment', label: 'Type', value: 'Non-staff' },
                   { group: 'Assignment', label: 'Role', value: viewingPerson?.role },
+                  {
+                    group: 'Assignment',
+                    label: 'Salary',
+                    value:
+                      viewingPerson?.salary != null && viewingPerson.salary !== ''
+                        ? `GHS ${Number(viewingPerson.salary).toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}`
+                        : '',
+                  },
+                  {
+                    group: 'Assignment',
+                    label: 'MoMo number',
+                    value: viewingPerson?.momo_phone,
+                  },
                 ]
           }
           onClose={() => setViewingPerson(null)}
@@ -729,6 +764,20 @@ const Staff = () => {
                     required
                     placeholder="e.g., 2500"
                   />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-200 mb-2">MoMo number</label>
+                  <input
+                    type="tel"
+                    value={staffForm.momo_phone}
+                    onChange={(e) => setStaffForm({ ...staffForm, momo_phone: e.target.value })}
+                    className="w-full px-4 py-2 border border-slate-500 rounded-lg text-slate-50"
+                    placeholder="024xxxxxxx"
+                  />
+                  <p className="mt-1 text-xs text-slate-400">
+                    Optional. Staff can also save this on the staff portal so it fills Payments.
+                  </p>
                 </div>
 
                 <div>
@@ -870,6 +919,33 @@ const Staff = () => {
                       </option>
                     ))}
                   </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-200 mb-2">Monthly salary (GHS)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={nonStaffForm.salary}
+                    onChange={(e) => setNonStaffForm({ ...nonStaffForm, salary: e.target.value })}
+                    className="w-full px-4 py-2 border border-slate-500 rounded-lg text-slate-50"
+                    placeholder="e.g., 1200"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-200 mb-2">MoMo number</label>
+                  <input
+                    type="tel"
+                    value={nonStaffForm.momo_phone}
+                    onChange={(e) => setNonStaffForm({ ...nonStaffForm, momo_phone: e.target.value })}
+                    className="w-full px-4 py-2 border border-slate-500 rounded-lg text-slate-50"
+                    placeholder="024xxxxxxx"
+                  />
+                  <p className="mt-1 text-xs text-slate-400">
+                    Non-staff have no portal. Enter their MoMo number here so it shows on Payments.
+                  </p>
                 </div>
 
                 {!editingNonStaff && (

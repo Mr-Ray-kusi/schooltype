@@ -2,10 +2,17 @@ import jwt from 'jsonwebtoken';
 import { platformSupabase, supabase } from './supabaseClient.js';
 import { mergeSchoolWithExtras, schoolHasPaidPlan } from './schoolPlanStore.js';
 import { getSubscriptionInfo } from './subscription.js';
-import { listAcademicTerms } from './academicTerms.js';
+import { formatPeriodLabel, listAcademicTerms, resolveFeePeriod } from './academicTerms.js';
 import { academicPeriodFromDate } from './classHierarchy.js';
 import { inspectScoreLock, loadScoreLocks } from './scorePublishStore.js';
-import { extraFeesTotal, getClassFeeAmount, isSuccessfulFeeStatus, resolveStudentFeeAmount, roundMoney } from './feePayments.js';
+import {
+  extraFeesTotal,
+  getClassFeeAmount,
+  isSuccessfulFeeStatus,
+  listStudentFeeCharges,
+  resolveStudentFeeAmount,
+  roundMoney,
+} from './feePayments.js';
 import { sendSmsBatch } from './smsProvider.js';
 import { consumeSchoolAndPlatformUnits, refundSchoolAndPlatformUnits } from './platformSmsStore.js';
 import {
@@ -414,11 +421,14 @@ export function registerStudentPortalRoutes(app, { authenticateToken }) {
         }
       }
 
-      const [classFee, card] = await Promise.all([
+      const [classFee, card, period] = await Promise.all([
         getClassFeeAmount(schoolId, student.class),
         publicSchoolCard(schoolId),
+        resolveFeePeriod(schoolId).catch(() => null),
       ]);
       const billed = resolveStudentFeeAmount(student, classFee);
+      const charges = listStudentFeeCharges(student, classFee);
+      if (!charges.length && billed > 0) charges.push({ label: 'Term fee', amount: billed });
       let payments = [];
       const { data: feeRows, error: feeError } = await supabase
         .from('fee_payments')
@@ -448,6 +458,9 @@ export function registerStudentPortalRoutes(app, { authenticateToken }) {
           paid,
           outstanding: roundMoney(Math.max(0, billed - paid)),
           currency: String(card?.fee_currency || 'GHS').toUpperCase(),
+          term: period?.name || '',
+          period_label: formatPeriodLabel(period) || period?.name || '',
+          charges,
           pay_path: (() => {
             const payCode = student.barcode || student.roll_number;
             if (!payCode) return '/fees';

@@ -15,6 +15,7 @@ import {
   DollarSign,
   Lock,
   Wallet,
+  Banknote,
   Mail,
   Bell,
   Activity,
@@ -129,6 +130,7 @@ const Layout = ({ children }) => {
       title: 'Finance',
       items: [
         { name: 'School Wallet', href: '/school-wallet', icon: Wallet, featureKey: 'school-wallet' },
+        { name: 'Payments', href: '/payments', icon: Banknote, featureKeys: ['payments', 'school-wallet'] },
         { name: 'Fees', href: '/fees-paid', icon: DollarSign, featureKeys: ['fees-paid'] },
       ],
     },
@@ -213,6 +215,8 @@ const Layout = ({ children }) => {
   }, [allNavItems, location, youOpen, isSuperAdmin, school?.name]);
 
   const isAttendance = location.pathname === '/attendance';
+  const isPayments = location.pathname === '/payments';
+  const lockPageHeight = isAttendance || isPayments;
   const dark = !liteMode;
   const circleBtn = dark
     ? 'flex h-11 w-11 items-center justify-center rounded-full bg-[#2a2a2e] text-white'
@@ -559,7 +563,7 @@ const Layout = ({ children }) => {
       <div className="min-w-0 lg:ml-64">
         <main className="w-full min-w-0 max-w-full overflow-x-clip p-4 pb-[calc(6.5rem+env(safe-area-inset-bottom))] pt-[calc(4.35rem+env(safe-area-inset-top))] sm:p-6 sm:pb-[calc(6.5rem+env(safe-area-inset-bottom))] lg:pb-6 lg:pt-6">
           <OfflineBanner />
-          <div className={isAttendance ? 'h-[min(70dvh,40rem)] min-h-[22rem] sm:min-h-[28rem]' : undefined}>
+          <div className={lockPageHeight ? 'h-[min(70dvh,40rem)] min-h-[22rem] sm:min-h-[28rem]' : undefined}>
             {children ?? <Outlet />}
           </div>
         </main>
