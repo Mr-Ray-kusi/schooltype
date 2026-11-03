@@ -3275,6 +3275,54 @@ const fillSchoolTermAttendance = async (schoolId, from, to, people) => {
   return inserted;
 };
 
+const shiftSchoolDate = (ymd, days) => {
+  const cursor = new Date(`${ymd}T12:00:00.000Z`);
+  cursor.setUTCDate(cursor.getUTCDate() + days);
+  return cursor.toISOString().slice(0, 10);
+};
+
+/** Fill weekdays the school never opened the app for, then keep today current. */
+const backfillMissedAttendance = async (schoolId) => {
+  if (!schoolId) return 0;
+  const today = schoolLocalDate();
+  const stampKey = `att-backfill:${schoolId}:${today}`;
+  if (cacheGet(stampKey)) {
+    return ensureUnscannedStudentsMarkedLate(schoolId, today);
+  }
+
+  const people = await loadSchoolPeopleForAttendance(schoolId);
+  if (!people.length) {
+    cacheSet(stampKey, 1, 60 * 60 * 1000);
+    return 0;
+  }
+
+  const terms = await listAcademicTerms(schoolId).catch(() => []);
+  const earliest = shiftSchoolDate(today, -120);
+  const windows = [];
+  for (const term of terms || []) {
+    const start = String(term.starts_on || '').slice(0, 10);
+    let end = String(term.ends_on || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || start > today) continue;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(end) || end > today) end = today;
+    const from = start < earliest ? earliest : start;
+    if (end >= from) windows.push([from, end]);
+  }
+  if (!windows.length) {
+    const period = await resolveFeePeriod(schoolId).catch(() => null);
+    const window = attendanceWindow(period, today);
+    const from = window.from < earliest ? earliest : window.from;
+    windows.push([from, window.to]);
+  }
+
+  let inserted = 0;
+  for (const [from, to] of windows) {
+    inserted += await fillSchoolTermAttendance(schoolId, from, to, people);
+  }
+  inserted += await ensureUnscannedStudentsMarkedLate(schoolId, today, { people });
+  cacheSet(stampKey, 1, 6 * 60 * 60 * 1000);
+  return inserted;
+};
+
 app.post('/api/telemetry', authenticateToken, async (req, res) => {
   try {
     if (req.user.role === 'super_admin') {
@@ -6207,7 +6255,7 @@ app.get('/api/attendance', authenticateToken, enforcePlanApproval, async (req, r
     cacheSet(dayKey, roster, 15000);
     res.json(roster);
 
-    void ensureUnscannedStudentsMarkedLate(req.user.schoolId, selectedDate, { people });
+    void backfillMissedAttendance(req.user.schoolId);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -7552,7 +7600,6 @@ if (!isVercel()) {
     setInterval(runReminders, 24 * 60 * 60 * 1000);
 
     const sweepAbsences = async () => {
-      const today = schoolLocalDate();
       const { data: schools, error } = await supabase.from('schools').select('id').limit(400);
       if (error) {
         console.warn('Absence sweep school list failed:', error.message);
@@ -7560,7 +7607,7 @@ if (!isVercel()) {
       }
       for (const school of schools || []) {
         try {
-          await ensureUnscannedStudentsMarkedLate(school.id, today);
+          await backfillMissedAttendance(school.id);
         } catch (err) {
           console.warn(`Absence sweep failed for ${school.id}:`, err.message);
         }

@@ -3,6 +3,7 @@ import { platformSupabase, supabase } from './supabaseClient.js';
 import { mergeSchoolWithExtras, schoolHasPaidPlan } from './schoolPlanStore.js';
 import { getSubscriptionInfo } from './subscription.js';
 import { listAcademicTerms } from './academicTerms.js';
+import { academicPeriodFromDate } from './classHierarchy.js';
 import { inspectScoreLock, loadScoreLocks } from './scorePublishStore.js';
 import { extraFeesTotal, getClassFeeAmount, isSuccessfulFeeStatus, resolveStudentFeeAmount, roundMoney } from './feePayments.js';
 import { sendSmsBatch } from './smsProvider.js';
@@ -115,9 +116,139 @@ async function termCatalog(schoolId) {
   }));
 }
 
-function chosenTerm(terms, termId) {
-  if (!terms.length) return null;
-  return terms.find((term) => String(term.id) === String(termId)) || terms[terms.length - 1];
+function emptyAttendance() {
+  return { summary: { days: 0, present: 0, late: 0, absent: 0 }, records: [] };
+}
+
+function attendanceFromRows(rows) {
+  const records = (rows || []).map((row) => {
+    const mark = String(row.punctuality || row.status || '').toLowerCase();
+    const status = mark === 'late' ? 'late' : mark === 'absent' ? 'absent' : 'present';
+    return { date: String(row.date || '').slice(0, 10), status };
+  });
+  return {
+    summary: {
+      days: records.length,
+      present: records.filter((row) => row.status === 'present').length,
+      late: records.filter((row) => row.status === 'late').length,
+      absent: records.filter((row) => row.status === 'absent').length,
+    },
+    records,
+  };
+}
+
+function scoreRowsForStudent(rows, student) {
+  return (rows || [])
+    .filter((row) => !row.class_name || row.class_name === student.class)
+    .map((row) => {
+      const score = Number(row.score);
+      const max = Number(row.max_score) || 100;
+      const percent = Number.isFinite(score) && max > 0 ? Math.round((score / max) * 1000) / 10 : null;
+      return {
+        subject: row.subject,
+        score: Number.isFinite(score) ? score : null,
+        max_score: max,
+        percent,
+        remark: row.remark || '',
+        attitude: row.attitude || '',
+      };
+    });
+}
+
+function groupPublishedTerms(terms, student, locks, scoreRows, attendanceRows) {
+  const ordered = [...(terms || [])].sort((a, b) => {
+    const start = String(a.starts_on || '').localeCompare(String(b.starts_on || ''));
+    if (start) return start;
+    return Number(a.sort_order || 0) - Number(b.sort_order || 0);
+  });
+  const groups = new Map();
+  for (const term of ordered) {
+    const name = String(term.name || '');
+    const published = name
+      ? inspectScoreLock(locks, { term: name, className: student.class }).published
+      : false;
+    const period = academicPeriodFromDate(term.starts_on || term.ends_on, terms);
+    const academicYear = period?.academicYear || 'Academic year';
+    const start = String(term.starts_on || '').slice(0, 10);
+    const end = String(term.ends_on || '').slice(0, 10);
+    const subjects = published
+      ? scoreRowsForStudent(
+          scoreRows.filter((row) => String(row.term || '') === name),
+          student
+        )
+      : [];
+    const inTerm =
+      published && /^\d{4}-\d{2}-\d{2}$/.test(start)
+        ? attendanceRows.filter((row) => {
+            const day = String(row.date || '').slice(0, 10);
+            if (day < start) return false;
+            if (/^\d{4}-\d{2}-\d{2}$/.test(end) && day > end) return false;
+            return true;
+          })
+        : [];
+    const entry = {
+      id: term.id,
+      name,
+      starts_on: start || null,
+      ends_on: end || null,
+      published,
+      subjects,
+      attendance: published ? attendanceFromRows(inTerm) : emptyAttendance(),
+    };
+    const list = groups.get(academicYear) || [];
+    list.push(entry);
+    groups.set(academicYear, list);
+  }
+  return [...groups.entries()].map(([academicYear, termRows]) => ({ academicYear, terms: termRows }));
+}
+
+async function classStanding(schoolId, student, termName) {
+  const className = String(student.class || '').trim().toLowerCase();
+  const { data: classmates, error: classError } = await supabase
+    .from('students')
+    .select('id, class')
+    .eq('school_id', schoolId);
+  if (classError && classError.code !== '42P01') throw classError;
+  const classIds = new Set(
+    (classmates || [])
+      .filter((row) => String(row.class || '').trim().toLowerCase() === className)
+      .map((row) => String(row.id))
+  );
+  if (student.id) classIds.add(String(student.id));
+
+  const { data: scoreRows, error } = await supabase
+    .from('student_scores')
+    .select('student_id, score, class_name, term')
+    .eq('school_id', schoolId)
+    .eq('term', termName);
+  if (error && error.code !== '42P01') throw error;
+
+  const totals = new Map();
+  for (const row of scoreRows || []) {
+    const classLabel = String(row.class_name || '').trim().toLowerCase();
+    if (classLabel && classLabel !== className) continue;
+    const id = String(row.student_id || '');
+    if (!id || !classIds.has(id)) continue;
+    totals.set(id, (totals.get(id) || 0) + (Number(row.score) || 0));
+  }
+  for (const id of classIds) {
+    if (!totals.has(id)) totals.set(id, 0);
+  }
+
+  const ranked = [...totals.entries()].sort((a, b) => b[1] - a[1]);
+  let position = null;
+  let place = 0;
+  let last = null;
+  for (let index = 0; index < ranked.length; index += 1) {
+    const [id, total] = ranked[index];
+    if (total !== last) {
+      place = index + 1;
+      last = total;
+    }
+    if (id === String(student.id)) position = place;
+  }
+
+  return { classSize: classIds.size, position };
 }
 
 export function registerStudentPortalRoutes(app, { authenticateToken }) {
@@ -228,99 +359,83 @@ export function registerStudentPortalRoutes(app, { authenticateToken }) {
       const student = await loadOwnedStudent(req.studentPortal);
       if (!student) return res.status(401).json({ error: 'Your portal session has ended. Sign in again.' });
       const schoolId = req.studentPortal.schoolId;
+      if (String(student.school_id) !== String(schoolId) || String(student.id) !== String(req.studentPortal.studentId)) {
+        return res.status(401).json({ error: 'Your portal session has ended. Sign in again.' });
+      }
       const terms = await termCatalog(schoolId);
-      const term = chosenTerm(terms, req.query.termId);
-      const termName = term?.name || '';
-
       const locks = await loadScoreLocks(schoolId);
-      const published = termName
-        ? inspectScoreLock(locks.locks, { term: termName, className: student.class }).published
-        : false;
+      const publishedNames = new Set(
+        terms
+          .filter((term) =>
+            inspectScoreLock(locks.locks, { term: term.name, className: student.class }).published
+          )
+          .map((term) => String(term.name || ''))
+      );
 
-      let subjects = [];
-      if (published) {
+      let scoreRows = [];
+      if (publishedNames.size) {
         const { data, error } = await supabase
           .from('student_scores')
           .select('subject, score, max_score, remark, attitude, term, class_name')
           .eq('school_id', schoolId)
-          .eq('student_id', student.id)
-          .eq('term', termName);
+          .eq('student_id', student.id);
         if (error && error.code !== '42P01') throw error;
-        subjects = (data || [])
-          .filter((row) => !row.class_name || row.class_name === student.class)
-          .map((row) => {
-            const score = Number(row.score);
-            const max = Number(row.max_score) || 100;
-            const percent = Number.isFinite(score) && max > 0 ? Math.round((score / max) * 1000) / 10 : null;
-            return {
-              subject: row.subject,
-              score: Number.isFinite(score) ? score : null,
-              max_score: max,
-              percent,
-              remark: row.remark || '',
-              attitude: row.attitude || '',
-            };
-          });
+        scoreRows = (data || []).filter((row) => publishedNames.has(String(row.term || '')));
       }
 
-      let attendance = { summary: { days: 0, present: 0, late: 0, absent: 0 }, records: [] };
-      if (term?.starts_on && term?.ends_on) {
+      let attendanceRows = [];
+      if (publishedNames.size) {
         const { data, error } = await supabase
           .from('attendance')
-          .select('date, status, punctuality')
+          .select('date, status')
           .eq('school_id', schoolId)
           .eq('user_id', student.id)
           .eq('user_type', 'student')
-          .gte('date', term.starts_on)
-          .lte('date', term.ends_on)
-          .order('date', { ascending: true });
+          .order('date', { ascending: true })
+          .limit(800);
         if (error && error.code !== '42P01') throw error;
-        const records = (data || []).map((row) => {
-          const mark = String(row.punctuality || row.status || '').toLowerCase();
-          const status = mark === 'late' ? 'late' : mark === 'absent' ? 'absent' : 'present';
-          return { date: row.date, status };
-        });
-        attendance = {
-          summary: {
-            days: records.length,
-            present: records.filter((row) => row.status === 'present').length,
-            late: records.filter((row) => row.status === 'late').length,
-            absent: records.filter((row) => row.status === 'absent').length,
-          },
-          records,
-        };
+        attendanceRows = data || [];
+      }
+
+      const years = groupPublishedTerms(terms, student, locks.locks, scoreRows, attendanceRows);
+      for (const year of years) {
+        for (const term of year.terms) {
+          if (!term.published) {
+            term.classSize = null;
+            term.position = null;
+            continue;
+          }
+          const standing = await classStanding(schoolId, student, term.name);
+          term.classSize = standing.classSize;
+          term.position = standing.position;
+        }
       }
 
       const classFee = await getClassFeeAmount(schoolId, student.class);
       const billed = resolveStudentFeeAmount(student, classFee);
       let payments = [];
-      if (term?.id) {
-        const { data, error } = await supabase
-          .from('fee_payments')
-          .select('id, amount, status, channel, payment_method, payment_reference, payment_month, created_at')
-          .eq('school_id', schoolId)
-          .eq('payer_id', student.id)
-          .eq('payment_month', term.id)
-          .order('created_at', { ascending: false });
-        if (error && error.code !== '42P01') throw error;
-        payments = (data || []).map((row) => ({
-          id: row.id,
-          amount: roundMoney(row.amount),
-          status: row.status,
-          channel: row.channel || row.payment_method || '',
-          reference: row.payment_reference || '',
-          created_at: row.created_at,
-          paid: isSuccessfulFeeStatus(row.status),
-        }));
-      }
+      const { data: feeRows, error: feeError } = await supabase
+        .from('fee_payments')
+        .select('id, amount, status, channel, payment_method, payment_reference, created_at')
+        .eq('school_id', schoolId)
+        .eq('payer_id', student.id)
+        .order('created_at', { ascending: false })
+        .limit(100);
+      if (feeError && feeError.code !== '42P01') throw feeError;
+      payments = (feeRows || []).map((row) => ({
+        id: row.id,
+        amount: roundMoney(row.amount),
+        status: row.status,
+        channel: row.channel || row.payment_method || '',
+        reference: row.payment_reference || '',
+        created_at: row.created_at,
+        paid: isSuccessfulFeeStatus(row.status),
+      }));
       const paid = roundMoney(payments.filter((row) => row.paid).reduce((sum, row) => sum + row.amount, 0));
 
       res.json({
-        term,
-        terms,
         today: todayAccra(),
-        reports: { published, subjects },
-        attendance,
+        years,
         fees: {
           billed,
           extra: extraFeesTotal(student),

@@ -1,17 +1,16 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
-import { AlertTriangle, ChevronDown, Clock, Download, Printer, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { AlertTriangle, ChevronDown, Clock, Download, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { cachedGet, invalidateCache, peekCache, staleGet } from '../utils/requestCache';
 import { schoolLocalDate } from '../utils/schoolDate';
 import { useLivePoll } from '../hooks/useLivePoll';
 import { useAuth } from '../contexts/authcontext';
-import { useStaffEmbed } from '../contexts/staffEmbed';
 import { downloadAllStudentAttendanceZip, downloadTermAttendancePdf } from '../utils/attendanceTermPdf';
 import PaginationBar from '../components/PaginationBar';
 
-const ATTENDANCE_PAGE_SIZE = 25;
+const ATTENDANCE_ROW_HEIGHT = 56;
 const TERM_DAY_PAGE_SIZE = 31;
 
 const fieldClass =
@@ -221,7 +220,6 @@ const TermRecords = ({
 
 const Attendance = () => {
   const { school } = useAuth();
-  const { embedded } = useStaffEmbed();
   const [attendanceRecords, setAttendanceRecords] = useState([]);
   const [openKey, setOpenKey] = useState(null);
   const [termCache, setTermCache] = useState({});
@@ -238,6 +236,8 @@ const Attendance = () => {
   const [deletingKey, setDeletingKey] = useState(null);
   const [bulkBusy, setBulkBusy] = useState('');
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(8);
+  const listRef = useRef(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchLateSettings = async () => {
@@ -382,11 +382,25 @@ const Attendance = () => {
     setPage(1);
   }, [selectedType, selectedClass, searchQuery, selectedDate]);
 
-  const pageCount = Math.max(1, Math.ceil(filteredRecords.length / ATTENDANCE_PAGE_SIZE));
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el) return undefined;
+    const measure = () => {
+      const extra = openKey ? 220 : 0;
+      const next = Math.max(1, Math.floor((el.clientHeight - extra) / ATTENDANCE_ROW_HEIGHT));
+      setPageSize((current) => (current === next ? current : next));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [openKey, filteredRecords.length]);
+
+  const pageCount = Math.max(1, Math.ceil(filteredRecords.length / pageSize));
   const safePage = Math.min(page, pageCount);
   const pagedRecords = useMemo(
-    () => filteredRecords.slice((safePage - 1) * ATTENDANCE_PAGE_SIZE, safePage * ATTENDANCE_PAGE_SIZE),
-    [filteredRecords, safePage]
+    () => filteredRecords.slice((safePage - 1) * pageSize, safePage * pageSize),
+    [filteredRecords, safePage, pageSize]
   );
 
   const refresh = async () => {
@@ -431,28 +445,6 @@ const Attendance = () => {
       toast.error(error.response?.data?.error || 'Could not delete these records');
     } finally {
       setDeletingKey(null);
-    }
-  };
-
-  const deleteAllStudentRecords = async () => {
-    if (
-      !window.confirm(
-        'Delete every student’s attendance records? Staff and non-staff records stay. This cannot be undone.'
-      )
-    ) {
-      return;
-    }
-    setBulkBusy('delete');
-    try {
-      const { data } = await axios.delete('/api/attendance/students');
-      toast.success(`Deleted ${data?.deleted ?? 0} student attendance record(s).`);
-      setTermCache({});
-      setOpenKey(null);
-      refresh();
-    } catch (error) {
-      toast.error(error.response?.data?.error || 'Could not delete student attendance');
-    } finally {
-      setBulkBusy('');
     }
   };
 
@@ -601,14 +593,6 @@ const Attendance = () => {
           </button>
           <button
             type="button"
-            onClick={() => window.print()}
-            className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-slate-700 px-3 text-sm font-medium text-white hover:bg-slate-600"
-          >
-            <Printer className="h-3.5 w-3.5" />
-            Print
-          </button>
-          <button
-            type="button"
             disabled={Boolean(bulkBusy)}
             onClick={downloadAllStudentPdfs}
             className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-600 px-3 text-sm font-medium text-slate-100 hover:bg-slate-800 disabled:opacity-50"
@@ -624,17 +608,6 @@ const Attendance = () => {
                     ? 'PDFs'
                     : 'Student PDFs'}
           </button>
-          {embedded ? null : (
-            <button
-              type="button"
-              disabled={Boolean(bulkBusy)}
-              onClick={deleteAllStudentRecords}
-              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-rose-500/40 px-3 text-sm font-medium text-rose-200 hover:bg-rose-500/10 disabled:opacity-50"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              {bulkBusy === 'delete' ? 'Deleting…' : 'Delete all students'}
-            </button>
-          )}
         </div>
       </div>
 
@@ -699,7 +672,7 @@ const Attendance = () => {
         </button>
       </div>
 
-      <div className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-slate-700 bg-slate-800">
+      <div ref={listRef} className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-slate-700 bg-slate-800">
         {filteredRecords.length === 0 ? (
           <div className="flex h-full items-center justify-center px-4 text-center text-sm text-slate-400">
             {searchQuery.trim()
@@ -707,7 +680,7 @@ const Attendance = () => {
               : 'No students, staff, or non-staff for this date.'}
           </div>
         ) : (
-          <div className="h-full divide-y divide-slate-700 overflow-y-auto">
+          <div className="h-full divide-y divide-slate-700 overflow-hidden">
             {pagedRecords.map((record) => {
               const status = getPunctuality(record);
               const key = personKey(record);
@@ -759,7 +732,7 @@ const Attendance = () => {
           <PaginationBar
             page={safePage}
             total={filteredRecords.length}
-            limit={ATTENDANCE_PAGE_SIZE}
+            limit={pageSize}
             onPageChange={setPage}
           />
         </div>

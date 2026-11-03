@@ -378,55 +378,71 @@ const ReportCards = () => {
         </div>
       </div>
 
-      <section className="rounded-3xl border border-slate-700 bg-slate-800 p-6 shadow-xl">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <section className="rounded-3xl border border-slate-700 bg-slate-800 p-5 shadow-xl">
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold text-white">Filters</h2>
+            <p className="mt-1 text-sm text-slate-400">
+              The score list and the print list both follow the class, subject, and term you pick.
+            </p>
           </div>
-          <div className="grid w-full gap-3 sm:grid-cols-3 lg:max-w-3xl">
-            <label className="block text-sm text-slate-300">
-              Class
-              <select
-                value={selectedClass}
-                onChange={(e) => setSelectedClass(e.target.value)}
-                className="mt-1.5 w-full rounded-xl border border-slate-600 bg-slate-700 px-4 py-3 text-slate-50"
-              >
-                {classes.map((className) => (
-                  <option key={className} value={className}>
-                    {className === 'all' ? 'All classes' : className}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block text-sm text-slate-300">
-              Subject
-              <select
-                value={selectedSubject}
-                onChange={(e) => setSelectedSubject(e.target.value)}
-                className="mt-1.5 w-full rounded-xl border border-slate-600 bg-slate-700 px-4 py-3 text-slate-50"
-              >
-                {subjects.map((subject) => (
-                  <option key={subject} value={subject}>
-                    {subject === 'all' ? 'All subjects' : subject}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block text-sm text-slate-300">
-              Term
-              <select
-                value={selectedTerm}
-                onChange={(e) => setSelectedTerm(e.target.value)}
-                className="mt-1.5 w-full rounded-xl border border-slate-600 bg-slate-700 px-4 py-3 text-slate-50"
-              >
-                {terms.map((term) => (
-                  <option key={term} value={term}>
-                    {term === 'all' ? 'All terms' : term}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
+          {selectedClass !== 'all' || selectedSubject !== 'all' || selectedTerm !== 'all' ? (
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedClass('all');
+                setSelectedSubject('all');
+                setSelectedTerm('all');
+              }}
+              className="rounded-full border border-slate-600 px-3 py-1.5 text-sm font-semibold text-slate-200 hover:bg-slate-700"
+            >
+              Clear filters
+            </button>
+          ) : null}
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          <label className="block rounded-2xl border border-slate-700 bg-slate-900/70 p-3 text-sm text-slate-300">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Class</span>
+            <select
+              value={selectedClass}
+              onChange={(e) => setSelectedClass(e.target.value)}
+              className="mt-2 w-full rounded-xl border border-slate-600 bg-slate-950 px-3 py-2.5 text-slate-50"
+            >
+              {classes.map((className) => (
+                <option key={className} value={className}>
+                  {className === 'all' ? 'All classes' : className}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block rounded-2xl border border-slate-700 bg-slate-900/70 p-3 text-sm text-slate-300">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Subject</span>
+            <select
+              value={selectedSubject}
+              onChange={(e) => setSelectedSubject(e.target.value)}
+              className="mt-2 w-full rounded-xl border border-slate-600 bg-slate-950 px-3 py-2.5 text-slate-50"
+            >
+              {subjects.map((subject) => (
+                <option key={subject} value={subject}>
+                  {subject === 'all' ? 'All subjects' : subject}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block rounded-2xl border border-slate-700 bg-slate-900/70 p-3 text-sm text-slate-300">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Term</span>
+            <select
+              value={selectedTerm}
+              onChange={(e) => setSelectedTerm(e.target.value)}
+              className="mt-2 w-full rounded-xl border border-slate-600 bg-slate-950 px-3 py-2.5 text-slate-50"
+            >
+              {terms.map((term) => (
+                <option key={term} value={term}>
+                  {term === 'all' ? 'All terms' : term}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
 
         <div className="mt-8 grid gap-4 sm:grid-cols-3">
