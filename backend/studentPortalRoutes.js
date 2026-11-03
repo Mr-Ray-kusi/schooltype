@@ -88,7 +88,7 @@ async function findStudentByPortalId(schoolId, rawId) {
   if (!wanted) return null;
   const { data, error } = await supabase
     .from('students')
-    .select('id, name, class, roll_number, parent_phone, school_id, extra_fees, monthly_fee')
+    .select('id, name, class, roll_number, barcode, parent_phone, school_id, extra_fees, monthly_fee')
     .eq('school_id', schoolId)
     .ilike('roll_number', wanted)
     .maybeSingle();
@@ -99,7 +99,7 @@ async function findStudentByPortalId(schoolId, rawId) {
 async function loadOwnedStudent(portal) {
   const { data, error } = await supabase
     .from('students')
-    .select('id, name, class, roll_number, parent_phone, school_id, extra_fees, monthly_fee')
+    .select('id, name, class, roll_number, barcode, parent_phone, school_id, extra_fees, monthly_fee')
     .eq('id', portal.studentId)
     .eq('school_id', portal.schoolId)
     .maybeSingle();
@@ -327,6 +327,7 @@ export function registerStudentPortalRoutes(app, { authenticateToken }) {
           name: student.name,
           class: student.class,
           roll_number: student.roll_number,
+          barcode: student.barcode || student.roll_number || null,
         },
       });
     } catch (error) {
@@ -347,6 +348,7 @@ export function registerStudentPortalRoutes(app, { authenticateToken }) {
           name: student.name,
           class: student.class,
           roll_number: student.roll_number,
+          barcode: student.barcode || student.roll_number || null,
         },
         terms,
       });
@@ -446,6 +448,11 @@ export function registerStudentPortalRoutes(app, { authenticateToken }) {
           paid,
           outstanding: roundMoney(Math.max(0, billed - paid)),
           currency: String(card?.fee_currency || 'GHS').toUpperCase(),
+          pay_path: (() => {
+            const payCode = student.barcode || student.roll_number;
+            if (!payCode) return '/fees';
+            return `/fees?school=${encodeURIComponent(schoolId)}&student=${encodeURIComponent(payCode)}`;
+          })(),
           payments,
         },
       });

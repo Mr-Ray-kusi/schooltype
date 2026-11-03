@@ -325,8 +325,15 @@ async function ensureSchoolStudentId(student, school) {
 async function loadStudentFeeContext(barcode) {
   const code = String(barcode || '').trim();
   if (!code) return null;
-  const { data: student, error } = await supabase.from('students').select('*').eq('barcode', code).maybeSingle();
-  if (error || !student) return null;
+  const byBarcode = await supabase.from('students').select('*').eq('barcode', code).maybeSingle();
+  if (byBarcode.error) return null;
+  let student = byBarcode.data;
+  if (!student) {
+    const byRoll = await supabase.from('students').select('*').eq('roll_number', code).limit(2);
+    if (byRoll.error || !byRoll.data || byRoll.data.length !== 1) return null;
+    student = byRoll.data[0];
+  }
+  if (!student) return null;
   const [{ data: school }, classFee] = await Promise.all([
     supabase.from('schools').select('id, name, logo_url, email').eq('id', student.school_id).maybeSingle(),
     getClassFeeAmount(student.school_id, student.class),

@@ -681,8 +681,15 @@ const StudentPortal = () => {
                 const outstanding = Number(fees.outstanding || 0);
                 const payments = fees.payments || [];
                 const settled = billed > 0 && outstanding < 0.01;
+                const due = outstanding >= 0.01;
                 const statusLabel = billed <= 0 ? 'Not billed' : settled ? 'Paid' : paid > 0 ? 'Part paid' : 'Outstanding';
                 const statusClass = billed <= 0 ? '' : settled ? 'is-paid' : paid > 0 ? 'is-part' : 'is-due';
+                const payCode = session.student?.barcode || session.student?.roll_number;
+                const payPath =
+                  fees.pay_path ||
+                  (session.school?.id && payCode
+                    ? `/fees?school=${encodeURIComponent(session.school.id)}&student=${encodeURIComponent(payCode)}`
+                    : '/fees');
                 return (
                   <section className="portal-sheet">
                     <div className="portal-sheet-head">
@@ -698,11 +705,18 @@ const StudentPortal = () => {
                         <span>Paid</span>
                         <strong>{money(paid, currency)}</strong>
                       </div>
-                      <div className={`portal-fee-stat ${outstanding >= 0.01 ? 'is-due' : 'is-paid'}`}>
+                      <div className={`portal-fee-stat ${due ? 'is-due' : 'is-paid'}`}>
                         <span>Outstanding</span>
                         <strong>{money(outstanding, currency)}</strong>
                       </div>
                     </div>
+                    {due ? (
+                      <div className="portal-fee-actions">
+                        <Link to={payPath} className="portal-fee-pay">
+                          Pay fees
+                        </Link>
+                      </div>
+                    ) : null}
                     {payments.length ? (
                       <table>
                         <thead>

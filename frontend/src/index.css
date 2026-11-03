@@ -544,34 +544,47 @@ body:has(.portal-shell),
 }
 
 .portal-fee-stats {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.75rem;
-  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  margin: 1rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.8rem;
+  overflow: hidden;
+  background: #f8fafc;
 }
 
 .portal-fee-stat {
-  border: 1px solid #e2e8f0;
-  border-radius: 0.8rem;
-  background: #f8fafc;
-  padding: 0.85rem 0.9rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem;
+  border: 0;
+  border-bottom: 1px solid #e2e8f0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0.9rem 1rem;
+}
+
+.portal-fee-stat:last-child {
+  border-bottom: 0;
 }
 
 .portal-fee-stat span {
-  display: block;
+  flex: none;
   color: #64748b;
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
 .portal-fee-stat strong {
-  display: block;
-  margin-top: 0.4rem;
+  margin: 0;
   color: #0f172a;
   font-size: 1.05rem;
   font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 .portal-fee-stat.is-paid strong {
@@ -610,10 +623,26 @@ body:has(.portal-shell),
   line-height: 1.45;
 }
 
-@media (max-width: 720px) {
-  .portal-fee-stats {
-    grid-template-columns: 1fr;
-  }
+.portal-fee-actions {
+  padding: 0 1rem 1.15rem;
+}
+
+.portal-fee-pay {
+  display: flex;
+  width: 100%;
+  min-height: 2.85rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.7rem;
+  background: #1e1b4b;
+  color: #ffffff;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.portal-fee-pay:hover {
+  background: #312e81;
+  color: #ffffff;
 }
 
 .portal-sheet table {

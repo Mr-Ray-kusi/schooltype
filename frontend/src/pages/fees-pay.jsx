@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { ArrowLeft, Building2, CreditCard, Landmark, Loader2, Smartphone } from 'lucide-react';
 import MarketingChrome from '../components/MarketingChrome';
@@ -56,10 +56,13 @@ const formatCardExpiry = (value) => {
 
 const FeesPay = () => {
   const { barcode } = useParams();
-  const [step, setStep] = useState(barcode ? 2 : 1);
+  const [searchParams] = useSearchParams();
+  const querySchool = String(searchParams.get('school') || '').trim();
+  const queryStudent = String(searchParams.get('student') || '').trim();
+  const [step, setStep] = useState(barcode || (querySchool && queryStudent) ? 2 : 1);
   const [schools, setSchools] = useState([]);
-  const [schoolId, setSchoolId] = useState('');
-  const [studentId, setStudentId] = useState('');
+  const [schoolId, setSchoolId] = useState(querySchool);
+  const [studentId, setStudentId] = useState(queryStudent);
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState('momo');
   const [phone, setPhone] = useState('');
@@ -70,7 +73,7 @@ const FeesPay = () => {
   const [info, setInfo] = useState(null);
   const [error, setError] = useState('');
   const [loadingSchools, setLoadingSchools] = useState(!barcode);
-  const [lookingUp, setLookingUp] = useState(Boolean(barcode));
+  const [lookingUp, setLookingUp] = useState(Boolean(barcode || (querySchool && queryStudent)));
   const [paying, setPaying] = useState(false);
   const [momoPrompt, setMomoPrompt] = useState(null);
   const [otpCode, setOtpCode] = useState('');
@@ -140,6 +143,38 @@ const FeesPay = () => {
       cancelled = true;
     };
   }, [barcode]);
+
+  useEffect(() => {
+    if (barcode || !querySchool || !queryStudent) return undefined;
+    let cancelled = false;
+    const load = async () => {
+      setLookingUp(true);
+      setError('');
+      try {
+        const { data } = await axios.post('/api/public/fees/lookup', {
+          schoolId: querySchool,
+          studentId: queryStudent,
+        });
+        if (cancelled) return;
+        setInfo(data);
+        setSchoolId(data.school_id || querySchool);
+        setStudentId(displayStudentId(data) || queryStudent);
+        setAmount(data.outstanding > 0 ? String(data.outstanding) : data.amount > 0 ? String(data.amount) : '');
+        setStep(2);
+      } catch (err) {
+        if (!cancelled) {
+          setError(err.response?.data?.error || 'Could not find this student.');
+          setStep(1);
+        }
+      } finally {
+        if (!cancelled) setLookingUp(false);
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [barcode, querySchool, queryStudent]);
 
   useEffect(() => {
     const reference = momoPrompt?.reference;
