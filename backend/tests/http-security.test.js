@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { applyBaselineSecurityHeaders, corsOriginAllowed, safeClientError, sanitizePublicText } from '../httpSecurity.js';
+import {
+  applyBaselineSecurityHeaders,
+  corsOriginAllowed,
+  redactSecrets,
+  safeClientError,
+  sanitizePublicText,
+  sanitizeSearchTerm,
+  scrubErrorResponse,
+} from '../httpSecurity.js';
 
 test('API responses are not cached and do not advertise Express', () => {
   const headers = {};
@@ -38,4 +46,30 @@ test('safeClientError hides internal details', () => {
   const shown = safeClientError({ status: 400, message: 'Fill in your email' }, 'Request failed');
   assert.equal(shown.status, 400);
   assert.equal(shown.error, 'Fill in your email');
+});
+
+test('search text cannot change a PostgREST filter', () => {
+  const dirty = "Ama),(school_id.eq.00000000-0000-0000-0000-000000000000";
+  const safe = sanitizeSearchTerm(dirty);
+  assert.equal(safe.includes(','), false);
+  assert.equal(safe.includes('('), false);
+  assert.equal(safe.includes('.'), false);
+  assert.match(safe, /Ama/);
+});
+
+test('server errors do not return database text or secret keys', () => {
+  const leaked = scrubErrorResponse(
+    { error: 'duplicate key value violates unique constraint "students_pkey"' },
+    500
+  );
+  assert.equal(leaked.error, 'Request failed');
+
+  const secret = 'sk_live_' + 'abc123secretvalue';
+  const redacted = scrubErrorResponse({ error: `Paystack rejected ${secret}` }, 400);
+  assert.equal(redacted.error.includes('sk_live_'), false);
+  assert.match(redacted.error, /\[redacted\]/);
+
+  const kept = scrubErrorResponse({ error: 'Failed to load students' }, 500);
+  assert.equal(kept.error, 'Failed to load students');
+  assert.equal(redactSecrets('postgres://user:pass@host/db').includes('postgres://'), false);
 });

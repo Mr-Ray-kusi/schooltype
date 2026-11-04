@@ -152,6 +152,11 @@ export function sumFeePayments(payments) {
   );
 }
 
+export function shouldHoldPublishedResult({ published, termEnded, billed, outstanding }) {
+  if (!published || !termEnded) return false;
+  return Number(billed) >= 0.01 && Number(outstanding) >= 0.01;
+}
+
 export function buildFeeBalance({ feeAmount, payments }) {
   const due = roundMoney(feeAmount);
   const paidAmount = sumFeePayments(payments);

@@ -1,4 +1,5 @@
 import { fromMinorUnits, toMinorUnits } from './paystack.js';
+import { blockedByLimit, takeDurableLimit } from './authSecurity.js';
 import {
   getWallet,
   ensureWallet,
@@ -187,6 +188,18 @@ export function registerSmsBillingRoutes(app, {
 
   app.post('/api/sms/purchase', authenticateToken, enforcePlanApproval, async (req, res) => {
     try {
+      if (
+        await blockedByLimit(
+          res,
+          await takeDurableLimit('sms_purchase', `s:${req.user.schoolId}`, {
+            max: 8,
+            windowMs: 60 * 60 * 1000,
+            message: 'Too many SMS purchases. Please wait before trying again.',
+          })
+        )
+      ) {
+        return;
+      }
       const units = Math.round(Number(req.body?.units) || 0);
       if (units < 1) {
         return res.status(400).json({ error: 'Enter how many SMS units to buy (at least 1)' });

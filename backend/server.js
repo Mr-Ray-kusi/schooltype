@@ -81,6 +81,10 @@ import {
   checkResendAllowed,
   recordResendAttempt,
   parseJwtExpiresInSeconds,
+  takeMemoryLimit,
+  takeScannerLimit,
+  takeDurableLimit,
+  blockedByLimit,
 } from './authSecurity.js';
 import { initSchoolWalletStore, getWallet } from './schoolWalletStore.js';
 import { registerWalletRoutes, getRecordedSubscriptionRevenueMinor, rebuildPlatformRevenueLedger } from './walletRoutes.js';
@@ -151,7 +155,14 @@ import crypto from 'crypto';
 import { cacheGet, cacheSet, cacheInvalidate, startSharedCacheSync } from './ttlCache.js';
 import { enableSharedRuntime } from './sharedRuntime.js';
 import { isProduction, isVercel } from './runtime.js';
-import { applyBaselineSecurityHeaders, corsOriginAllowed, sanitizePublicText, safeClientError } from './httpSecurity.js';
+import {
+  applyBaselineSecurityHeaders,
+  corsOriginAllowed,
+  sanitizePublicText,
+  sanitizeSearchTerm,
+  safeClientError,
+  scrubErrorResponse,
+} from './httpSecurity.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -209,6 +220,18 @@ app.use(
 
 app.use((req, res, next) => {
   applyBaselineSecurityHeaders(res, { production: IS_PRODUCTION });
+  const sendJson = res.json.bind(res);
+  res.json = (body) => sendJson(scrubErrorResponse(body, res.statusCode || 200));
+  next();
+});
+
+app.use((req, res, next) => {
+  if (req.method === 'OPTIONS') return next();
+  const path = req.path || '';
+  if (!path.startsWith('/api/')) return next();
+  if (path.startsWith('/api/webhooks/') || path === '/api/health') return next();
+  const check = takeMemoryLimit(`api:${getClientIp(req)}`, { max: 600, windowMs: 60 * 1000 });
+  if (blockedByLimit(res, check)) return;
   next();
 });
 
@@ -3958,14 +3981,14 @@ app.get('/api/students', authenticateToken, enforcePlanApproval, async (req, res
     const q = String(req.query.q || '').trim();
     const classFilter = String(req.query.class || '').trim();
     const includePhotos = wantsPhotos(req);
-    const safe = q.replace(/[%*,]/g, '');
+    const safe = sanitizeSearchTerm(q);
 
     const { data: students, error, count } = await queryPagedRows('students', {
       schoolId: req.user.schoolId,
       from,
       to,
       q,
-      orFilter: q ? `name.ilike.%${safe}%,roll_number.ilike.%${safe}%,barcode.ilike.%${safe}%` : '',
+      orFilter: safe ? `name.ilike.%${safe}%,roll_number.ilike.%${safe}%,barcode.ilike.%${safe}%` : '',
       columns: STUDENT_LIST_COLUMNS,
       includePhotos,
       eqFilters: classFilter && classFilter !== 'all' ? { class: classFilter } : undefined,
@@ -4355,14 +4378,14 @@ app.get('/api/staff', authenticateToken, enforcePlanApproval, async (req, res) =
     const { page, limit, from, to } = parsePagination(req);
     const q = String(req.query.q || '').trim();
     const includePhotos = wantsPhotos(req);
-    const safe = q.replace(/[%*,]/g, '');
+    const safe = sanitizeSearchTerm(q);
 
     const { data: staff, error, count } = await queryPagedRows('staffs', {
       schoolId: req.user.schoolId,
       from,
       to,
       q,
-      orFilter: q ? `name.ilike.%${safe}%,role.ilike.%${safe}%` : '',
+      orFilter: safe ? `name.ilike.%${safe}%,role.ilike.%${safe}%` : '',
       columns: STAFF_LIST_COLUMNS,
       includePhotos,
     });
@@ -4549,14 +4572,14 @@ app.get('/api/non-staff', authenticateToken, enforcePlanApproval, async (req, re
     const { page, limit, from, to } = parsePagination(req);
     const q = String(req.query.q || '').trim();
     const includePhotos = wantsPhotos(req);
-    const safe = q.replace(/[%*,]/g, '');
+    const safe = sanitizeSearchTerm(q);
 
     const { data: nonStaff, error, count } = await queryPagedRows('nonstaffs', {
       schoolId: req.user.schoolId,
       from,
       to,
       q,
-      orFilter: q ? `name.ilike.%${safe}%,role.ilike.%${safe}%` : '',
+      orFilter: safe ? `name.ilike.%${safe}%,role.ilike.%${safe}%` : '',
       columns: NONSTAFF_LIST_COLUMNS,
       includePhotos,
     });
@@ -6234,6 +6257,7 @@ const assertScannerDevice = async (schoolId, req, res) => {
 // Public mobile scanner endpoints (token-based, no login)
 app.get('/api/scanner/school/:token', async (req, res) => {
   try {
+    if (blockedByLimit(res, takeScannerLimit(req.params.token))) return;
     const resolved = await resolveScannerSchool(req.params.token);
     if (!resolved) {
       return res.status(404).json({ error: 'Invalid or inactive scanner link' });
@@ -6269,6 +6293,7 @@ app.post('/api/scanner/release/:token', async (req, res) => {
 
 app.post('/api/scanner/mark/:token', async (req, res) => {
   try {
+    if (blockedByLimit(res, takeScannerLimit(req.params.token))) return;
     const attendanceCode = getAttendanceCode(req.body);
     if (!attendanceCode) {
       return res.status(400).json({ error: 'QR code is required' });
@@ -6296,6 +6321,14 @@ app.post('/api/scanner/mark/:token', async (req, res) => {
 // Mark attendance (authenticated admin scanner)
 app.post('/api/attendance/mark', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
+    if (
+      blockedByLimit(
+        res,
+        takeMemoryLimit(`attend:${req.user.schoolId}`, { max: 300, windowMs: 60 * 1000 })
+      )
+    ) {
+      return;
+    }
     const attendanceCode = getAttendanceCode(req.body);
     if (!attendanceCode) {
       return res.status(400).json({ error: 'QR code is required' });
@@ -6314,6 +6347,18 @@ app.post('/api/attendance/mark', authenticateToken, enforcePlanApproval, async (
 
 app.post('/api/attendance/absent-sms', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
+    if (
+      await blockedByLimit(
+        res,
+        await takeDurableLimit('absent_sms', `s:${req.user.schoolId}`, {
+          max: 6,
+          windowMs: 60 * 60 * 1000,
+          message: 'Too many absence texts from this school. Please wait before sending again.',
+        })
+      )
+    ) {
+      return;
+    }
     const { data: school } = await supabase
       .from('schools')
       .select('id, name')
@@ -6696,6 +6741,18 @@ app.get('/api/messages', authenticateToken, enforcePlanApproval, async (req, res
 // Send message with SMS or email based on plan
 app.post('/api/messages', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
+    if (
+      await blockedByLimit(
+        res,
+        await takeDurableLimit('bulk_message', `s:${req.user.schoolId}`, {
+          max: 20,
+          windowMs: 60 * 60 * 1000,
+          message: 'Too many messages from this school. Please wait before sending again.',
+        })
+      )
+    ) {
+      return;
+    }
     const {
       senderName,
       senderRole,

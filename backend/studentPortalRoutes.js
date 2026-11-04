@@ -2,16 +2,25 @@ import jwt from 'jsonwebtoken';
 import { platformSupabase, supabase } from './supabaseClient.js';
 import { mergeSchoolWithExtras, schoolHasPaidPlan } from './schoolPlanStore.js';
 import { getSubscriptionInfo } from './subscription.js';
-import { formatPeriodLabel, listAcademicTerms, resolveFeePeriod } from './academicTerms.js';
+import {
+  academicTermHasEnded,
+  formatPeriodLabel,
+  listAcademicTerms,
+  resolveFeePeriod,
+  todayAccra,
+} from './academicTerms.js';
 import { academicPeriodFromDate } from './classHierarchy.js';
 import { inspectScoreLock, loadScoreLocks } from './scorePublishStore.js';
 import {
+  buildFeeBalance,
   extraFeesTotal,
   getClassFeeAmount,
   isSuccessfulFeeStatus,
   listStudentFeeCharges,
+  listStudentFeePayments,
   resolveStudentFeeAmount,
   roundMoney,
+  shouldHoldPublishedResult,
 } from './feePayments.js';
 import { sendSmsBatch } from './smsProvider.js';
 import { consumeSchoolAndPlatformUnits, refundSchoolAndPlatformUnits } from './platformSmsStore.js';
@@ -26,19 +35,6 @@ import {
 } from './studentPortalStore.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
-
-function todayAccra() {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Africa/Accra',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(new Date());
-  const year = parts.find((part) => part.type === 'year')?.value;
-  const month = parts.find((part) => part.type === 'month')?.value;
-  const day = parts.find((part) => part.type === 'day')?.value;
-  return `${year}-${month}-${day}`;
-}
 
 function authenticateStudentPortal(req, res, next) {
   const token = String(req.headers['x-student-portal-token'] || '').trim();
@@ -163,7 +159,7 @@ function scoreRowsForStudent(rows, student) {
     });
 }
 
-function groupPublishedTerms(terms, student, locks, scoreRows, attendanceRows) {
+function groupPublishedTerms(terms, student, locks, scoreRows, attendanceRows, heldByTermId = new Map()) {
   const ordered = [...(terms || [])].sort((a, b) => {
     const start = String(a.starts_on || '').localeCompare(String(b.starts_on || ''));
     if (start) return start;
@@ -175,11 +171,14 @@ function groupPublishedTerms(terms, student, locks, scoreRows, attendanceRows) {
     const published = name
       ? inspectScoreLock(locks, { term: name, className: student.class }).published
       : false;
+    const hold = heldByTermId.get(term.id);
+    const feeBlocked = Boolean(hold);
+    const showResults = published && !feeBlocked;
     const period = academicPeriodFromDate(term.starts_on || term.ends_on, terms);
     const academicYear = period?.academicYear || 'Academic year';
     const start = String(term.starts_on || '').slice(0, 10);
     const end = String(term.ends_on || '').slice(0, 10);
-    const subjects = published
+    const subjects = showResults
       ? scoreRowsForStudent(
           scoreRows.filter((row) => String(row.term || '') === name),
           student
@@ -200,6 +199,11 @@ function groupPublishedTerms(terms, student, locks, scoreRows, attendanceRows) {
       starts_on: start || null,
       ends_on: end || null,
       published,
+      fee_blocked: feeBlocked,
+      fee_outstanding: feeBlocked ? Number(hold.outstanding) || 0 : null,
+      fee_message: feeBlocked
+        ? `Your results for ${name} are held until outstanding school fees are paid.`
+        : null,
       subjects,
       attendance: published ? attendanceFromRows(inTerm) : emptyAttendance(),
     };
@@ -372,25 +376,60 @@ export function registerStudentPortalRoutes(app, { authenticateToken }) {
       if (String(student.school_id) !== String(schoolId) || String(student.id) !== String(req.studentPortal.studentId)) {
         return res.status(401).json({ error: 'Your portal session has ended. Sign in again.' });
       }
-      const terms = await termCatalog(schoolId);
-      const locks = await loadScoreLocks(schoolId);
-      const publishedNames = new Set(
-        terms
-          .filter((term) =>
-            inspectScoreLock(locks.locks, { term: term.name, className: student.class }).published
-          )
-          .map((term) => String(term.name || ''))
+      const [terms, locks, classFee, card, period] = await Promise.all([
+        termCatalog(schoolId),
+        loadScoreLocks(schoolId),
+        getClassFeeAmount(schoolId, student.class),
+        publicSchoolCard(schoolId),
+        resolveFeePeriod(schoolId).catch(() => null),
+      ]);
+      const billed = resolveStudentFeeAmount(student, classFee);
+      const today = todayAccra();
+      const publishedNames = new Set();
+      const visibleScoreNames = new Set();
+      const heldByTermId = new Map();
+      await Promise.all(
+        terms.map(async (term) => {
+          const published = inspectScoreLock(locks.locks, {
+            term: term.name,
+            className: student.class,
+          }).published;
+          if (!published) return;
+          publishedNames.add(String(term.name || ''));
+          if (!academicTermHasEnded(term, today) || !term.id) {
+            visibleScoreNames.add(String(term.name || ''));
+            return;
+          }
+          const payments = await listStudentFeePayments({
+            schoolId,
+            studentId: student.id,
+            month: term.id,
+          });
+          const balance = buildFeeBalance({ feeAmount: billed, payments });
+          if (
+            shouldHoldPublishedResult({
+              published: true,
+              termEnded: true,
+              billed,
+              outstanding: balance.outstanding,
+            })
+          ) {
+            heldByTermId.set(term.id, { outstanding: balance.outstanding });
+            return;
+          }
+          visibleScoreNames.add(String(term.name || ''));
+        })
       );
 
       let scoreRows = [];
-      if (publishedNames.size) {
+      if (visibleScoreNames.size) {
         const { data, error } = await supabase
           .from('student_scores')
           .select('subject, score, max_score, remark, attitude, term, class_name')
           .eq('school_id', schoolId)
           .eq('student_id', student.id);
         if (error && error.code !== '42P01') throw error;
-        scoreRows = (data || []).filter((row) => publishedNames.has(String(row.term || '')));
+        scoreRows = (data || []).filter((row) => visibleScoreNames.has(String(row.term || '')));
       }
 
       let attendanceRows = [];
@@ -407,10 +446,24 @@ export function registerStudentPortalRoutes(app, { authenticateToken }) {
         attendanceRows = data || [];
       }
 
-      const years = groupPublishedTerms(terms, student, locks.locks, scoreRows, attendanceRows);
+      const years = groupPublishedTerms(
+        terms,
+        student,
+        locks.locks,
+        scoreRows,
+        attendanceRows,
+        heldByTermId
+      );
+      const payCode = student.barcode || student.roll_number;
+      const feesPayPath = payCode
+        ? `/fees?school=${encodeURIComponent(schoolId)}&student=${encodeURIComponent(payCode)}`
+        : '/fees';
       for (const year of years) {
         for (const term of year.terms) {
-          if (!term.published) {
+          if (term.fee_blocked && payCode && term.id) {
+            term.pay_path = `${feesPayPath}&term=${encodeURIComponent(term.id)}`;
+          }
+          if (!term.published || term.fee_blocked) {
             term.classSize = null;
             term.position = null;
             continue;
@@ -420,13 +473,6 @@ export function registerStudentPortalRoutes(app, { authenticateToken }) {
           term.position = standing.position;
         }
       }
-
-      const [classFee, card, period] = await Promise.all([
-        getClassFeeAmount(schoolId, student.class),
-        publicSchoolCard(schoolId),
-        resolveFeePeriod(schoolId).catch(() => null),
-      ]);
-      const billed = resolveStudentFeeAmount(student, classFee);
       const charges = listStudentFeeCharges(student, classFee);
       if (!charges.length && billed > 0) charges.push({ label: 'Term fee', amount: billed });
       let payments = [];
@@ -461,11 +507,7 @@ export function registerStudentPortalRoutes(app, { authenticateToken }) {
           term: period?.name || '',
           period_label: formatPeriodLabel(period) || period?.name || '',
           charges,
-          pay_path: (() => {
-            const payCode = student.barcode || student.roll_number;
-            if (!payCode) return '/fees';
-            return `/fees?school=${encodeURIComponent(schoolId)}&student=${encodeURIComponent(payCode)}`;
-          })(),
+          pay_path: feesPayPath,
           payments,
         },
       });

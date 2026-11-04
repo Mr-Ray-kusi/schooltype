@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import { blockedByLimit, takeDurableLimit } from './authSecurity.js';
 import {
   getPaystackConfig,
   listBanks,
@@ -266,10 +267,10 @@ function handlePaystackError(res, err) {
       ? 'Payment prompt sent. Approve it on your phone to complete the deposit.'
       : rawMessage;
   const status = err.status || 500;
+  if (err.payload) console.error('Paystack error payload:', err.code || status);
   return res.status(status >= 400 ? status : 502).json({
     error: friendly,
     code: err.code || 'PAYSTACK_ERROR',
-    details: err.payload || undefined,
   });
 }
 
@@ -462,6 +463,18 @@ export function registerWalletRoutes(app, { authenticateToken, enforcePlanApprov
   app.post('/api/wallet/deposit', authenticateToken, enforcePlanApproval, async (req, res) => {
     try {
       const schoolId = req.user.schoolId;
+      if (
+        await blockedByLimit(
+          res,
+          await takeDurableLimit('wallet_deposit', `s:${schoolId}`, {
+            max: 12,
+            windowMs: 15 * 60 * 1000,
+            message: 'Too many wallet deposits. Please wait before trying again.',
+          })
+        )
+      ) {
+        return;
+      }
       const { account_id, amount } = req.body || {};
       const amountMajor = Number(amount);
 
@@ -651,6 +664,18 @@ export function registerWalletRoutes(app, { authenticateToken, enforcePlanApprov
   app.post('/api/wallet/withdraw', authenticateToken, enforcePlanApproval, async (req, res) => {
     try {
       const schoolId = req.user.schoolId;
+      if (
+        await blockedByLimit(
+          res,
+          await takeDurableLimit('wallet_withdraw', `s:${schoolId}`, {
+            max: 6,
+            windowMs: 15 * 60 * 1000,
+            message: 'Too many withdrawal attempts. Please wait before trying again.',
+          })
+        )
+      ) {
+        return;
+      }
       const { account_id, amount, reason, confirm, approval_id } = req.body || {};
       const amountMajor = Number(amount);
 
@@ -708,6 +733,18 @@ export function registerWalletRoutes(app, { authenticateToken, enforcePlanApprov
   app.post('/api/wallet/withdraw/:id/confirm', authenticateToken, enforcePlanApproval, async (req, res) => {
     try {
       const schoolId = req.user.schoolId;
+      if (
+        await blockedByLimit(
+          res,
+          await takeDurableLimit('wallet_withdraw_confirm', `s:${schoolId}`, {
+            max: 6,
+            windowMs: 15 * 60 * 1000,
+            message: 'Too many withdrawal confirmations. Please wait before trying again.',
+          })
+        )
+      ) {
+        return;
+      }
       const approval = await loadWithdrawalApproval(schoolId, req.params.id);
       if (!approval) return res.status(404).json({ error: 'Withdrawal request not found' });
       if (approval.status && approval.status !== 'pending') {

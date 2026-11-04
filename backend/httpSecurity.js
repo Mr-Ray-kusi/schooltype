@@ -29,10 +29,51 @@ export function sanitizePublicText(value, maxLen = 200, { multiline = false } = 
   return text.slice(0, maxLen);
 }
 
+const SECRET_TEXT = /sk_(?:live|test)_[A-Za-z0-9]+|postgres(?:ql)?:\/\/\S+|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{8,}|Bearer\s+\S+/gi;
+
+const DATABASE_LEAK = /postgres|supabase|pgrst|jwt|syntax error|violates|duplicate key|relation\b|column\b|econn|enotfound|service[_ ]role|sk_(?:live|test)_|password authentication|node_modules|\bat\s+\S+\s*\(/i;
+
+export function redactSecrets(value) {
+  return String(value || '').replace(SECRET_TEXT, '[redacted]');
+}
+
+/** Search text placed inside a PostgREST `.or()` filter. Dots, commas, and parentheses change the filter. */
+export function sanitizeSearchTerm(value, maxLen = 80) {
+  return String(value || '')
+    .replace(/[^\p{L}\p{N}\s'-]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxLen);
+}
+
+export function shouldHideServerError(message) {
+  return DATABASE_LEAK.test(String(message || ''));
+}
+
+export function scrubErrorResponse(body, statusCode) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return body;
+  if (typeof body.error !== 'string' && !Object.prototype.hasOwnProperty.call(body, 'details')) return body;
+  const next = { ...body };
+  if (typeof next.error === 'string') {
+    const redacted = redactSecrets(next.error);
+    if (statusCode >= 500 && shouldHideServerError(redacted)) {
+      console.error('Hidden server error:', redacted.slice(0, 500));
+      next.error = 'Request failed';
+    } else {
+      next.error = redacted.slice(0, 240);
+    }
+  }
+  if (statusCode >= 400 && next.details && typeof next.details === 'object') {
+    delete next.details;
+  }
+  return next;
+}
+
 export function safeClientError(error, fallback = 'Request failed') {
   const status = Number(error?.status) || 500;
-  if (status < 500 && error?.message && !looksLikeInternalError(error.message)) {
-    return { status, error: String(error.message).slice(0, 180) };
+  const message = redactSecrets(error?.message);
+  if (status < 500 && message && !looksLikeInternalError(message)) {
+    return { status, error: message.slice(0, 180) };
   }
   return { status: status >= 500 ? status : 500, error: fallback };
 }
@@ -44,8 +85,9 @@ function looksLikeInternalError(message) {
     text.includes('jwt') ||
     text.includes('supabase') ||
     text.includes('sql') ||
-    text.includes('stack') ||
+    /\bstack\b/.test(text) ||
     text.includes('econn') ||
-    text.includes('enotfound')
+    text.includes('enotfound') ||
+    shouldHideServerError(message)
   );
 }

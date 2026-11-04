@@ -376,7 +376,7 @@ async function findStudentInSchool(schoolId, studentId) {
   return byId.data || null;
 }
 
-async function loadStudentFeeBySchool(schoolId, studentId) {
+async function loadStudentFeeBySchool(schoolId, studentId, periodKey) {
   const student = await findStudentInSchool(schoolId, studentId);
   if (!student) return null;
   const [{ data: school }, classFee] = await Promise.all([
@@ -384,7 +384,9 @@ async function loadStudentFeeBySchool(schoolId, studentId) {
     getClassFeeAmount(student.school_id, student.class),
   ]);
   const studentWithId = await ensureSchoolStudentId(student, school);
-  const period = await resolveFeePeriod(student.school_id);
+  const period = periodKey
+    ? await getFeePeriodByKey(student.school_id, String(periodKey))
+    : await resolveFeePeriod(student.school_id);
   const month = period.key;
   const amount = resolveStudentFeeAmount(studentWithId, classFee);
   const balance = await loadFeeBalance(studentWithId, amount, month);
@@ -1537,10 +1539,11 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
       if (await rejectPublicFeeFlood(req, res)) return;
       const schoolId = String(req.body?.schoolId || '').trim();
       const studentId = String(req.body?.studentId || '').trim();
+      const periodKey = String(req.body?.term || req.body?.month || '').trim();
       if (!schoolId || !studentId) {
         return res.status(400).json({ error: 'Select a school and enter the student ID.' });
       }
-      const ctx = await loadStudentFeeBySchool(schoolId, studentId);
+      const ctx = await loadStudentFeeBySchool(schoolId, studentId, periodKey);
       if (!ctx) {
         noteUnknownStudentId({ schoolId, studentCode: studentId });
         return res.status(404).json({ error: 'No student with that ID was found at the selected school.' });
@@ -1559,8 +1562,9 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
       const studentId = String(req.body?.studentId || '').trim();
       const method = normalizePayMethod(req.body?.method);
       const amount = Number(req.body?.amount);
+      const periodKey = String(req.body?.term || req.body?.month || '').trim();
       if (!method) return res.status(400).json({ error: 'Select MoMo or bank.' });
-      const ctx = await loadStudentFeeBySchool(schoolId, studentId);
+      const ctx = await loadStudentFeeBySchool(schoolId, studentId, periodKey);
       if (!ctx) {
         noteUnknownStudentId({ schoolId, studentCode: studentId });
         return res.status(404).json({ error: 'No student with that ID was found at the selected school.' });

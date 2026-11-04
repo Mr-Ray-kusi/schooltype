@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
-import { FileSpreadsheet, Plus, RefreshCw } from 'lucide-react';
+import { ChevronRight, FileSpreadsheet, Plus, RefreshCw } from 'lucide-react';
 import RecordFeePaymentModal from './RecordFeePaymentModal';
 import FeePaymentReceiptModal from './FeePaymentReceiptModal';
 import { formatGhs } from '../utils/feeReceiptPdf';
@@ -19,6 +19,34 @@ const formatWhen = (value) => {
   } catch {
     return String(value);
   }
+};
+
+const parseTermDate = (value) => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value || '').trim());
+  if (!match) return null;
+  return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+};
+
+const formatTermDay = (value, { withYear = true } = {}) => {
+  const date = parseTermDate(value);
+  if (!date) return '';
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'UTC',
+    day: 'numeric',
+    month: 'short',
+    year: withYear ? 'numeric' : undefined,
+  }).format(date);
+};
+
+const formatTermRange = (startsOn, endsOn) => {
+  const start = parseTermDate(startsOn);
+  const end = parseTermDate(endsOn);
+  if (!start && !end) return '';
+  if (start && end) {
+    const sameYear = start.getUTCFullYear() === end.getUTCFullYear();
+    return `${formatTermDay(startsOn, { withYear: !sameYear })} – ${formatTermDay(endsOn)}`;
+  }
+  return formatTermDay(startsOn) || formatTermDay(endsOn);
 };
 
 const channelLabel = (row) => {
@@ -196,6 +224,84 @@ const FeeClassChart = ({ rows }) => {
   );
 };
 
+const FeeOverviewPanel = ({
+  termName,
+  termRange,
+  collectedTerm,
+  unpaidAmount,
+  billedAmount,
+  collectedShare,
+  owingCount,
+  yearCollected,
+  onOpenUnpaid,
+}) => {
+  const allClear = billedAmount >= 0.01 && unpaidAmount < 0.01;
+  const stats = [
+    { label: 'Collected', value: formatGhs(collectedTerm), tone: 'text-emerald-300' },
+    { label: 'Owing', value: String(owingCount), action: true },
+    { label: 'This year', value: formatGhs(yearCollected) },
+  ];
+
+  return (
+    <section className="overflow-hidden rounded-3xl border border-slate-700 bg-slate-800">
+      <header className="flex items-baseline justify-between gap-3 px-5 pt-5 md:px-6">
+        <h3 className="text-base font-semibold text-white">{termName || 'This term'}</h3>
+        {termRange ? <p className="text-sm text-slate-400">{termRange}</p> : null}
+      </header>
+
+      <div className="px-5 pt-5 md:px-6">
+        <p className="text-4xl font-semibold tracking-tight text-white tabular-nums md:text-[2.75rem] md:leading-none">
+          {formatGhs(allClear ? collectedTerm : unpaidAmount)}
+        </p>
+        <p className={`mt-2 text-sm font-medium ${allClear ? 'text-emerald-300' : 'text-amber-300'}`}>
+          {allClear ? 'Collected this term' : 'Unpaid this term'}
+        </p>
+        {billedAmount >= 0.01 ? (
+          <div className="mt-4 max-w-md">
+            <div className="h-1.5 overflow-hidden rounded-full bg-slate-700">
+              <div className="h-full rounded-full bg-emerald-400" style={{ width: `${collectedShare}%` }} />
+            </div>
+            <p className="mt-2 text-xs text-slate-400">
+              {Math.round(collectedShare)}% collected of {formatGhs(billedAmount)} billed
+            </p>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="mt-6 grid grid-cols-1 gap-px bg-slate-700 sm:grid-cols-3">
+        {stats.map((row) => {
+          const body = (
+            <>
+              <span className="text-sm text-slate-400">{row.label}</span>
+              <span className={`mt-1 block text-lg font-semibold tabular-nums ${row.tone || 'text-white'}`}>
+                {row.value}
+              </span>
+            </>
+          );
+          if (row.action) {
+            return (
+              <button
+                key={row.label}
+                type="button"
+                onClick={onOpenUnpaid}
+                className="flex items-center justify-between bg-slate-800 px-5 py-4 text-left hover:bg-slate-700"
+              >
+                <span>{body}</span>
+                <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+              </button>
+            );
+          }
+          return (
+            <div key={row.label} className="bg-slate-800 px-5 py-4">
+              {body}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+};
+
 const AccountantFees = ({
   schoolName,
   authHeaders,
@@ -306,9 +412,17 @@ const AccountantFees = ({
     ? data.classes
     : [...new Set((data?.students || []).map((row) => row.class).filter(Boolean))];
   const totals = data?.totals || {};
+  const collectedTerm = Number(totals.paid_amount) || 0;
+  const unpaidAmount = Number(totals.unpaid_amount) || 0;
+  const billedAmount = collectedTerm + unpaidAmount;
+  const collectedShare = billedAmount > 0 ? Math.min(100, (collectedTerm / billedAmount) * 100) : 0;
+  const owingCount = Number(totals.unpaid) || 0;
+  const yearCollected = Number(totals.year_collected) || 0;
   const rows = tab === 'paid' ? paid : unpaid;
   const selected = (data?.students || []).find((row) => row.id === selectedId) || null;
   const periodLabel = data?.period_label || data?.term_name || data?.month;
+  const termName = data?.term_name || data?.month || 'This term';
+  const termRange = formatTermRange(data?.term_starts_on, data?.term_ends_on);
 
   const exportTerm = async () => {
     const students = (data?.students || []).filter((row) => matchesClass(row) && (row.fee_amount > 0 || row.paid_amount > 0));
@@ -374,19 +488,8 @@ const AccountantFees = ({
 
   return (
     <div className="space-y-6">
-      <div className="space-y-3">
-        <div>
-          <h2 className="text-2xl font-bold text-white">{showList ? 'Paid and unpaid' : 'Fees'}</h2>
-          <p className="mt-1 text-sm text-slate-400">
-            {periodLabel || 'This term'}
-            {classFilter ? ` · ${classFilter}` : ''}.{' '}
-            {showList
-              ? 'Open a student to view or print the receipt.'
-              : readOnly
-                ? 'View only. The accountant records payments and sends reminders.'
-                : 'Record cash payments and see totals for this term.'}
-          </p>
-        </div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="text-2xl font-bold text-white">{showList ? 'Paid and unpaid' : 'Fees'}</h2>
         <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap sm:overflow-x-auto">
           <select
             value={classFilter}
@@ -426,32 +529,20 @@ const AccountantFees = ({
       </div>
 
       {showList ? null : (
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-3xl border border-slate-700 bg-slate-800 p-5">
-          <p className="text-sm uppercase tracking-wide text-slate-300">Collected this term</p>
-          <p className="mt-3 text-2xl font-semibold text-white">{formatGhs(totals.paid_amount)}</p>
-        </div>
-        <div className="rounded-3xl border border-slate-700 bg-slate-800 p-5">
-          <p className="text-sm uppercase tracking-wide text-slate-300">Still unpaid</p>
-          <p className="mt-3 text-2xl font-semibold text-white">{formatGhs(totals.unpaid_amount)}</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => {
+        <FeeOverviewPanel
+          termName={termName}
+          termRange={termRange}
+          collectedTerm={collectedTerm}
+          unpaidAmount={unpaidAmount}
+          billedAmount={billedAmount}
+          collectedShare={collectedShare}
+          owingCount={owingCount}
+          yearCollected={yearCollected}
+          onOpenUnpaid={() => {
             setTab('unpaid');
             onOpenList?.();
           }}
-          className="rounded-3xl border border-slate-700 bg-slate-800 p-5 text-left hover:border-slate-500 hover:bg-slate-700"
-        >
-          <p className="text-sm uppercase tracking-wide text-slate-300">Students owing</p>
-          <p className="mt-3 text-2xl font-semibold text-white">{totals.unpaid || 0}</p>
-          <p className="mt-2 text-xs text-sky-300">Open unpaid list</p>
-        </button>
-        <div className="rounded-3xl border border-slate-700 bg-slate-800 p-5">
-          <p className="text-sm uppercase tracking-wide text-slate-300">Collected this year</p>
-          <p className="mt-3 text-2xl font-semibold text-white">{formatGhs(totals.year_collected)}</p>
-        </div>
-      </div>
+        />
       )}
 
       {showList ? null : <FeeClassChart rows={chartRows} />}

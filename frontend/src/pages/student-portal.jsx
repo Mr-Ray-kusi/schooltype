@@ -80,10 +80,22 @@ function downloadGroupedResults({ schoolName, student, years }) {
       }
       doc.setFontSize(12);
       doc.text(
-        `${term.name || 'Term'} · Total in class ${term.classSize ?? '—'} · Position ${ordinal(term.position)}`,
+        term.fee_blocked
+          ? `${term.name || 'Term'}`
+          : `${term.name || 'Term'} · Total in class ${term.classSize ?? '—'} · Position ${ordinal(term.position)}`,
         40,
         y
       );
+      if (term.fee_blocked) {
+        y += 16;
+        doc.setFontSize(11);
+        doc.text(
+          term.fee_message || 'Results are held until outstanding school fees are paid.',
+          40,
+          y
+        );
+        continue;
+      }
       if (!term.published) {
         y += 16;
         doc.setFontSize(11);
@@ -128,6 +140,15 @@ function termFeeStatement(session, fees, currency) {
     title: fees.term ? `School fees · ${fees.term}` : 'School fees statement',
     fileLabel: `${session.student?.roll_number || 'student'}-fees`,
   };
+}
+
+function feeMethodLabel(value) {
+  const raw = String(value || '')
+    .replace(/[_-]+/g, ' ')
+    .trim();
+  if (!raw) return 'Payment';
+  if (/^momo$/i.test(raw) || /^mobile money$/i.test(raw)) return 'Mobile money';
+  return raw.replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function formatFeeDate(value) {
@@ -528,6 +549,13 @@ const StudentPortal = () => {
 
   if (session?.student) {
     const years = record?.years || [];
+    const fees = record?.fees || {};
+    const payCode = session.student?.barcode || session.student?.roll_number;
+    const payPath =
+      fees.pay_path ||
+      (session.school?.id && payCode
+        ? `/fees?school=${encodeURIComponent(session.school.id)}&student=${encodeURIComponent(payCode)}`
+        : '/fees');
     const firstName = String(session.student.name || 'Student').trim().split(/\s+/)[0];
     const publishedYears = years
       .map((year) => ({
@@ -614,7 +642,19 @@ const StudentPortal = () => {
                           </h3>
                         )}
                         {term.published ? (
-                          term.subjects?.length ? (
+                          term.fee_blocked ? (
+                            <>
+                              <p>
+                                {term.fee_message ||
+                                  `Your results for ${term.name} are held until outstanding school fees are paid.`}
+                              </p>
+                              <div className="portal-hold-actions">
+                                <Link to={term.pay_path || payPath} className="portal-fee-pay">
+                                  Pay fees
+                                </Link>
+                              </div>
+                            </>
+                          ) : term.subjects?.length ? (
                             <div className="portal-sheet">
                               <div className="portal-sheet-head">
                                 <h2>{year.academicYear} Academic Year</h2>
@@ -693,7 +733,6 @@ const StudentPortal = () => {
 
             {tab === 'fees' ? (
               (() => {
-                const fees = record?.fees || {};
                 const currency = normalizeFeeCurrency(fees.currency || session.school?.fee_currency);
                 const billed = Number(fees.billed || 0);
                 const paid = Number(fees.paid || 0);
@@ -705,12 +744,6 @@ const StudentPortal = () => {
                 const due = outstanding >= 0.01;
                 const statusLabel = billed <= 0 ? 'Not billed' : settled ? 'Paid' : paid > 0 ? 'Part paid' : 'Outstanding';
                 const statusClass = billed <= 0 ? '' : settled ? 'is-paid' : paid > 0 ? 'is-part' : 'is-due';
-                const payCode = session.student?.barcode || session.student?.roll_number;
-                const payPath =
-                  fees.pay_path ||
-                  (session.school?.id && payCode
-                    ? `/fees?school=${encodeURIComponent(session.school.id)}&student=${encodeURIComponent(payCode)}`
-                    : '/fees');
                 const statement = termFeeStatement(session, { ...fees, billed, paid, outstanding, payments, charges }, currency);
                 return (
                   <>
@@ -753,7 +786,7 @@ const StudentPortal = () => {
                       </div>
                     ) : null}
                     {payments.length ? (
-                      <table>
+                      <table className="portal-fee-table">
                         <thead>
                           <tr>
                             <th>Date</th>
@@ -766,7 +799,7 @@ const StudentPortal = () => {
                           {payments.map((row) => (
                             <tr key={row.id}>
                               <td>{formatFeeDate(row.created_at)}</td>
-                              <td>{row.channel || 'Payment'}</td>
+                              <td>{feeMethodLabel(row.channel)}</td>
                               <td>{money(row.amount, currency)}</td>
                               <td>
                                 <span className={`portal-fee-chip ${row.paid ? 'is-paid' : 'is-due'}`}>

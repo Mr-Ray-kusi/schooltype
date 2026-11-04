@@ -20,7 +20,7 @@ function isMissingTable(error) {
   return error?.code === '42P01' || msg.includes('does not exist') || msg.includes('could not find the table');
 }
 
-function todayAccra() {
+export function todayAccra() {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Africa/Accra',
     year: 'numeric',
@@ -42,6 +42,13 @@ function monthPeriod() {
     ends_on: null,
     source: 'month',
   };
+}
+
+export function academicTermHasEnded(term, today = todayAccra()) {
+  const end = String(term?.ends_on || '').slice(0, 10);
+  const day = String(today || todayAccra()).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(end) || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return false;
+  return day > end;
 }
 
 export function formatPeriodLabel(period) {
@@ -151,24 +158,29 @@ export async function resolveTeacherScoreTerm(schoolId, onDate = todayAccra()) {
   return pickTeacherScoreTerm(terms, onDate);
 }
 
-export async function resolveFeePeriod(schoolId, onDate = todayAccra()) {
-  const terms = await listAcademicTerms(schoolId);
+export function pickFeePeriod(terms = [], onDate = todayAccra()) {
   if (!terms.length) return monthPeriod();
-
   const today = String(onDate || todayAccra());
   const current = terms.find(
     (term) => term.starts_on && term.ends_on && term.starts_on <= today && term.ends_on >= today
   );
+  const arrears = [...terms]
+    .filter((term) => term.ends_on && term.ends_on < today)
+    .sort((a, b) => String(b.ends_on).localeCompare(String(a.ends_on)))[0];
   const upcoming = terms.find((term) => term.starts_on && term.starts_on > today);
-  const chosen = current || upcoming || terms[terms.length - 1];
-
+  const chosen = current || arrears || upcoming || terms[terms.length - 1];
   return {
     key: chosen.id,
     name: chosen.name,
-    starts_on: chosen.starts_on,
-    ends_on: chosen.ends_on,
+    starts_on: chosen.starts_on || null,
+    ends_on: chosen.ends_on || null,
     source: 'term',
   };
+}
+
+export async function resolveFeePeriod(schoolId, onDate = todayAccra()) {
+  const terms = await listAcademicTerms(schoolId);
+  return pickFeePeriod(terms, onDate);
 }
 
 export async function getFeePeriodByKey(schoolId, key) {

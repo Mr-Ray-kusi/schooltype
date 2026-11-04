@@ -1,4 +1,5 @@
 import { supabase } from './supabaseClient.js';
+import { sanitizeSearchTerm } from './httpSecurity.js';
 import { createStudent, createStaff, createNonStaff } from './peopleCreate.js';
 import { sendAbsentParentSms } from './absentNotify.js';
 import {
@@ -97,7 +98,8 @@ export function registerStaffAdminRoutes(app, { authenticateStaffPortal }) {
           .order('name', { ascending: true })
           .range(from, from + limit - 1);
         if (className && className !== 'all') query = query.eq('class', className);
-        if (q) query = query.or(`name.ilike.%${q.replace(/[%*,]/g, '')}%,roll_number.ilike.%${q.replace(/[%*,]/g, '')}%`);
+        const safe = sanitizeSearchTerm(q);
+        if (safe) query = query.or(`name.ilike.%${safe}%,roll_number.ilike.%${safe}%`);
         const { data, error, count } = await query;
         if (error) throw error;
         res.json({ items: data || [], total: count || 0, page, limit });

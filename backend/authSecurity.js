@@ -1,5 +1,6 @@
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import { openLocalDb } from './localDb.js';
 import { getDataDir } from './dataPaths.js';
 import { supabase } from './supabaseClient.js';
@@ -212,12 +213,74 @@ async function lastEventAt({ kind, email, ip, windowMs }) {
   return row?.last_at ? new Date(row.last_at).getTime() : Date.now();
 }
 
-export function getClientIp(req) {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string' && forwarded.length > 0) {
-    return forwarded.split(',')[0].trim();
+const memoryBuckets = new Map();
+
+function pruneMemoryBuckets(now) {
+  if (memoryBuckets.size < 5000) return;
+  for (const [key, bucket] of memoryBuckets) {
+    if (now - bucket.start > 60 * 60 * 1000) memoryBuckets.delete(key);
   }
-  return req.ip || req.socket?.remoteAddress || 'unknown';
+}
+
+/** Address Express resolved with `trust proxy`. The first X-Forwarded-For hop is chosen by the caller. */
+export function getClientIp(req) {
+  const raw = String(req?.ip || req?.socket?.remoteAddress || '').trim();
+  if (!raw) return 'unknown';
+  return raw.replace(/^::ffff:/i, '');
+}
+
+export function takeMemoryLimit(key, { max, windowMs }) {
+  const now = Date.now();
+  pruneMemoryBuckets(now);
+  const id = String(key || 'unknown');
+  let bucket = memoryBuckets.get(id);
+  if (!bucket || now - bucket.start >= windowMs) {
+    bucket = { start: now, count: 0 };
+    memoryBuckets.set(id, bucket);
+  }
+  bucket.count += 1;
+  if (bucket.count > max) {
+    return deny(
+      'Too many requests. Please wait before trying again.',
+      Math.max(1, Math.ceil((bucket.start + windowMs - now) / 1000))
+    );
+  }
+  return { allowed: true };
+}
+
+export function takeScannerLimit(token) {
+  const hash = crypto.createHash('sha256').update(String(token || '')).digest('hex').slice(0, 24);
+  return takeMemoryLimit(`scan:${hash}`, { max: 300, windowMs: 60 * 1000 });
+}
+
+export async function takeDurableLimit(kind, scope, { max, windowMs, message } = {}) {
+  const id = String(scope || '').trim();
+  if (!id) return { allowed: true };
+  try {
+    const count = await countEvents({ kind, ip: id, windowMs });
+    if (count >= max) {
+      return deny(
+        message || 'Too many attempts. Please wait before trying again.',
+        Math.ceil(windowMs / 1000)
+      );
+    }
+    await insertEvent({ kind, ip: id });
+    return { allowed: true };
+  } catch (error) {
+    console.warn('Rate limit check failed:', error.message || error);
+    return { allowed: true };
+  }
+}
+
+export function blockedByLimit(res, check) {
+  if (!check || check.allowed) return false;
+  const retryAfterSec = Number(check.retryAfterSec) || 60;
+  res.setHeader('Retry-After', String(retryAfterSec));
+  res.status(429).json({
+    error: check.message || 'Too many requests. Please wait before trying again.',
+    retryAfter: retryAfterSec,
+  });
+  return true;
 }
 
 export function validatePasswordStrength(password) {

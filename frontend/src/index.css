@@ -451,6 +451,10 @@ body:has(.portal-shell),
   font-size: 1rem;
 }
 
+.portal-hold-actions {
+  margin-top: 0.85rem;
+}
+
 .portal-card p,
 .portal-note {
   margin-top: 0.45rem;
@@ -675,6 +679,7 @@ body:has(.portal-shell),
   font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: 0.06em;
+  text-align: left;
   text-transform: uppercase;
 }
 
@@ -682,6 +687,34 @@ body:has(.portal-shell),
   border-top: 1px solid #eef2f7;
   padding: 0.7rem 0.75rem;
   color: #0f172a;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.portal-fee-table {
+  table-layout: fixed;
+}
+
+.portal-fee-table th:nth-child(1),
+.portal-fee-table td:nth-child(1) {
+  width: 28%;
+}
+
+.portal-fee-table th:nth-child(2),
+.portal-fee-table td:nth-child(2) {
+  width: 28%;
+}
+
+.portal-fee-table th:nth-child(3),
+.portal-fee-table td:nth-child(3),
+.portal-fee-table th:nth-child(4),
+.portal-fee-table td:nth-child(4) {
+  width: 22%;
+  text-align: right;
+}
+
+.portal-fee-table td:nth-child(3) {
+  font-variant-numeric: tabular-nums;
 }
 
 .portal-grade {

@@ -59,6 +59,7 @@ const FeesPay = () => {
   const [searchParams] = useSearchParams();
   const querySchool = String(searchParams.get('school') || '').trim();
   const queryStudent = String(searchParams.get('student') || '').trim();
+  const queryTerm = String(searchParams.get('term') || searchParams.get('month') || '').trim();
   const [step, setStep] = useState(barcode || (querySchool && queryStudent) ? 2 : 1);
   const [schools, setSchools] = useState([]);
   const [schoolId, setSchoolId] = useState(querySchool);
@@ -154,6 +155,7 @@ const FeesPay = () => {
         const { data } = await axios.post('/api/public/fees/lookup', {
           schoolId: querySchool,
           studentId: queryStudent,
+          term: queryTerm || undefined,
         });
         if (cancelled) return;
         setInfo(data);
@@ -174,7 +176,7 @@ const FeesPay = () => {
     return () => {
       cancelled = true;
     };
-  }, [barcode, querySchool, queryStudent]);
+  }, [barcode, querySchool, queryStudent, queryTerm]);
 
   useEffect(() => {
     const reference = momoPrompt?.reference;
@@ -253,6 +255,7 @@ const FeesPay = () => {
       const { data } = await axios.post('/api/public/fees/lookup', {
         schoolId,
         studentId: studentId.trim(),
+        term: queryTerm || undefined,
       });
       setInfo(data);
       setStudentId(displayStudentId(data) || studentId.trim());
@@ -299,6 +302,7 @@ const FeesPay = () => {
         schoolId: info?.school_id || schoolId,
         studentId: info?.barcode || info?.roll_number || studentId.trim(),
         amount: Number(amount),
+        term: queryTerm || undefined,
         method,
         phone: method === 'momo' ? phone : undefined,
         provider: method === 'momo' ? momoNetworkFromPhone(phone) || provider : undefined,
