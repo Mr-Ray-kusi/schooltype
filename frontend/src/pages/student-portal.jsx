@@ -1,13 +1,14 @@
 import { useEffect, useLayoutEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import axios from 'axios';
-import { LogOut } from 'lucide-react';
+import { Copy, LogOut } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import MarketingChrome from '../components/MarketingChrome';
 import { applyLiteClass } from '../hooks/useLiteMode';
 import { formatMoney, normalizeFeeCurrency } from '../utils/feeCurrency';
 import { downloadFeeReceiptPdf } from '../utils/feeReceiptPdf';
+import { formatExtraFees } from '../utils/extraFees';
 
 const TOKEN_KEY = 'studentPortalSession';
 
@@ -122,6 +123,93 @@ function downloadGroupedResults({ schoolName, student, years }) {
 
 function money(amount, currency) {
   return formatMoney(amount, currency);
+}
+
+function CopyField({ label, value, mono = false }) {
+  const [copied, setCopied] = useState(false);
+  const text = String(value || '').trim();
+  return (
+    <div className="portal-details-field">
+      <dt>{label}</dt>
+      <dd>
+        <span className={mono ? 'is-mono' : undefined}>{text || '—'}</span>
+        {text ? (
+          <button
+            type="button"
+            className="portal-details-copy"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(text);
+                setCopied(true);
+                window.setTimeout(() => setCopied(false), 1500);
+              } catch {
+                /* ignore */
+              }
+            }}
+            aria-label={`Copy ${label}`}
+          >
+            {copied ? (
+              'Copied'
+            ) : (
+              <>
+                <Copy className="h-4 w-4" />
+                Copy
+              </>
+            )}
+          </button>
+        ) : null}
+      </dd>
+    </div>
+  );
+}
+
+function DetailField({ label, value, wide = false }) {
+  return (
+    <div className={`portal-details-field${wide ? ' is-wide' : ''}`}>
+      <dt>{label}</dt>
+      <dd>
+        <span>{value || '—'}</span>
+      </dd>
+    </div>
+  );
+}
+
+function PersonalDetails({ student }) {
+  const extras = formatExtraFees(student?.extra_fees || student?.extraFees);
+  return (
+    <section className="portal-details">
+      <h2>{student?.name || 'Student'}</h2>
+      {student?.class ? <p className="portal-details-class">{student.class}</p> : null}
+      <div className="portal-details-group">
+        <h3>School</h3>
+        <dl className="portal-details-grid">
+          <CopyField label="Student ID" value={student?.roll_number} />
+          <CopyField label="Portal password" value={student?.portal_password} mono />
+          <DetailField label="Gender" value={student?.gender} />
+          <DetailField
+            label="Date of birth"
+            value={student?.date_of_birth ? String(student.date_of_birth).slice(0, 10) : ''}
+          />
+        </dl>
+      </div>
+      <div className="portal-details-group">
+        <h3>Family</h3>
+        <dl className="portal-details-grid">
+          <DetailField label="Parent / guardian" value={student?.parent_name} />
+          <DetailField label="Relationship" value={student?.parent_relationship} />
+          <DetailField label="Parent phone" value={student?.parent_phone} />
+          <DetailField label="Parent email" value={student?.parent_email} />
+          <DetailField label="House address" value={student?.house_address} wide />
+        </dl>
+      </div>
+      <div className="portal-details-group">
+        <h3>Fees</h3>
+        <dl className="portal-details-grid">
+          <DetailField label="Extra charges" value={extras} wide />
+        </dl>
+      </div>
+    </section>
+  );
 }
 
 function termFeeStatement(session, fees, currency) {
@@ -449,7 +537,7 @@ const StudentPortal = () => {
   const [signingIn, setSigningIn] = useState(false);
   const [session, setSession] = useState(() => readSession());
   const [record, setRecord] = useState(null);
-  const [tab, setTab] = useState('reports');
+  const [tab, setTab] = useState('details');
 
   useEffect(() => {
     if (session) return undefined;
@@ -484,7 +572,20 @@ const StudentPortal = () => {
       .get('/api/student-portal/me', { headers: { 'X-Student-Portal-Token': session.sessionToken } })
       .then(({ data }) => {
         if (cancelled) return;
-        setSession((current) => ({ ...current, ...data }));
+        setSession((current) => {
+          const next = {
+            ...current,
+            ...data,
+            student: {
+              ...current?.student,
+              ...data.student,
+              portal_password:
+                current?.student?.portal_password || data.student?.portal_password || '',
+            },
+          };
+          writeSession(next);
+          return next;
+        });
       })
       .catch(() => {
         if (cancelled) return;
@@ -577,6 +678,7 @@ const StudentPortal = () => {
           </div>
           <nav className="portal-nav" aria-label="Student portal">
             {[
+              ['details', 'Personal details'],
               ['reports', 'Results'],
               ['attendance', 'Attendance'],
               ['fees', 'Fees'],
@@ -616,6 +718,7 @@ const StudentPortal = () => {
           </div>
           <div className="portal-content">
             {error ? <p className="portal-note">{error}</p> : null}
+            {tab === 'details' ? <PersonalDetails student={session.student} /> : null}
             {tab === 'reports' ? (
               years.length ? (
                 <>

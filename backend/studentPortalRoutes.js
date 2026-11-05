@@ -71,6 +71,76 @@ function portalDb() {
   return platformSupabase || supabase;
 }
 
+const STUDENT_PROFILE_COLUMNS =
+  'id, name, class, roll_number, barcode, parent_phone, parent_name, parent_relationship, parent_email, house_address, date_of_birth, gender, extra_fees, school_id, monthly_fee';
+const STUDENT_PROFILE_FALLBACK =
+  'id, name, class, roll_number, barcode, parent_phone, school_id, extra_fees, monthly_fee';
+
+function missingStudentColumn(error) {
+  const msg = String(error?.message || error?.details || '').toLowerCase();
+  return (
+    error?.code === '42703' ||
+    msg.includes('does not exist') ||
+    msg.includes('could not find') ||
+    msg.includes('schema cache')
+  );
+}
+
+function extraFeesValue(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+export function studentPortalDetails(student, password = '') {
+  if (!student) return null;
+  const birth = String(student.date_of_birth || '').slice(0, 10);
+  return {
+    id: student.id,
+    name: student.name,
+    class: student.class,
+    roll_number: student.roll_number,
+    barcode: student.barcode || student.roll_number || null,
+    gender: student.gender || '',
+    date_of_birth: /^\d{4}-\d{2}-\d{2}$/.test(birth) ? birth : '',
+    parent_name: student.parent_name || '',
+    parent_relationship: student.parent_relationship || '',
+    parent_phone: student.parent_phone == null || student.parent_phone === '' ? '' : String(student.parent_phone),
+    parent_email: student.parent_email || '',
+    house_address: student.house_address || '',
+    extra_fees: extraFeesValue(student.extra_fees),
+    portal_password: password || '',
+  };
+}
+
+async function withPortalPassword(student, options = {}) {
+  if (!student) return null;
+  const known = String(options.password || '').trim();
+  const schoolId = options.schoolId || student.school_id;
+  const password =
+    known || (await revealStudentPortalPassword(schoolId, student.id).catch(() => null)) || '';
+  return studentPortalDetails(student, password);
+}
+
+async function selectStudentProfile(apply) {
+  let query = apply(portalDb().from('students').select(STUDENT_PROFILE_COLUMNS));
+  let { data, error } = await query.maybeSingle();
+  if (error && missingStudentColumn(error)) {
+    query = apply(portalDb().from('students').select(STUDENT_PROFILE_FALLBACK));
+    ({ data, error } = await query.maybeSingle());
+  }
+  if (error) throw error;
+  return data || null;
+}
+
 async function schoolStudent(schoolId, studentId, columns) {
   const { data, error } = await portalDb()
     .from('students')
@@ -89,25 +159,13 @@ async function schoolStudent(schoolId, studentId, columns) {
 async function findStudentByPortalId(schoolId, rawId) {
   const wanted = String(rawId || '').trim().toUpperCase();
   if (!wanted) return null;
-  const { data, error } = await supabase
-    .from('students')
-    .select('id, name, class, roll_number, barcode, parent_phone, school_id, extra_fees, monthly_fee')
-    .eq('school_id', schoolId)
-    .ilike('roll_number', wanted)
-    .maybeSingle();
-  if (error) throw error;
-  return data || null;
+  return selectStudentProfile((query) => query.eq('school_id', schoolId).ilike('roll_number', wanted));
 }
 
 async function loadOwnedStudent(portal) {
-  const { data, error } = await supabase
-    .from('students')
-    .select('id, name, class, roll_number, barcode, parent_phone, school_id, extra_fees, monthly_fee')
-    .eq('id', portal.studentId)
-    .eq('school_id', portal.schoolId)
-    .maybeSingle();
-  if (error) throw error;
-  return data || null;
+  return selectStudentProfile((query) =>
+    query.eq('id', portal.studentId).eq('school_id', portal.schoolId)
+  );
 }
 
 async function termCatalog(schoolId) {
@@ -333,13 +391,7 @@ export function registerStudentPortalRoutes(app, { authenticateToken }) {
       res.json({
         sessionToken,
         school: card,
-        student: {
-          id: student.id,
-          name: student.name,
-          class: student.class,
-          roll_number: student.roll_number,
-          barcode: student.barcode || student.roll_number || null,
-        },
+        student: await withPortalPassword(student, { password, schoolId }),
       });
     } catch (error) {
       res.status(500).json({ error: error.message || 'Failed to sign in' });
@@ -354,13 +406,7 @@ export function registerStudentPortalRoutes(app, { authenticateToken }) {
       const terms = await termCatalog(req.studentPortal.schoolId);
       res.json({
         school: card,
-        student: {
-          id: student.id,
-          name: student.name,
-          class: student.class,
-          roll_number: student.roll_number,
-          barcode: student.barcode || student.roll_number || null,
-        },
+        student: await withPortalPassword(student, { schoolId: req.studentPortal.schoolId }),
         terms,
       });
     } catch (error) {

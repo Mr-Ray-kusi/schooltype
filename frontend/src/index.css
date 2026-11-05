@@ -450,6 +450,115 @@ body:has(.portal-shell),
   color: #0f172a;
 }
 
+.portal-details {
+  max-width: 46rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 1rem;
+  background: #ffffff;
+  padding: 1.35rem 1.35rem 1.5rem;
+  color: #0f172a;
+}
+
+.portal-details > h2 {
+  margin: 0;
+  font-size: 1.65rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.portal-details-class {
+  margin: 0.45rem 0 0;
+  display: inline-flex;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #1e1b4b;
+  padding: 0.28rem 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+
+.portal-details-group {
+  margin-top: 1.4rem;
+}
+
+.portal-details-group h3 {
+  margin: 0 0 0.7rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.portal-details-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.7rem;
+}
+
+@media (min-width: 640px) {
+  .portal-details-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.portal-details-field {
+  margin: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.85rem;
+  background: #f8fafc;
+  padding: 0.75rem 0.9rem;
+}
+
+.portal-details-field.is-wide {
+  grid-column: 1 / -1;
+}
+
+.portal-details-field dt {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.portal-details-field dd {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.65rem;
+  margin: 0.4rem 0 0;
+  color: #0f172a;
+  font-size: 0.95rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.portal-details-field .is-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 1.15rem;
+  letter-spacing: 0.22em;
+}
+
+.portal-details-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.28rem;
+  min-height: 1.6rem;
+  flex: none;
+  border-radius: 0.45rem;
+  padding: 0.15rem 0.5rem;
+  color: #475569;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.portal-details-copy:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
 .portal-card h3 {
   font-size: 1rem;
 }

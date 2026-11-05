@@ -10,6 +10,35 @@ import {
   recordStudentPortalFailure,
   studentPortalLocked,
 } from '../studentPortalStore.js';
+import { studentPortalDetails } from '../studentPortalRoutes.js';
+
+test('the student portal shows the same personal details the school keeps on file', () => {
+  const details = studentPortalDetails(
+    {
+      id: 'stu-1',
+      name: 'KELVIN KUSI',
+      class: 'JHS 3',
+      roll_number: 'SCH-AF-2026-001',
+      barcode: 'SCH-AF-2026-001',
+      gender: 'Male',
+      date_of_birth: '2001-10-22',
+      parent_name: 'RAYMOND KUSI',
+      parent_relationship: 'Father',
+      parent_phone: '596149016',
+      parent_email: 'KUSIRAYMOND208@GMAIL',
+      house_address: 'MAGAZINE',
+      extra_fees: [{ label: 'School bus', amount: 30 }],
+    },
+    '3597'
+  );
+  assert.equal(details.roll_number, 'SCH-AF-2026-001');
+  assert.equal(details.portal_password, '3597');
+  assert.equal(details.parent_name, 'RAYMOND KUSI');
+  assert.equal(details.parent_phone, '596149016');
+  assert.equal(details.gender, 'Male');
+  assert.equal(details.date_of_birth, '2001-10-22');
+  assert.deepEqual(details.extra_fees, [{ label: 'School bus', amount: 30 }]);
+});
 
 test('a student portal password is four digits and is not reused in that school', () => {
   const password = generatePortalPassword(['1234', '0000', '1111']);
