@@ -225,8 +225,8 @@ const Payments = () => {
           <div>
             <h2 className="text-sm font-semibold text-white">Salaries</h2>
             <p className="mt-0.5 text-xs text-slate-500">
-              {readyCount} ready to pay in this list. Staff numbers come from the staff portal.
-              Enter non-staff numbers here — they have no portal.
+              {readyCount} ready to pay in this list. Pay one person or everyone ready. Staff numbers come from
+              the staff portal. Enter non-staff numbers here — they have no portal.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -331,7 +331,7 @@ const Payments = () => {
                                 event.currentTarget.blur();
                               }
                             }}
-                            placeholder={person.kind === 'non-staff' ? 'Admin enters this' : '024xxxxxxx'}
+                            placeholder={person.kind === 'non-staff' ? 'Enter MoMo number' : '024xxxxxxx'}
                             title={
                               person.kind === 'non-staff'
                                 ? 'Non-staff have no portal. Type their MoMo number and it will save.'

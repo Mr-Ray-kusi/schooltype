@@ -49,7 +49,7 @@ const StaffPortal = () => {
   const [hasSavedScores, setHasSavedScores] = useState(false);
   const [editingSaved, setEditingSaved] = useState(false);
   const [schoolRecord, setSchoolRecord] = useState(restored?.school || null);
-  const [financeTab, setFinanceTab] = useState('fees');
+  const [financeTab, setFinanceTab] = useState('payments');
   const [owingSmsOpen, setOwingSmsOpen] = useState(false);
   const [momoPhone, setMomoPhone] = useState(restored?.staff?.momo_phone || '');
   const [savingPay, setSavingPay] = useState(false);
@@ -490,6 +490,10 @@ const StaffPortal = () => {
     String(staff.role).toLowerCase()
   );
   const wideLayout = isAccountant || isAdministrator;
+  const shellWidth = wideLayout ? 'max-w-6xl' : 'max-w-5xl';
+  const shellPad = 'px-6 sm:px-8 lg:px-10';
+  const navBtn =
+    'flex shrink-0 items-center rounded-lg px-2 py-1.5 text-left text-[13px] font-medium leading-snug lg:w-full';
   const scoresLocked = Boolean(scoreLock?.published && !scoreLock?.canEdit);
   const viewingSaved = hasSavedScores && !editingSaved && !scoresLocked;
   const fieldsLocked = savingAll || scoresLocked || viewingSaved;
@@ -552,22 +556,22 @@ const StaffPortal = () => {
   );
 
   const accountantNav = (
-    <aside className="min-w-0 shrink-0 lg:w-52">
-      <div className="flex gap-2 overflow-x-auto pb-1 lg:block lg:max-h-full lg:space-y-2 lg:overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900/70 p-3">
-        <p className="hidden px-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-300 lg:block">
+    <aside className="min-w-0 shrink-0 lg:w-36">
+      <div className="flex gap-2 overflow-x-auto pb-1 lg:block lg:max-h-full lg:space-y-1 lg:overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900/70 p-2">
+        <p className="hidden px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-300 lg:block">
           Finance
         </p>
         {[
+          { id: 'payments', label: 'Payments' },
           { id: 'fees', label: 'Fees' },
           { id: 'lists', label: 'Paid & unpaid' },
-          { id: 'payments', label: 'Payments' },
           { id: 'wallet', label: 'School wallet' },
         ].map((item) => (
           <button
             key={item.id}
             type="button"
             onClick={() => setFinanceTab(item.id)}
-            className={`flex shrink-0 items-center rounded-xl px-3 py-2.5 text-left text-sm font-medium lg:w-full ${
+            className={`${navBtn} ${
               financeTab === item.id ? 'bg-emerald-600 text-white' : 'text-slate-200 hover:bg-slate-800'
             }`}
           >
@@ -580,10 +584,10 @@ const StaffPortal = () => {
             setFinanceTab('fees');
             setOwingSmsOpen(true);
           }}
-          className="flex shrink-0 items-center gap-2 rounded-xl border border-slate-600 px-3 py-2.5 text-left text-sm font-medium text-slate-200 hover:bg-slate-800 lg:mt-2 lg:w-full"
+          className={`${navBtn} gap-1.5 border border-slate-600 text-slate-200 hover:bg-slate-800 lg:mt-1`}
         >
-          <MessageSquare className="h-4 w-4" />
-          SMS owing parents
+          <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+          SMS owing
         </button>
       </div>
     </aside>
@@ -591,8 +595,8 @@ const StaffPortal = () => {
 
   return (
     <div className={`flex h-dvh flex-col overflow-hidden ${liteMode ? 'lite-shell bg-slate-100 text-slate-900' : 'bg-slate-950 text-white'}`}>
-      <header className={`z-20 shrink-0 border-b px-4 py-4 ${liteMode ? 'border-slate-200 bg-white' : 'border-slate-800 bg-slate-900'}`}>
-        <div className={`mx-auto flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between ${wideLayout ? 'max-w-7xl' : 'max-w-5xl'}`}>
+      <header className={`z-20 shrink-0 border-b py-4 ${liteMode ? 'border-slate-200 bg-white' : 'border-slate-800 bg-slate-900'}`}>
+        <div className={`mx-auto flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between ${shellWidth} ${shellPad}`}>
           <div className="min-w-0">
             <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{schoolName}</p>
             <h1 className="truncate text-xl font-bold">{staff.name}</h1>
@@ -618,21 +622,21 @@ const StaffPortal = () => {
 
       <div className="min-h-0 flex-1 overflow-hidden">
         {isAdministrator ? (
-          <div className="mx-auto flex h-full min-h-0 max-w-7xl flex-col px-4 py-4 lg:py-6">
+          <div className={`mx-auto flex h-full min-h-0 ${shellWidth} ${shellPad} flex-col py-4 lg:py-6`}>
             <AuthContext.Provider value={portalAuth}>
               <AdministratorSchool schoolName={schoolName} authHeaders={authHeaders} lead={paymentDetails} />
             </AuthContext.Provider>
           </div>
         ) : isAccountant ? (
-          <div className="mx-auto flex h-full max-w-7xl min-h-0 flex-col px-4 lg:flex-row lg:gap-6">
+          <div className={`mx-auto flex h-full min-h-0 ${shellWidth} ${shellPad} flex-col lg:flex-row lg:gap-4`}>
             <div className="shrink-0 py-4 lg:py-6">{accountantNav}</div>
-            <div className="min-h-0 flex-1 space-y-6 overflow-y-auto py-4 lg:py-6">
+            <div className="min-h-0 min-w-0 flex-1 space-y-6 overflow-y-auto py-4 lg:py-6">
               {paymentDetails}
               <AuthContext.Provider value={portalAuth}>
                 {financeTab === 'wallet' ? (
                   <SchoolWallet viewOnly />
                 ) : financeTab === 'payments' ? (
-                  <div className="h-[min(70dvh,40rem)] min-h-[22rem] sm:min-h-[28rem]">
+                  <div className="flex min-h-[28rem] min-w-0 flex-1 flex-col">
                     <Payments />
                   </div>
                 ) : (
@@ -650,7 +654,7 @@ const StaffPortal = () => {
             </div>
           </div>
         ) : (
-          <main className="mx-auto h-full max-w-5xl space-y-6 overflow-y-auto px-4 py-8">
+          <main className={`mx-auto h-full ${shellWidth} ${shellPad} space-y-6 overflow-y-auto py-8`}>
             {paymentDetails}
             {!isTeacher ? (
           <div className="rounded-3xl border border-slate-700 bg-slate-900/60 p-8 text-center">
