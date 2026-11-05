@@ -200,7 +200,7 @@ const Dashboard = () => {
 
   return (
     <>
-      <div className="relative">
+      <div className="dashboard-page relative font-dashboard">
         <PlanPendingBanner />
         <SubscriptionBanner />
 
@@ -229,7 +229,7 @@ const Dashboard = () => {
               <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-sky-300 xl:text-xs">
                 Overview
               </p>
-              <h1 className="mt-1 font-display text-lg font-extrabold leading-tight tracking-tight text-white sm:text-2xl lg:text-3xl xl:text-4xl">
+              <h1 className="mt-1 text-lg font-extrabold leading-tight tracking-tight text-white sm:text-2xl lg:text-3xl xl:text-4xl">
                 {school?.name || 'Dashboard'}
               </h1>
               <p className="mt-0.5 truncate text-xs font-medium text-white/80 sm:text-sm xl:text-base">{todayLabel}</p>
@@ -267,7 +267,7 @@ const Dashboard = () => {
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-[11px] font-semibold text-slate-400 xl:text-xs">{stat.title}</p>
-                      <p className="font-display text-lg font-extrabold tabular-nums leading-tight text-white xl:text-2xl">
+                      <p className="text-lg font-extrabold tabular-nums leading-tight text-white xl:text-2xl">
                         {locked ? '—' : Number(stat.value || 0).toLocaleString()}
                       </p>
                     </div>

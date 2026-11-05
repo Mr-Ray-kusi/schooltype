@@ -112,6 +112,10 @@
   }
 }
 
+.dashboard-page {
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+}
+
 /* Softer dark-theme overrides for legacy gray utility classes */
 .bg-white {
   background-color: #1e293b !important;
