@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
-import { Copy, Plus, RefreshCw, Search } from 'lucide-react';
+import { Plus, RefreshCw, Search } from 'lucide-react';
 import { useAuth } from '../contexts/authcontext';
 import RecordFeePaymentModal from '../components/RecordFeePaymentModal';
 import FeePaymentReceiptModal from '../components/FeePaymentReceiptModal';
@@ -47,16 +47,6 @@ const Fees = () => {
   useEffect(() => {
     setPage(1);
   }, [tab, searchTerm]);
-
-  const copyLink = async (path) => {
-    const url = `${window.location.origin}${path}`;
-    try {
-      await navigator.clipboard.writeText(url);
-      toast.success('Payment link copied');
-    } catch {
-      toast.error('Could not copy link');
-    }
-  };
 
   const sendReminder = async () => {
     setSending(true);
@@ -256,7 +246,7 @@ const Fees = () => {
                       <th className="px-4 py-3">Paid</th>
                       <th className="px-4 py-3">Outstanding</th>
                       <th className="px-4 py-3">Recorded by</th>
-                      <th className="px-4 py-3">{tab === 'unpaid' ? 'Pay link' : 'Channel'}</th>
+                      {tab === 'paid' ? <th className="px-4 py-3">Channel</th> : null}
                     </tr>
                   </thead>
                   <tbody>
@@ -278,29 +268,13 @@ const Fees = () => {
                             {outstanding >= 0.01 ? formatGhs(outstanding) : 'None'}
                           </td>
                           <td className="px-4 py-3 text-slate-300">{row.recorded_by || '—'}</td>
-                          <td className="px-4 py-3">
-                            {tab === 'unpaid' ? (
-                              row.pay_path ? (
-                                <button
-                                  type="button"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    copyLink(row.pay_path);
-                                  }}
-                                  className="inline-flex items-center gap-1 text-sky-400 hover:text-sky-300"
-                                >
-                                  <Copy className="h-4 w-4" />
-                                  Copy
-                                </button>
-                              ) : (
-                                '—'
-                              )
-                            ) : (
+                          {tab === 'paid' ? (
+                            <td className="px-4 py-3">
                               <span className="capitalize">
                                 {row.payment?.channel || row.payment?.payment_method || 'Paystack'}
                               </span>
-                            )}
-                          </td>
+                            </td>
+                          ) : null}
                         </tr>
                       );
                     })}
