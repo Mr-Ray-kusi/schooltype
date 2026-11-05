@@ -103,6 +103,7 @@ import { registerStudentPortalRoutes } from './studentPortalRoutes.js';
 import { registerPayrollRoutes } from './payrollRoutes.js';
 import { deleteStudentPortalPassword, issueStudentPortalPassword } from './studentPortalStore.js';
 import { inspectScoreLock, loadScoreLocks } from './scorePublishStore.js';
+import { listClassRoster, listReportClasses } from './reportCardRoster.js';
 import { isProtectedStaffRole, staffPortalApiAllowed, staffPortalAsSchoolUser } from './staffSchoolAuth.js';
 import { parseRequiredGender, parseRequiredSalary } from './peopleCreate.js';
 import { extraFeesJson } from './feePayments.js';
@@ -6164,6 +6165,7 @@ app.get('/api/report-cards/scores', authenticateToken, enforcePlanApproval, asyn
       return res.status(403).json({ error: 'Report cards are not included in your plan' });
     }
 
+    const classSelected = Boolean(classFilter && classFilter !== 'all');
     const scoreQueryAt = (fromIdx, toIdx) => {
       let scoreQuery = supabase
         .from('student_scores')
@@ -6171,7 +6173,7 @@ app.get('/api/report-cards/scores', authenticateToken, enforcePlanApproval, asyn
         .eq('school_id', schoolId)
         .order('updated_at', { ascending: false })
         .range(fromIdx, toIdx);
-      if (classFilter && classFilter !== 'all') scoreQuery = scoreQuery.eq('class_name', classFilter);
+      if (classSelected) scoreQuery = scoreQuery.eq('class_name', classFilter);
       if (subjectFilter && subjectFilter !== 'all') scoreQuery = scoreQuery.eq('subject', subjectFilter);
       if (termFilter && termFilter !== 'all') scoreQuery = scoreQuery.eq('term', termFilter);
       return scoreQuery;
@@ -6179,44 +6181,46 @@ app.get('/api/report-cards/scores', authenticateToken, enforcePlanApproval, asyn
 
     let rows = [];
     let count = 0;
-    if (wantAll) {
-      const chunk = 500;
-      let fromIdx = 0;
-      while (fromIdx < 20000) {
-        const { data: scores, error, count: rowCount } = await scoreQueryAt(fromIdx, fromIdx + chunk - 1);
-        if (error) {
-          if (isMissingColumnError(error, 'student_scores') || error.code === '42P01') {
-            return res.json({ scores: [], note: 'No scores yet. Teachers enter scores in the staff portal.' });
+    if (classSelected) {
+      if (wantAll) {
+        const chunk = 500;
+        let fromIdx = 0;
+        while (fromIdx < 20000) {
+          const { data: scores, error, count: rowCount } = await scoreQueryAt(fromIdx, fromIdx + chunk - 1);
+          if (error) {
+            if (isMissingColumnError(error, 'student_scores') || error.code === '42P01') break;
+            throw error;
           }
-          throw error;
+          count = rowCount || count;
+          const batch = scores || [];
+          rows.push(...batch);
+          if (!batch.length || batch.length < chunk || (rowCount && rows.length >= rowCount)) break;
+          fromIdx += chunk;
         }
-        count = rowCount || count;
-        const batch = scores || [];
-        rows.push(...batch);
-        if (!batch.length || batch.length < chunk || (rowCount && rows.length >= rowCount)) break;
-        fromIdx += chunk;
-      }
-    } else {
-      const { data: scores, error, count: rowCount } = await scoreQueryAt(from, to);
-      if (error) {
-        if (isMissingColumnError(error, 'student_scores') || error.code === '42P01') {
-          return res.json({ scores: [], note: 'No scores yet. Teachers enter scores in the staff portal.' });
+      } else {
+        const { data: scores, error, count: rowCount } = await scoreQueryAt(from, to);
+        if (error) {
+          if (!(isMissingColumnError(error, 'student_scores') || error.code === '42P01')) throw error;
+        } else {
+          rows = scores || [];
+          count = rowCount || 0;
         }
-        throw error;
       }
-      rows = scores || [];
-      count = rowCount || 0;
     }
     const studentIds = [...new Set(rows.map((r) => r.student_id).filter(Boolean))];
     const staffIds = [...new Set(rows.map((r) => r.staff_id).filter(Boolean))];
 
-    const [studentsRes, staffRes] = await Promise.all([
+    const [studentsRes, staffRes, catalog, roster, filterRows, academicTerms] = await Promise.all([
       studentIds.length
         ? supabase.from('students').select('id, name, class, roll_number').in('id', studentIds)
         : Promise.resolve({ data: [] }),
       staffIds.length
         ? supabase.from('staffs').select('id, name, role').in('id', staffIds)
         : Promise.resolve({ data: [] }),
+      listReportClasses(schoolId),
+      classSelected ? listClassRoster(schoolId, classFilter) : Promise.resolve([]),
+      supabase.from('student_scores').select('class_name, subject, term').eq('school_id', schoolId).limit(400),
+      listAcademicTerms(schoolId).catch(() => []),
     ]);
 
     const studentsById = new Map((studentsRes.data || []).map((s) => [s.id, s]));
@@ -6249,21 +6253,34 @@ app.get('/api/report-cards/scores', authenticateToken, enforcePlanApproval, asyn
       };
     });
 
-    const filterRows = await supabase
-      .from('student_scores')
-      .select('class_name, subject, term')
-      .eq('school_id', schoolId)
-      .limit(400);
     const payload = {
       scores: enriched,
       items: enriched,
+      roster,
+      classCounts: catalog.classCounts || {},
       total: count || enriched.length,
       page: wantAll ? 1 : page,
       limit: wantAll ? enriched.length || limit : limit,
       filters: {
-        classes: [...new Set((filterRows.data || []).map((row) => row.class_name).filter(Boolean))].sort(),
+        classes: sortClasses(
+          [
+            ...new Set(
+              [
+                ...(catalog.classes || []),
+                ...(filterRows.data || []).map((row) => row.class_name),
+              ].filter(Boolean)
+            ),
+          ].map((name) => ({ name }))
+        ).map((row) => row.name),
         subjects: [...new Set((filterRows.data || []).map((row) => row.subject).filter(Boolean))].sort(),
-        terms: [...new Set((filterRows.data || []).map((row) => row.term).filter(Boolean))].sort(),
+        terms: [
+          ...new Set(
+            [
+              ...(academicTerms || []).map((row) => row.name),
+              ...(filterRows.data || []).map((row) => row.term),
+            ].filter(Boolean)
+          ),
+        ],
       },
     };
     cacheSet(cacheKey, payload, REPORTS_TTL_MS);

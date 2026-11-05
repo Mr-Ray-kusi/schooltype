@@ -11,7 +11,8 @@ import Alumni from '../pages/alumni';
 import { StaffEmbedProvider } from '../contexts/staffEmbed';
 import AbsentParentSmsModal from './AbsentParentSmsModal';
 import { schoolLocalDate } from '../utils/schoolDate';
-import { downloadStudentReportCardsPdf, downloadSubjectRankingsPdf } from '../utils/reportCardPdf';
+import ClassReportBoard from './ClassReportBoard';
+import { downloadStudentReportCardsPdf, downloadSubjectRankingsPdf, rankClassRoster } from '../utils/reportCardPdf';
 
 const ACADEMIC_NAV = [
   { id: 'students', label: 'Students' },
@@ -25,9 +26,11 @@ const ACADEMIC_NAV = [
 
 const AdministratorSchool = ({ schoolName, authHeaders, lead = null }) => {
   const [tab, setTab] = useState('students');
-  const [reportClass, setReportClass] = useState('all');
+  const [reportClass, setReportClass] = useState('');
   const [reportTerm, setReportTerm] = useState('all');
   const [scores, setScores] = useState([]);
+  const [roster, setRoster] = useState([]);
+  const [classCounts, setClassCounts] = useState({});
   const [reportFilters, setReportFilters] = useState({ classes: [], terms: [] });
   const [reportLock, setReportLock] = useState(null);
   const [teachers, setTeachers] = useState([]);
@@ -47,11 +50,13 @@ const AdministratorSchool = ({ schoolName, authHeaders, lead = null }) => {
       const { data } = await axios.get('/api/staff-portal/session/admin/report-cards', {
         headers: authHeaders,
         params: {
-          class: reportClass !== 'all' ? reportClass : undefined,
+          class: reportClass || undefined,
           term: reportTerm !== 'all' ? reportTerm : undefined,
         },
       });
       setScores(data.scores || []);
+      setRoster(data.roster || []);
+      setClassCounts(data.classCounts || {});
       if (data.filters) setReportFilters(data.filters);
       setReportLock(data.lock || null);
       setTeachers(data.teachers || []);
@@ -66,14 +71,26 @@ const AdministratorSchool = ({ schoolName, authHeaders, lead = null }) => {
     if (tab === 'reports') loadReports();
   }, [tab, loadReports]);
 
+  const ranked = useMemo(
+    () =>
+      reportClass
+        ? rankClassRoster(roster, scores, { className: reportClass, term: reportTerm })
+        : [],
+    [roster, scores, reportClass, reportTerm]
+  );
+
   const studentKeys = useMemo(
-    () => [...new Set(scores.map((row) => row.student_id || `${row.student_name}-${row.class_name}`))],
-    [scores]
+    () => ranked.map((row) => row.student_id || `${row.student_name}-${row.class_name}`),
+    [ranked]
   );
 
   const printReports = (kind) => {
+    if (!reportClass) {
+      toast.error('Choose a class first');
+      return;
+    }
     if (!scores.length) {
-      toast.error('Teachers have not saved scores for this filter yet');
+      toast.error('Teachers have not saved scores for this class yet');
       return;
     }
     if (kind === 'rankings') {
@@ -95,7 +112,7 @@ const AdministratorSchool = ({ schoolName, authHeaders, lead = null }) => {
     try {
       const { data } = await axios.post(
         '/api/staff-portal/session/admin/report-cards/publish',
-        { term: reportTerm, class: reportClass, unpublish },
+        { term: reportTerm, class: reportClass || 'all', unpublish },
         { headers: authHeaders }
       );
       setPublishBlock(null);
@@ -122,7 +139,7 @@ const AdministratorSchool = ({ schoolName, authHeaders, lead = null }) => {
         headers: authHeaders,
         params: {
           term: reportTerm,
-          class: reportClass !== 'all' ? reportClass : undefined,
+          class: reportClass || undefined,
         },
       });
       if (!data.ready) {
@@ -150,7 +167,7 @@ const AdministratorSchool = ({ schoolName, authHeaders, lead = null }) => {
     try {
       await axios.post(
         '/api/staff-portal/session/admin/report-cards/allow-edit',
-        { term: reportTerm, class: reportClass, staffId: allowTeacherId, allow: true },
+        { term: reportTerm, class: reportClass || 'all', staffId: allowTeacherId, allow: true },
         { headers: authHeaders }
       );
       toast.success('That teacher can edit the published report');
@@ -222,67 +239,62 @@ const AdministratorSchool = ({ schoolName, authHeaders, lead = null }) => {
                   Refresh
                 </button>
               </div>
-              <div className="flex flex-wrap gap-3">
-                <select
-                  value={reportClass}
-                  onChange={(e) => setReportClass(e.target.value)}
-                  className="rounded-xl border border-slate-600 bg-slate-900 px-3 py-2 text-sm"
-                >
-                  <option value="all">All classes</option>
-                  {reportFilters.classes.map((name) => (
-                    <option key={name} value={name}>
-                      {name}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={reportTerm}
-                  onChange={(e) => setReportTerm(e.target.value)}
-                  className="rounded-xl border border-slate-600 bg-slate-900 px-3 py-2 text-sm"
-                >
-                  <option value="all">All terms</option>
-                  {(reportFilters.terms.length ? reportFilters.terms : ['First Term', 'Second Term', 'Third Term']).map(
-                    (name) => (
-                      <option key={name} value={name}>
-                        {name}
-                      </option>
-                    )
-                  )}
-                </select>
-                <button
-                  type="button"
-                  onClick={() => printReports('cards')}
-                  className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500"
-                >
-                  <Printer className="h-4 w-4" />
-                  Print class reports
-                </button>
-                <button
-                  type="button"
-                  onClick={() => printReports('rankings')}
-                  className="inline-flex items-center gap-2 rounded-full bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-500"
-                >
-                  <Download className="h-4 w-4" />
-                  Rankings PDF
-                </button>
-                <button
-                  type="button"
-                  onClick={requestPublish}
-                  disabled={checkingPublish}
-                  className="inline-flex items-center gap-2 rounded-full bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-500 disabled:opacity-60"
-                >
-                  {checkingPublish ? 'Checking scores…' : 'Publish report'}
-                </button>
-                {reportLock?.published ? (
-                  <button
-                    type="button"
-                    onClick={() => publishReports(true)}
-                    className="inline-flex items-center gap-2 rounded-full border border-slate-600 px-4 py-2 text-sm text-slate-200"
-                  >
-                    Unpublish
-                  </button>
-                ) : null}
-              </div>
+              <ClassReportBoard
+                classes={reportFilters.classes}
+                classCounts={classCounts}
+                selectedClass={reportClass}
+                onSelectClass={setReportClass}
+                selectedTerm={reportTerm}
+                onSelectTerm={setReportTerm}
+                terms={
+                  reportFilters.terms.length
+                    ? reportFilters.terms
+                    : ['First Term', 'Second Term', 'Third Term']
+                }
+                ranked={ranked}
+                loading={loadingReports}
+                toolbar={
+                  <>
+                    {reportClass ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => printReports('cards')}
+                          className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500"
+                        >
+                          <Printer className="h-4 w-4" />
+                          Print class reports
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => printReports('rankings')}
+                          className="inline-flex items-center gap-2 rounded-full bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-500"
+                        >
+                          <Download className="h-4 w-4" />
+                          Rankings PDF
+                        </button>
+                      </>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={requestPublish}
+                      disabled={checkingPublish}
+                      className="inline-flex items-center gap-2 rounded-full bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-500 disabled:opacity-60"
+                    >
+                      {checkingPublish ? 'Checking scores…' : 'Publish report'}
+                    </button>
+                    {reportLock?.published ? (
+                      <button
+                        type="button"
+                        onClick={() => publishReports(true)}
+                        className="inline-flex items-center gap-2 rounded-full border border-slate-600 px-4 py-2 text-sm text-slate-200"
+                      >
+                        Unpublish
+                      </button>
+                    ) : null}
+                  </>
+                }
+              />
               {reportLock?.published ? (
                 <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
                   <p className="text-sm text-amber-100">
@@ -310,32 +322,6 @@ const AdministratorSchool = ({ schoolName, authHeaders, lead = null }) => {
                   </button>
                 </div>
               ) : null}
-              <div className="overflow-hidden rounded-3xl border border-slate-700 bg-slate-900/50">
-                {scores.length === 0 ? (
-                  <p className="px-5 py-10 text-center text-sm text-slate-400">
-                    No teacher scores yet for this filter. Publish after teachers save marks.
-                  </p>
-                ) : (
-                  <div className="divide-y divide-slate-800">
-                    {scores.map((row) => (
-                      <div key={row.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3">
-                        <div>
-                          <p className="font-medium text-white">{row.student_name}</p>
-                          <p className="text-xs text-slate-500">
-                            {row.class_name} · {row.subject} · {row.term}
-                            {row.teacher_name ? ` · ${row.teacher_name}` : ''}
-                            {row.published ? ' · published' : ''}
-                          </p>
-                        </div>
-                        <p className="text-sm text-slate-200">
-                          {row.score == null ? '—' : `${row.score}/${row.max_score}`}
-                          {row.percent != null ? ` · ${row.percent}%` : ''}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
             </section>
           ) : null}
         </div>

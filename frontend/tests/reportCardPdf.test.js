@@ -3,6 +3,7 @@ import {
   assignPositions,
   letterGrade,
   ordinal,
+  rankClassRoster,
   rankStudentsForReports,
 } from '../src/utils/reportCardPdf';
 
@@ -95,5 +96,29 @@ describe('rankStudentsForReports', () => {
   test('a subject with no mark entered is left out', () => {
     const ranked = rankStudentsForReports([score('Ama', 'Maths', null)]);
     expect(ranked).toEqual([]);
+  });
+});
+
+describe('rankClassRoster', () => {
+  test('every student in the class is listed and ranked by total marks', () => {
+    const ranked = rankClassRoster(
+      [
+        { id: 'ama', name: 'Ama', class: 'JHS 1', roll_number: 'A-1' },
+        { id: 'kofi', name: 'Kofi', class: 'JHS 1', roll_number: 'A-2' },
+        { id: 'yaw', name: 'Yaw', class: 'JHS 1', roll_number: 'A-3' },
+      ],
+      [
+        score('Ama', 'Maths', 90),
+        score('Ama', 'English', 80),
+        score('Kofi', 'Maths', 60),
+        score('Kofi', 'English', 50),
+      ],
+      { className: 'JHS 1', term: 'Term 1' }
+    );
+    expect(ranked.map((row) => [row.student_name, row.position, row.totalMarks])).toEqual([
+      ['Ama', 1, 170],
+      ['Kofi', 2, 110],
+      ['Yaw', 3, 0],
+    ]);
   });
 });

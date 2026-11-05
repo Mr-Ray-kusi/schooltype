@@ -155,6 +155,57 @@ function attachSubjectPositions(summaries, classRows) {
   }));
 }
 
+/** Rank every student in a class by total marks, including those with no scores yet. */
+export function rankClassRoster(students = [], scores = [], { className, term } = {}) {
+  const roster = (students || []).filter((student) => {
+    if (!className || className === 'all') return true;
+    return String(student.class || student.class_name || '') === String(className);
+  });
+
+  const classRows = (scores || []).filter((row) => {
+    if (className && className !== 'all' && String(row.class_name || '') !== String(className)) return false;
+    if (term && term !== 'all' && String(row.term || '') !== String(term)) return false;
+    return row.score != null || row.percent != null;
+  });
+
+  const summaries = attachSubjectPositions(groupScoresByStudent(classRows), classRows);
+  const byId = new Map();
+  const byName = new Map();
+  for (const row of summaries) {
+    if (row.student_id) byId.set(String(row.student_id).toLowerCase(), row);
+    byName.set(String(row.student_name || '').trim().toLowerCase(), row);
+  }
+
+  const merged = roster.map((student) => {
+    const id = String(student.id || student.student_id || '');
+    const name = String(student.name || student.student_name || '').trim();
+    const scored = (id && byId.get(id.toLowerCase())) || byName.get(name.toLowerCase()) || null;
+    return {
+      student_id: id || scored?.student_id || null,
+      student_name: name || scored?.student_name || 'Student',
+      class_name: student.class || student.class_name || scored?.class_name || className || '',
+      roll_number: student.roll_number || scored?.roll_number || null,
+      term: scored?.term || (term && term !== 'all' ? term : ''),
+      totalMarks: scored?.totalMarks ?? 0,
+      totalMax: scored?.totalMax ?? 0,
+      overallPercent: scored?.overallPercent ?? null,
+      subjects: scored?.subjects || [],
+      attitude: scored?.attitude || '—',
+    };
+  });
+
+  const seenIds = new Set(merged.map((row) => String(row.student_id || '').toLowerCase()).filter(Boolean));
+  const seenNames = new Set(merged.map((row) => String(row.student_name || '').trim().toLowerCase()).filter(Boolean));
+  for (const row of summaries) {
+    const id = String(row.student_id || '').toLowerCase();
+    const name = String(row.student_name || '').trim().toLowerCase();
+    if ((id && seenIds.has(id)) || seenNames.has(name)) continue;
+    merged.push(row);
+  }
+
+  return assignUniquePositions(merged, (row) => Number(row.totalMarks) || 0);
+}
+
 /** Rank students within each class + term by total marks across all subjects. */
 export function rankStudentsForReports(scores, { className, term, studentIds } = {}) {
   const selected =

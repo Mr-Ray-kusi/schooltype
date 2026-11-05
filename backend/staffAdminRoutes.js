@@ -10,6 +10,7 @@ import {
   unpublishScoreLocks,
 } from './scorePublishStore.js';
 import { DEFAULT_TERM_NAMES, listAcademicTerms } from './academicTerms.js';
+import { listClassRoster, listReportClasses } from './reportCardRoster.js';
 
 export function isSchoolHeadRole(role) {
   const value = String(role || '')
@@ -527,30 +528,24 @@ export function registerStaffAdminRoutes(app, { authenticateStaffPortal }) {
         const schoolId = req.staffPortal.schoolId;
         const className = String(req.query.class || '').trim();
         const term = String(req.query.term || '').trim();
-        let query = supabase
-          .from('student_scores')
-          .select('*')
-          .eq('school_id', schoolId)
-          .order('updated_at', { ascending: false })
-          .limit(400);
-        if (className && className !== 'all') query = query.eq('class_name', className);
-        if (term && term !== 'all') query = query.eq('term', term);
-        const { data: scores, error } = await query;
-        if (error) {
-          if (error.code === '42P01') {
-            return res.json({
-              scores: [],
-              filters: { classes: [], terms: DEFAULT_TERM_NAMES.slice(0, 3) },
-              lock: null,
-              teachers: [],
-            });
-          }
-          throw error;
+        const classSelected = Boolean(className && className !== 'all');
+        let rows = [];
+        if (classSelected) {
+          let query = supabase
+            .from('student_scores')
+            .select('*')
+            .eq('school_id', schoolId)
+            .eq('class_name', className)
+            .order('updated_at', { ascending: false })
+            .limit(400);
+          if (term && term !== 'all') query = query.eq('term', term);
+          const { data: scores, error } = await query;
+          if (error && error.code !== '42P01') throw error;
+          rows = scores || [];
         }
-        const rows = scores || [];
         const studentIds = [...new Set(rows.map((row) => row.student_id).filter(Boolean))];
         const staffIds = [...new Set(rows.map((row) => row.staff_id).filter(Boolean))];
-        const [studentsRes, staffRes, filterRes, lockState, teachersRes, academicTerms, classRows] = await Promise.all([
+        const [studentsRes, staffRes, filterRes, lockState, teachersRes, academicTerms, catalog, roster] = await Promise.all([
           studentIds.length
             ? supabase.from('students').select('id, name, class, roll_number').in('id', studentIds)
             : Promise.resolve({ data: [] }),
@@ -565,7 +560,8 @@ export function registerStaffAdminRoutes(app, { authenticateStaffPortal }) {
             .eq('school_id', schoolId)
             .order('name', { ascending: true }),
           listAcademicTerms(schoolId).catch(() => []),
-          supabase.from('classes').select('name').eq('school_id', schoolId),
+          listReportClasses(schoolId),
+          classSelected ? listClassRoster(schoolId, className) : Promise.resolve([]),
         ]);
         const studentsById = new Map((studentsRes.data || []).map((row) => [row.id, row]));
         const staffById = new Map((staffRes.data || []).map((row) => [row.id, row]));
@@ -608,6 +604,8 @@ export function registerStaffAdminRoutes(app, { authenticateStaffPortal }) {
             : { published: false, canEdit: true, allowStaffIds: [] };
         res.json({
           scores: enriched,
+          roster,
+          classCounts: catalog.classCounts || {},
           lock,
           locks: lockState.locks,
           teachers: (teachersRes.data || [])
@@ -617,8 +615,8 @@ export function registerStaffAdminRoutes(app, { authenticateStaffPortal }) {
             classes: [
               ...new Set(
                 [
+                  ...(catalog.classes || []),
                   ...(filterRes.data || []).map((row) => row.class_name),
-                  ...(classRows.data || []).map((row) => row.name),
                   ...(teachersRes.data || []).flatMap((row) => parseCsvList(row.class_names)),
                 ].filter(Boolean)
               ),
