@@ -15,7 +15,7 @@ import { useAuth } from '../contexts/authcontext';
 import { useStaffEmbed } from '../contexts/staffEmbed';
 import AddStudent from './addstudends';
 import { buildTermAttendancePdfBytes } from '../utils/attendanceTermPdf';
-import { emptyExtraFee, extraFeesPayload, formatExtraFees, parseExtraFees } from '../utils/extraFees';
+import { emptyExtraFee, extraFeesPayload, formatExtraFees, formatExtraFeesAmount, parseExtraFees } from '../utils/extraFees';
 
 const Students = () => {
   const { school } = useAuth();
@@ -272,77 +272,75 @@ const Students = () => {
   return (
     <>
 <div className="space-y-6">
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-white sm:text-3xl">Students</h1>
-            <p className="mt-1 text-slate-300">{total} student{total !== 1 ? 's' : ''} enrolled</p>
+        <div>
+          <h1 className="text-2xl font-bold text-white sm:text-3xl">Students</h1>
+          <p className="mt-1 text-slate-300">{total} student{total !== 1 ? 's' : ''} enrolled</p>
+        </div>
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search students..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full min-w-0 rounded-lg border border-slate-500 py-2 pl-10 pr-3 text-sm focus:ring-2 focus:ring-primary-500"
+            />
           </div>
-          <div className="flex flex-wrap gap-2">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search students..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="min-w-[200px] rounded-lg border border-slate-500 py-2 pl-10 pr-4 focus:ring-2 focus:ring-primary-500"
-              />
-            </div>
+          <button
+            type="button"
+            disabled={refreshing}
+            onClick={async () => {
+              setRefreshing(true);
+              invalidateCache('students');
+              try {
+                await fetchStudents({ force: true });
+              } finally {
+                setRefreshing(false);
+              }
+            }}
+            className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-500 px-3 py-2 text-sm text-slate-100 hover:bg-slate-800 disabled:opacity-70"
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+          {embed.embedded ? (
             <button
               type="button"
-              disabled={refreshing}
-              onClick={async () => {
-                setRefreshing(true);
-                invalidateCache('students');
-                try {
-                  await fetchStudents({ force: true });
-                } finally {
-                  setRefreshing(false);
-                }
-              }}
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-500 px-3 py-2 text-sm text-slate-100 hover:bg-slate-800 disabled:opacity-70"
+              onClick={() => setShowAdd(true)}
+              className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-600 px-3 py-2 text-sm font-medium text-white hover:bg-primary-700"
             >
-              <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
-              Refresh
+              <UserPlus className="h-4 w-4" />
+              Add student
             </button>
-            {embed.embedded ? (
-              <button
-                type="button"
-                onClick={() => setShowAdd(true)}
-                className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-3 py-2 text-sm font-medium text-white hover:bg-primary-700"
-              >
-                <UserPlus className="h-4 w-4" />
-                Add student
-              </button>
-            ) : (
-              <Link
-                to="/add-student"
-                className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-3 py-2 text-sm font-medium text-white hover:bg-primary-700"
-              >
-                <UserPlus className="h-4 w-4" />
-                Add student
-              </Link>
-            )}
-            <select
-              value={selectedClass}
-              onChange={(e) => setSelectedClass(e.target.value)}
-              className="rounded-lg border border-slate-500 px-4 py-2 focus:ring-2 focus:ring-primary-500"
+          ) : (
+            <Link
+              to="/add-student"
+              className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-600 px-3 py-2 text-sm font-medium text-white hover:bg-primary-700"
             >
-              <option value="all">All Classes</option>
-              {classOptions.map((cls) => (
-                <option key={cls} value={cls}>{cls}</option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={handleDownloadAll}
-              disabled={downloadingAll || total === 0}
-              className="inline-flex items-center gap-2 rounded-lg bg-slate-700 px-3 py-2 text-sm text-white hover:bg-slate-600 disabled:opacity-50"
-            >
-              <Download className="h-4 w-4" />
-              {downloadingAll ? 'Preparing…' : 'Download all'}
-            </button>
-          </div>
+              <UserPlus className="h-4 w-4" />
+              Add student
+            </Link>
+          )}
+          <select
+            value={selectedClass}
+            onChange={(e) => setSelectedClass(e.target.value)}
+            className="max-w-[9.5rem] shrink-0 rounded-lg border border-slate-500 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500"
+          >
+            <option value="all">All Classes</option>
+            {classOptions.map((cls) => (
+              <option key={cls} value={cls}>{cls}</option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={handleDownloadAll}
+            disabled={downloadingAll || total === 0}
+            className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg bg-slate-700 px-3 py-2 text-sm text-white hover:bg-slate-600 disabled:opacity-50"
+          >
+            <Download className="h-4 w-4" />
+            {downloadingAll ? 'Preparing…' : 'Download all'}
+          </button>
         </div>
 
         <PersonDetailModal
@@ -578,16 +576,18 @@ const Students = () => {
             compact
             onSelect={openStudent}
             columns={[
-              { key: 'name', header: 'Student' },
-              { key: 'class', header: 'Class' },
-              { key: 'gender', header: 'Gender' },
-              { key: 'roll_number', header: 'Student ID' },
-              { key: 'parent_name', header: 'Parent' },
-              { key: 'parent_phone', header: 'Phone' },
+              { key: 'name', header: 'Student', width: '18%' },
+              { key: 'class', header: 'Class', width: '10%' },
+              { key: 'gender', header: 'Gender', width: '8%' },
+              { key: 'roll_number', header: 'Student ID', width: '22%', truncate: false },
+              { key: 'parent_name', header: 'Parent', width: '16%' },
+              { key: 'parent_phone', header: 'Phone', width: '11%' },
               {
                 key: 'extra_fees',
                 header: 'Extra charges',
-                render: (row) => formatExtraFees(row.extra_fees || row.extraFees) || '—',
+                width: '15%',
+                className: 'text-right tabular-nums',
+                render: (row) => formatExtraFeesAmount(row.extra_fees || row.extraFees) || '—',
               },
             ]}
           />

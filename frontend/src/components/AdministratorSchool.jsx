@@ -8,7 +8,6 @@ import Setup from '../pages/classes';
 import Attendance from '../pages/attendance';
 import Scanner from '../pages/scanner';
 import Alumni from '../pages/alumni';
-import Payments from '../pages/payments';
 import { StaffEmbedProvider } from '../contexts/staffEmbed';
 import AbsentParentSmsModal from './AbsentParentSmsModal';
 import { schoolLocalDate } from '../utils/schoolDate';
@@ -24,9 +23,7 @@ const ACADEMIC_NAV = [
   { id: 'reports', label: 'Report cards' },
 ];
 
-const FINANCE_NAV = [{ id: 'payments', label: 'Payments' }];
-
-const AdministratorSchool = ({ schoolName, authHeaders }) => {
+const AdministratorSchool = ({ schoolName, authHeaders, lead = null }) => {
   const [tab, setTab] = useState('students');
   const [reportClass, setReportClass] = useState('all');
   const [reportTerm, setReportTerm] = useState('all');
@@ -37,6 +34,10 @@ const AdministratorSchool = ({ schoolName, authHeaders }) => {
   const [allowTeacherId, setAllowTeacherId] = useState('');
   const [loadingReports, setLoadingReports] = useState(false);
   const [showAbsentSms, setShowAbsentSms] = useState(false);
+
+  useEffect(() => {
+    if (tab === 'payments') setTab('students');
+  }, [tab]);
 
   const loadReports = useCallback(async () => {
     setLoadingReports(true);
@@ -122,9 +123,9 @@ const AdministratorSchool = ({ schoolName, authHeaders }) => {
 
   return (
     <StaffEmbedProvider value={{ embedded: true, open: setTab }}>
-      <div className="flex flex-col gap-6 lg:flex-row">
+      <div className="flex h-full min-h-0 flex-1 flex-col lg:flex-row lg:gap-6">
         <aside className="min-w-0 shrink-0 lg:w-52">
-          <div className="flex gap-2 overflow-x-auto pb-1 lg:sticky lg:top-4 lg:block lg:space-y-2 lg:overflow-visible rounded-2xl border border-slate-700 bg-slate-900/70 p-3">
+          <div className="flex gap-2 overflow-x-auto pb-1 lg:block lg:max-h-full lg:space-y-2 lg:overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900/70 p-3">
             <p className="hidden px-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-300 lg:block">
               Academic
             </p>
@@ -135,21 +136,6 @@ const AdministratorSchool = ({ schoolName, authHeaders }) => {
                 onClick={() => setTab(item.id)}
                 className={`flex shrink-0 items-center rounded-xl px-3 py-2.5 text-left text-sm font-medium lg:w-full ${
                   tab === item.id ? 'bg-sky-500 text-white' : 'text-slate-200 hover:bg-slate-800'
-                }`}
-              >
-                {item.label}
-              </button>
-            ))}
-            <p className="hidden px-2 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-300 lg:block">
-              Finance
-            </p>
-            {FINANCE_NAV.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => setTab(item.id)}
-                className={`flex shrink-0 items-center rounded-xl px-3 py-2.5 text-left text-sm font-medium lg:w-full ${
-                  tab === item.id ? 'bg-emerald-600 text-white' : 'text-slate-200 hover:bg-slate-800'
                 }`}
               >
                 {item.label}
@@ -169,7 +155,8 @@ const AdministratorSchool = ({ schoolName, authHeaders }) => {
           </div>
         </aside>
 
-        <div className={`min-w-0 flex-1 ${tab === 'attendance' || tab === 'payments' ? 'min-h-0' : ''}`}>
+        <div className="min-h-0 min-w-0 flex-1 space-y-6 overflow-y-auto">
+          {lead}
           {tab === 'students' ? <Students /> : null}
           {tab === 'alumni' ? <Alumni /> : null}
           {tab === 'staff' ? <Staff /> : null}
@@ -180,11 +167,6 @@ const AdministratorSchool = ({ schoolName, authHeaders }) => {
             </div>
           ) : null}
           {tab === 'scanner' ? <Scanner /> : null}
-          {tab === 'payments' ? (
-            <div className="h-[min(70dvh,40rem)] min-h-[22rem] sm:min-h-[28rem]">
-              <Payments />
-            </div>
-          ) : null}
           {tab === 'reports' ? (
             <section className="space-y-4">
               <div className="flex items-center justify-between gap-3">

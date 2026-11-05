@@ -31,11 +31,7 @@ const ACADEMIC_PREFIXES = [
 ];
 
 const isWalletMove = (path) =>
-  starts(path, '/api/wallet/deposit') ||
-  starts(path, '/api/wallet/withdraw') ||
-  path === '/api/payroll/pay' ||
-  path === '/api/payroll/pay-all' ||
-  starts(path, '/api/payroll/pay');
+  starts(path, '/api/wallet/deposit') || starts(path, '/api/wallet/withdraw');
 
 const isAcademicPath = (path) => ACADEMIC_PREFIXES.some((prefix) => starts(path, prefix));
 
@@ -49,7 +45,7 @@ const isAccountantPath = (path, method) => {
   if (path === '/api/wallet' && method === 'GET') return true;
   if (path === '/api/wallet/transactions' && method === 'GET') return true;
   if (path === '/api/wallet/accounts' && method === 'GET') return true;
-  if (path === '/api/payroll' && method === 'GET') return true;
+  if (starts(path, '/api/payroll')) return true;
   return false;
 };
 
@@ -59,20 +55,13 @@ export function staffPortalApiAllowed(payload, req) {
   const role = payload?.role;
 
   if (isSchoolHeadRole(role)) {
-    if (starts(path, '/api/wallet/deposit') || starts(path, '/api/wallet/withdraw')) {
-      return {
-        ok: false,
-        status: 403,
-        error: 'The administrator can pay salaries here. Wallet deposits and withdrawals stay with the school account.',
-      };
-    }
-    if (isAcademicPath(path) || starts(path, '/api/payroll') || (path === '/api/wallet' && method === 'GET')) {
+    if (isAcademicPath(path)) {
       return { ok: true };
     }
     return {
       ok: false,
       status: 403,
-      error: 'The administrator can manage academics and salary payments here. Wallet deposits stay with the school account.',
+      error: 'Payments stay with the accountant and the school account. The administrator manages academics here.',
     };
   }
 
@@ -88,7 +77,7 @@ export function staffPortalApiAllowed(payload, req) {
     return {
       ok: false,
       status: 403,
-      error: 'The accountant can manage fees and view the wallet, not academics or wallet transfers.',
+      error: 'The accountant can manage fees and salary payments, not academics or wallet transfers.',
     };
   }
 

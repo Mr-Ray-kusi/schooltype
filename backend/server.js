@@ -2899,9 +2899,8 @@ const dateInAcademicTerm = (ymd, terms) => {
 
 const attendanceWindow = (period, today) => {
   const monthStart = `${String(today).slice(0, 7)}-01`;
-  const start = /^\d{4}-\d{2}-\d{2}$/.test(String(period?.starts_on || ''))
-    ? String(period.starts_on).slice(0, 10)
-    : monthStart;
+  const startRaw = String(period?.starts_on || '').slice(0, 10);
+  const start = /^\d{4}-\d{2}-\d{2}$/.test(startRaw) ? startRaw : monthStart;
   const from = start <= today ? start : monthStart;
   return { from, to: today };
 };
@@ -3232,60 +3231,118 @@ const eachSchoolDay = (from, to) => {
   return days;
 };
 
-const fillPersonTermLateDays = async (schoolId, userId, userType, from, to) => {
-  const lateAfterTime = await getSchoolLateAfterTime(schoolId);
-  const today = schoolLocalDate();
-  const last = to < today ? to : today;
-  const days = eachSchoolDay(from, last).filter((day) => lateCutoffReached(day, lateAfterTime));
-  if (!days.length) return 0;
+const summarizePersonTermRecords = (records) => {
+  const list = Array.isArray(records) ? records : [];
+  const lateDays = list.filter((row) => row.status === 'late' || row.punctuality === 'late').length;
+  const absentDays = list.filter((row) => row.status === 'absent' || row.punctuality === 'absent').length;
+  return {
+    days: list.length,
+    early: Math.max(0, list.length - lateDays - absentDays),
+    late: lateDays,
+    absent: absentDays,
+  };
+};
 
-  const existing = await fetchAllQueryRows(() =>
-    supabase
-      .from('attendance')
-      .select('date')
-      .eq('school_id', schoolId)
-      .eq('user_id', userId)
-      .eq('user_type', userType)
-      .gte('date', from)
-      .lte('date', last)
-  );
-  const have = new Set((existing || []).map((row) => String(row.date).slice(0, 10)));
-  const missingDays = days.filter((day) => !have.has(day));
-  if (!missingDays.length) return 0;
-
-  const personRows = await loadSchoolPeopleForAttendance(schoolId);
-  const person = personRows.find((row) => row.id === userId && row.user_type === userType);
-  const startOn = firstAttendanceDate(person?.created_at);
-  const eligibleDays = missingDays.filter((day) => !startOn || day >= startOn);
-  if (!eligibleDays.length) return 0;
-  const rows = eligibleDays.map((day) => ({
-    school_id: schoolId,
-    user_type: userType,
-    user_id: userId,
-    date: day,
-    timestamp: `${day}T${lateAfterTime}:00.000Z`,
-    status: autoAttendanceStatus(day, lateAfterTime, userType) || 'late',
-    user_name: person?.name || null,
-    user_label: person?.label || null,
-  }));
-
-  let inserted = 0;
-  for (let i = 0; i < rows.length; i += 80) {
-    const chunk = rows.slice(i, i + 80);
-    let { error } = await supabase.from('attendance').insert(chunk);
-    if (error && (isMissingColumnError(error, 'user_name') || isMissingColumnError(error, 'user_label'))) {
-      const stripped = chunk.map(({ user_name, user_label, ...rest }) => rest);
-      const retry = await supabase.from('attendance').insert(stripped);
-      error = retry.error;
-    }
-    if (error) {
-      console.warn('Person term late fill failed:', error.message);
+const synthesizePersonTermRecords = (userId, userType, from, to, lateAfterTime, byDate = new Map()) => {
+  const records = [];
+  const days = eachSchoolDay(from, to);
+  const walk = days.length ? days : /^\d{4}-\d{2}-\d{2}$/.test(String(to || '')) ? [to] : [];
+  for (const day of walk) {
+    const existing = byDate.get(day);
+    if (existing) {
+      records.push(existing);
       continue;
     }
-    inserted += chunk.length;
+    const auto = autoAttendanceStatus(day, lateAfterTime, userType);
+    records.push({
+      id: `unmarked:${userType}:${userId}:${day}`,
+      user_id: userId,
+      user_type: userType,
+      date: day,
+      timestamp: auto ? `${day}T${lateAfterTime}:00.000Z` : null,
+      status: auto || 'unmarked',
+      punctuality: auto || 'unmarked',
+    });
   }
-  if (inserted) bumpSchoolCaches(schoolId);
-  return inserted;
+  return records;
+};
+
+const loadAttendancePersonStartOn = async (schoolId, userId, userType) => {
+  const table = userType === 'staff' ? 'staffs' : userType === 'non-staff' ? 'nonstaffs' : 'students';
+  try {
+    const { data, error } = await supabase
+      .from(table)
+      .select('id, created_at')
+      .eq('school_id', schoolId)
+      .eq('id', userId)
+      .maybeSingle();
+    if (error && isMissingColumnError(error, 'created_at')) return null;
+    if (error) return null;
+    return firstAttendanceDate(data?.created_at);
+  } catch {
+    return null;
+  }
+};
+
+const fillPersonTermLateDays = async (schoolId, userId, userType, from, to) => {
+  try {
+    const lateAfterTime = await getSchoolLateAfterTime(schoolId);
+    const today = schoolLocalDate();
+    const last = to < today ? to : today;
+    const days = eachSchoolDay(from, last).filter((day) => lateCutoffReached(day, lateAfterTime));
+    if (!days.length) return 0;
+
+    const existing = await fetchAllQueryRows(() =>
+      supabase
+        .from('attendance')
+        .select('date')
+        .eq('school_id', schoolId)
+        .eq('user_id', userId)
+        .eq('user_type', userType)
+        .gte('date', from)
+        .lte('date', last)
+    );
+    const have = new Set((existing || []).map((row) => String(row.date).slice(0, 10)));
+    const missingDays = days.filter((day) => !have.has(day));
+    if (!missingDays.length) return 0;
+
+    const personRows = await loadSchoolPeopleForAttendance(schoolId);
+    const person = personRows.find((row) => row.id === userId && row.user_type === userType);
+    const startOn = firstAttendanceDate(person?.created_at);
+    const eligibleDays = missingDays.filter((day) => !startOn || day >= startOn);
+    if (!eligibleDays.length) return 0;
+    const rows = eligibleDays.map((day) => ({
+      school_id: schoolId,
+      user_type: userType,
+      user_id: userId,
+      date: day,
+      timestamp: `${day}T${lateAfterTime}:00.000Z`,
+      status: autoAttendanceStatus(day, lateAfterTime, userType) || 'late',
+      user_name: person?.name || null,
+      user_label: person?.label || null,
+    }));
+
+    let inserted = 0;
+    for (let i = 0; i < rows.length; i += 80) {
+      const chunk = rows.slice(i, i + 80);
+      let { error } = await supabase.from('attendance').insert(chunk);
+      if (error && (isMissingColumnError(error, 'user_name') || isMissingColumnError(error, 'user_label'))) {
+        const stripped = chunk.map(({ user_name, user_label, ...rest }) => rest);
+        const retry = await supabase.from('attendance').insert(stripped);
+        error = retry.error;
+      }
+      if (error) {
+        console.warn('Person term late fill failed:', error.message);
+        continue;
+      }
+      inserted += chunk.length;
+    }
+    if (inserted) bumpSchoolCaches(schoolId);
+    return inserted;
+  } catch (error) {
+    console.warn('Person term late fill failed:', error.message);
+    return 0;
+  }
 };
 
 const fillSchoolTermAttendance = async (schoolId, from, to, people) => {
@@ -6433,44 +6490,11 @@ app.get('/api/attendance', authenticateToken, enforcePlanApproval, async (req, r
 });
 
 app.get('/api/attendance/person/:userId', authenticateToken, enforcePlanApproval, async (req, res) => {
-  try {
-    const userId = String(req.params.userId || '').trim();
-    const userType = normalizeAttendanceUserType(req.query.userType || req.query.user_type || 'student');
-    if (!userId) return res.status(400).json({ error: 'Person is required' });
+  const userId = String(req.params.userId || '').trim();
+  const userType = normalizeAttendanceUserType(req.query.userType || req.query.user_type || 'student');
+  if (!userId) return res.status(400).json({ error: 'Person is required' });
 
-    const period = await resolveFeePeriod(req.user.schoolId).catch(() => null);
-    const today = schoolLocalDate();
-    const { from, to } = attendanceWindow(period, today);
-
-    const people = await loadSchoolPeopleForAttendance(req.user.schoolId);
-    const person = people.find((row) => row.id === userId && row.user_type === userType);
-    const startOn = firstAttendanceDate(person?.created_at);
-    const rangeFrom = startOn && startOn > from ? startOn : from;
-    const fillKey = `att-person-fill:${req.user.schoolId}:${userId}:${userType}:${rangeFrom}:${to}`;
-    if (!cacheGet(fillKey)) {
-      await fillPersonTermLateDays(req.user.schoolId, userId, userType, rangeFrom, to);
-      cacheSet(fillKey, 1, 120000);
-    }
-
-    const data = await fetchAllQueryRows(() =>
-      supabase
-        .from('attendance')
-        .select('*')
-        .eq('school_id', req.user.schoolId)
-        .eq('user_id', userId)
-        .eq('user_type', userType)
-        .gte('date', rangeFrom)
-        .lte('date', to)
-        .order('date', { ascending: true })
-        .order('timestamp', { ascending: true })
-    );
-
-    const lateAfterTime = await getSchoolLateAfterTime(req.user.schoolId);
-    const records = await enrichAttendanceRows(data || [], lateAfterTime);
-    const lateDays = records.filter((row) => row.status === 'late' || row.punctuality === 'late').length;
-    const absentDays = records.filter((row) => row.status === 'absent' || row.punctuality === 'absent').length;
-    const earlyDays = records.length - lateDays - absentDays;
-
+  const sendTerm = (period, from, to, records) => {
     res.json({
       user_id: userId,
       user_type: userType,
@@ -6481,15 +6505,55 @@ app.get('/api/attendance/person/:userId', authenticateToken, enforcePlanApproval
         source: period?.source || null,
       },
       records,
-      summary: {
-        days: records.length,
-        early: earlyDays,
-        late: lateDays,
-        absent: absentDays,
-      },
+      summary: summarizePersonTermRecords(records),
     });
+  };
+
+  try {
+    const period = await resolveFeePeriod(req.user.schoolId).catch(() => null);
+    const today = schoolLocalDate();
+    const { from, to } = attendanceWindow(period, today);
+    const startOn = await loadAttendancePersonStartOn(req.user.schoolId, userId, userType);
+    const rangeFrom = startOn && startOn > from && startOn <= to ? startOn : from;
+    const lateAfterTime = await getSchoolLateAfterTime(req.user.schoolId).catch(() => '08:00');
+
+    void fillPersonTermLateDays(req.user.schoolId, userId, userType, rangeFrom, to).catch(() => 0);
+
+    let data = [];
+    try {
+      data = await fetchAllQueryRows(() =>
+        supabase.from('attendance').select('*').eq('school_id', req.user.schoolId).eq('user_id', userId)
+      );
+    } catch (queryError) {
+      console.warn('Person attendance query failed:', queryError.message);
+    }
+
+    const stored = await enrichAttendanceRows(data || [], lateAfterTime).catch(() => data || []);
+    const byDate = new Map();
+    for (const row of stored || []) {
+      if (normalizeAttendanceUserType(row.user_type) !== userType) continue;
+      const day = attendanceDayKey(row.date) || attendanceDayKey(row.timestamp);
+      if (!day || day < rangeFrom || day > to) continue;
+      const prev = byDate.get(day);
+      if (!prev || String(row.timestamp || '') > String(prev.timestamp || '')) byDate.set(day, row);
+    }
+
+    sendTerm(
+      period,
+      from,
+      to,
+      synthesizePersonTermRecords(userId, userType, rangeFrom, to, lateAfterTime, byDate)
+    );
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Person attendance error:', error);
+    try {
+      const today = schoolLocalDate();
+      const from = `${String(today).slice(0, 7)}-01`;
+      sendTerm({ source: 'fallback' }, from, today, synthesizePersonTermRecords(userId, userType, from, today, '08:00'));
+    } catch (fallbackError) {
+      console.error('Person attendance fallback error:', fallbackError);
+      res.status(500).json({ error: 'Could not load this term attendance' });
+    }
   }
 });
 

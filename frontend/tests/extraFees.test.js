@@ -4,6 +4,7 @@ import {
   emptyExtraFee,
   extraFeesPayload,
   formatExtraFees,
+  formatExtraFeesAmount,
   parseExtraFees,
 } from '../src/utils/extraFees';
 
@@ -46,6 +47,17 @@ describe('extraFeesPayload', () => {
 
   test('a blank new row is not submitted', () => {
     expect(extraFeesPayload([emptyExtraFee()])).toEqual([]);
+  });
+});
+
+describe('formatExtraFeesAmount', () => {
+  test('shows only the money, even when a reason was saved', () => {
+    expect(formatExtraFeesAmount([{ label: 'School bus', amount: 150 }])).toBe('GHS 150.00');
+  });
+
+  test('sums several charges and returns empty when there are none', () => {
+    expect(formatExtraFeesAmount([{ label: 'Lunch', amount: 40 }, { amount: 60 }])).toBe('GHS 100.00');
+    expect(formatExtraFeesAmount([])).toBe('');
   });
 });
 

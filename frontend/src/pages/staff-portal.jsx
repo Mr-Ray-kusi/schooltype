@@ -6,6 +6,7 @@ import { BookOpen, GraduationCap, LogOut, MessageSquare, Moon, Pencil, Save, Sma
 import AdministratorSchool from '../components/AdministratorSchool';
 import AccountantFees from '../components/AccountantFees';
 import SchoolWallet from './school-wallet';
+import Payments from './payments';
 import { AuthContext } from '../contexts/authcontext';
 import useLiteMode from '../hooks/useLiteMode';
 import { readStaffPortalSession, staffPortalSessionForPath } from '../utils/staffPortalSession';
@@ -264,6 +265,12 @@ const StaffPortal = () => {
 
   useEffect(() => {
     if (!sessionToken || !staff) return undefined;
+    document.documentElement.classList.add('staff-portal-lock');
+    return () => document.documentElement.classList.remove('staff-portal-lock');
+  }, [sessionToken, staff]);
+
+  useEffect(() => {
+    if (!sessionToken || !staff) return undefined;
     const headers = { Authorization: `Bearer ${sessionToken}` };
     const send = (events) => {
       axios
@@ -393,7 +400,7 @@ const StaffPortal = () => {
       setStaff(nextStaff);
       setMomoPhone(nextStaff.momo_phone);
       persistSession(sessionToken, nextStaff, schoolName, schoolRecord);
-      toast.success('Payment details updated. They now show on Payments.');
+      toast.success('Payment details updated. The school can use this number to pay you.');
     } catch (err) {
       toast.error(err.response?.data?.error || 'Could not update payment details');
     } finally {
@@ -505,9 +512,86 @@ const StaffPortal = () => {
     loading: false,
   };
 
+  const paymentDetails = (
+    <section
+      className={`rounded-2xl border px-4 py-4 ${
+        liteMode ? 'border-slate-200 bg-white' : 'border-slate-700 bg-slate-900/60'
+      }`}
+    >
+      <form onSubmit={savePaymentDetails} className="flex flex-col gap-3 sm:flex-row sm:items-end">
+        <div className="min-w-0 flex-1">
+          <p className="flex items-center gap-2 text-xs uppercase tracking-wide text-slate-500">
+            <Smartphone className="h-3.5 w-3.5" />
+            Payment details
+          </p>
+          <p className={`mt-1 text-xs ${liteMode ? 'text-slate-600' : 'text-slate-400'}`}>
+            Enter the MoMo number the school should pay you on, then Update.
+          </p>
+          <input
+            value={momoPhone}
+            onChange={(e) => setMomoPhone(e.target.value)}
+            inputMode="tel"
+            autoComplete="tel"
+            placeholder="024xxxxxxx"
+            className={`mt-3 w-full rounded-xl border px-4 py-3 text-sm ${
+              liteMode
+                ? 'border-slate-300 bg-white text-slate-900'
+                : 'border-slate-600 bg-slate-950/70 text-white'
+            }`}
+          />
+        </div>
+        <button
+          type="submit"
+          disabled={savingPay}
+          className="inline-flex shrink-0 items-center justify-center rounded-full bg-sky-500 px-5 py-3 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-50"
+        >
+          {savingPay ? 'Updating…' : 'Update'}
+        </button>
+      </form>
+    </section>
+  );
+
+  const accountantNav = (
+    <aside className="min-w-0 shrink-0 lg:w-52">
+      <div className="flex gap-2 overflow-x-auto pb-1 lg:block lg:max-h-full lg:space-y-2 lg:overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900/70 p-3">
+        <p className="hidden px-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-300 lg:block">
+          Finance
+        </p>
+        {[
+          { id: 'fees', label: 'Fees' },
+          { id: 'lists', label: 'Paid & unpaid' },
+          { id: 'payments', label: 'Payments' },
+          { id: 'wallet', label: 'School wallet' },
+        ].map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => setFinanceTab(item.id)}
+            className={`flex shrink-0 items-center rounded-xl px-3 py-2.5 text-left text-sm font-medium lg:w-full ${
+              financeTab === item.id ? 'bg-emerald-600 text-white' : 'text-slate-200 hover:bg-slate-800'
+            }`}
+          >
+            {item.label}
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={() => {
+            setFinanceTab('fees');
+            setOwingSmsOpen(true);
+          }}
+          className="flex shrink-0 items-center gap-2 rounded-xl border border-slate-600 px-3 py-2.5 text-left text-sm font-medium text-slate-200 hover:bg-slate-800 lg:mt-2 lg:w-full"
+        >
+          <MessageSquare className="h-4 w-4" />
+          SMS owing parents
+        </button>
+      </div>
+    </aside>
+  );
+
   return (
-    <div className={`min-h-screen ${liteMode ? 'lite-shell bg-slate-100 text-slate-900' : 'bg-slate-950 text-white'}`}>
-      <header className={`border-b px-4 py-4 ${liteMode ? 'border-slate-200 bg-white' : 'border-slate-800 bg-slate-900/80'}`}>
+    <div className={`flex h-dvh flex-col overflow-hidden ${liteMode ? 'lite-shell bg-slate-100 text-slate-900' : 'bg-slate-950 text-white'}`}>
+      <header className={`z-20 shrink-0 border-b px-4 py-4 ${liteMode ? 'border-slate-200 bg-white' : 'border-slate-800 bg-slate-900'}`}>
         <div className={`mx-auto flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between ${wideLayout ? 'max-w-7xl' : 'max-w-5xl'}`}>
           <div className="min-w-0">
             <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{schoolName}</p>
@@ -532,87 +616,25 @@ const StaffPortal = () => {
         </div>
       </header>
 
-      <main className={`mx-auto space-y-6 px-4 py-8 ${wideLayout ? 'max-w-7xl' : 'max-w-5xl'}`}>
-        <section
-          className={`rounded-2xl border px-4 py-4 ${
-            liteMode ? 'border-slate-200 bg-white' : 'border-slate-700 bg-slate-900/60'
-          }`}
-        >
-          <form onSubmit={savePaymentDetails} className="flex flex-col gap-3 sm:flex-row sm:items-end">
-            <div className="min-w-0 flex-1">
-              <p className="flex items-center gap-2 text-xs uppercase tracking-wide text-slate-500">
-                <Smartphone className="h-3.5 w-3.5" />
-                Payment details
-              </p>
-              <p className={`mt-1 text-xs ${liteMode ? 'text-slate-600' : 'text-slate-400'}`}>
-                Enter the MoMo number the school should pay you on, then Update.
-              </p>
-              <input
-                value={momoPhone}
-                onChange={(e) => setMomoPhone(e.target.value)}
-                inputMode="tel"
-                autoComplete="tel"
-                placeholder="024xxxxxxx"
-                className={`mt-3 w-full rounded-xl border px-4 py-3 text-sm ${
-                  liteMode
-                    ? 'border-slate-300 bg-white text-slate-900'
-                    : 'border-slate-600 bg-slate-950/70 text-white'
-                }`}
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={savingPay}
-              className="inline-flex shrink-0 items-center justify-center rounded-full bg-sky-500 px-5 py-3 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-50"
-            >
-              {savingPay ? 'Updating…' : 'Update'}
-            </button>
-          </form>
-        </section>
+      <div className="min-h-0 flex-1 overflow-hidden">
         {isAdministrator ? (
-          <AuthContext.Provider value={portalAuth}>
-            <AdministratorSchool schoolName={schoolName} authHeaders={authHeaders} />
-          </AuthContext.Provider>
+          <div className="mx-auto flex h-full min-h-0 max-w-7xl flex-col px-4 py-4 lg:py-6">
+            <AuthContext.Provider value={portalAuth}>
+              <AdministratorSchool schoolName={schoolName} authHeaders={authHeaders} lead={paymentDetails} />
+            </AuthContext.Provider>
+          </div>
         ) : isAccountant ? (
-          <AuthContext.Provider value={portalAuth}>
-            <div className="flex flex-col gap-6 lg:flex-row">
-              <aside className="min-w-0 shrink-0 lg:w-52">
-                <div className="flex gap-2 overflow-x-auto pb-1 lg:sticky lg:top-4 lg:block lg:space-y-2 lg:overflow-visible rounded-2xl border border-slate-700 bg-slate-900/70 p-3">
-                  <p className="hidden px-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-300 lg:block">
-                    Finance
-                  </p>
-                  {[
-                    { id: 'fees', label: 'Fees' },
-                    { id: 'lists', label: 'Paid & unpaid' },
-                    { id: 'wallet', label: 'School wallet' },
-                  ].map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => setFinanceTab(item.id)}
-                      className={`flex shrink-0 items-center rounded-xl px-3 py-2.5 text-left text-sm font-medium lg:w-full ${
-                        financeTab === item.id ? 'bg-emerald-600 text-white' : 'text-slate-200 hover:bg-slate-800'
-                      }`}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFinanceTab('fees');
-                      setOwingSmsOpen(true);
-                    }}
-                    className="flex shrink-0 items-center gap-2 rounded-xl border border-slate-600 px-3 py-2.5 text-left text-sm font-medium text-slate-200 hover:bg-slate-800 lg:mt-2 lg:w-full"
-                  >
-                    <MessageSquare className="h-4 w-4" />
-                    SMS owing parents
-                  </button>
-                </div>
-              </aside>
-              <div className="min-w-0 flex-1">
+          <div className="mx-auto flex h-full max-w-7xl min-h-0 flex-col px-4 lg:flex-row lg:gap-6">
+            <div className="shrink-0 py-4 lg:py-6">{accountantNav}</div>
+            <div className="min-h-0 flex-1 space-y-6 overflow-y-auto py-4 lg:py-6">
+              {paymentDetails}
+              <AuthContext.Provider value={portalAuth}>
                 {financeTab === 'wallet' ? (
                   <SchoolWallet viewOnly />
+                ) : financeTab === 'payments' ? (
+                  <div className="h-[min(70dvh,40rem)] min-h-[22rem] sm:min-h-[28rem]">
+                    <Payments />
+                  </div>
                 ) : (
                   <AccountantFees
                     section={financeTab === 'lists' ? 'list' : 'overview'}
@@ -624,10 +646,13 @@ const StaffPortal = () => {
                     onOpenList={() => setFinanceTab('lists')}
                   />
                 )}
-              </div>
+              </AuthContext.Provider>
             </div>
-          </AuthContext.Provider>
-        ) : !isTeacher ? (
+          </div>
+        ) : (
+          <main className="mx-auto h-full max-w-5xl space-y-6 overflow-y-auto px-4 py-8">
+            {paymentDetails}
+            {!isTeacher ? (
           <div className="rounded-3xl border border-slate-700 bg-slate-900/60 p-8 text-center">
             <p className="text-lg font-semibold">Signed in as {staff.role}</p>
             <p className="mt-2 text-sm text-slate-400">
@@ -854,9 +879,11 @@ const StaffPortal = () => {
                 </section>
               </>
             )}
-          </>
+            </>
+            )}
+          </main>
         )}
-      </main>
+      </div>
     </div>
   );
 };

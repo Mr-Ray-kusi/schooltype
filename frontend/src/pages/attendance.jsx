@@ -4,14 +4,13 @@ import { AlertTriangle, ChevronDown, Clock, Download, RefreshCw, Search, Trash2 
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { cachedGet, invalidateCache, peekCache, staleGet } from '../utils/requestCache';
-import { schoolLocalDate } from '../utils/schoolDate';
+import { eachSchoolDay, schoolLocalDate } from '../utils/schoolDate';
 import { useLivePoll } from '../hooks/useLivePoll';
 import { useAuth } from '../contexts/authcontext';
 import { downloadAllStudentAttendanceZip, downloadTermAttendancePdf } from '../utils/attendanceTermPdf';
 import PaginationBar from '../components/PaginationBar';
 
 const ATTENDANCE_ROW_HEIGHT = 56;
-const TERM_DAY_PAGE_SIZE = 31;
 
 const fieldClass =
   'h-9 min-h-9 w-full rounded-lg border border-slate-600 bg-slate-900 px-2.5 text-sm text-white outline-none focus:ring-2 focus:ring-primary-500';
@@ -82,6 +81,45 @@ const formatMarkTime = (timestamp) => {
 
 const personKey = (record) => `${record.user_type || 'student'}:${record.user_id || record.id}`;
 
+const fallbackTermAttendance = (record, selectedDate) => {
+  const to = /^\d{4}-\d{2}-\d{2}$/.test(String(selectedDate || '')) ? selectedDate : schoolLocalDate();
+  const from = `${String(to).slice(0, 7)}-01`;
+  const userType = record.user_type || 'student';
+  const days = eachSchoolDay(from, to);
+  const walk = days.length ? days : /^\d{4}-\d{2}-\d{2}$/.test(to) ? [to] : [];
+  const records = walk.map((day) => {
+    const isSelected = day === to;
+    const status = isSelected
+      ? getPunctuality(record)
+      : userType === 'student'
+        ? 'absent'
+        : 'late';
+    return {
+      id: `unmarked:${userType}:${record.user_id}:${day}`,
+      user_id: record.user_id,
+      user_type: userType,
+      date: day,
+      timestamp: isSelected ? record.timestamp || null : null,
+      status,
+      punctuality: status,
+    };
+  });
+  const late = records.filter((row) => row.status === 'late').length;
+  const absent = records.filter((row) => row.status === 'absent').length;
+  return {
+    user_id: record.user_id,
+    user_type: userType,
+    term: { name: null, starts_on: from, ends_on: to, source: 'local' },
+    records,
+    summary: {
+      days: records.length,
+      early: Math.max(0, records.length - late - absent),
+      late,
+      absent,
+    },
+  };
+};
+
 const TermRecords = ({
   data,
   loading,
@@ -92,30 +130,27 @@ const TermRecords = ({
   onDelete,
   deleting,
   onClose,
+  seed,
+  selectedDate,
 }) => {
-  const [dayPage, setDayPage] = useState(1);
-  const records = data?.records || [];
-  const dayPages = Math.max(1, Math.ceil(records.length / TERM_DAY_PAGE_SIZE));
-  const safeDayPage = Math.min(dayPage, dayPages);
-  const pagedDays = records.slice(
-    (safeDayPage - 1) * TERM_DAY_PAGE_SIZE,
-    safeDayPage * TERM_DAY_PAGE_SIZE
-  );
+  const fallback = seed ? fallbackTermAttendance(seed, selectedDate) : null;
+  const pack = Array.isArray(data?.records) && data.records.length ? data : fallback;
+  const records = pack?.records || [];
 
-  if (loading && !data) {
+  if (loading && !records.length) {
     return <p className="px-3 py-2 text-xs text-slate-400">Loading this term…</p>;
   }
 
   return (
-    <div className="flex min-h-0 flex-col bg-slate-900 px-3 py-3">
+    <div className="flex min-h-0 max-h-[min(22rem,46dvh)] flex-col bg-slate-900 px-3 py-2">
       <div className="flex shrink-0 items-center justify-between gap-2">
         <p className="truncate text-xs text-slate-400">
           {personName}
           {personLabel ? ` · ${personLabel}` : ''}
-          {data?.term?.name ? ` · ${data.term.name}` : ''}
-          {data?.summary
-            ? ` · ${data.summary.days} days · ${data.summary.early} early · ${data.summary.late} late${
-                data.summary.absent ? ` · ${data.summary.absent} absent` : ''
+          {pack?.term?.name ? ` · ${pack.term.name}` : ''}
+          {pack?.summary
+            ? ` · ${pack.summary.days} days · ${pack.summary.early} early · ${pack.summary.late} late${
+                pack.summary.absent ? ` · ${pack.summary.absent} absent` : ''
               }`
             : ''}
         </p>
@@ -130,9 +165,9 @@ const TermRecords = ({
                   personName,
                   personLabel,
                   userType,
-                  term: data?.term,
+                  term: pack?.term,
                   records,
-                  summary: data?.summary,
+                  summary: pack?.summary,
                 });
               } catch {
                 toast.error('Could not download this attendance record');
@@ -174,9 +209,9 @@ const TermRecords = ({
       {records.length === 0 ? (
         <p className="mt-3 text-xs text-slate-500">No records for this term yet.</p>
       ) : (
-        <>
-          <table className="mt-3 w-full text-left text-xs">
-            <thead className="text-slate-400">
+        <div className="mt-2 min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <table className="w-full text-left text-xs">
+            <thead className="sticky top-0 z-10 bg-slate-900 text-slate-400">
               <tr>
                 <th className="px-2 py-1 font-medium">Date</th>
                 <th className="px-2 py-1 font-medium">Time</th>
@@ -184,7 +219,7 @@ const TermRecords = ({
               </tr>
             </thead>
             <tbody>
-              {pagedDays.map((row) => {
+              {records.map((row) => {
                 const status = getPunctuality(row);
                 return (
                   <tr key={row.id || row.date} className="border-t border-slate-800">
@@ -202,17 +237,7 @@ const TermRecords = ({
               })}
             </tbody>
           </table>
-          {records.length > TERM_DAY_PAGE_SIZE ? (
-            <div className="mt-auto shrink-0 pt-2">
-              <PaginationBar
-                page={safeDayPage}
-                total={records.length}
-                limit={TERM_DAY_PAGE_SIZE}
-                onPageChange={setDayPage}
-              />
-            </div>
-          ) : null}
-        </>
+        </div>
       )}
     </div>
   );
@@ -386,8 +411,8 @@ const Attendance = () => {
     const el = listRef.current;
     if (!el) return undefined;
     const measure = () => {
-      const extra = openKey ? 220 : 0;
-      const next = Math.max(1, Math.floor((el.clientHeight - extra) / ATTENDANCE_ROW_HEIGHT));
+      const extra = openKey ? 80 : 0;
+      const next = Math.max(openKey ? 4 : 1, Math.floor((el.clientHeight - extra) / ATTENDANCE_ROW_HEIGHT));
       setPageSize((current) => (current === next ? current : next));
     };
     measure();
@@ -402,6 +427,13 @@ const Attendance = () => {
     () => filteredRecords.slice((safePage - 1) * pageSize, safePage * pageSize),
     [filteredRecords, safePage, pageSize]
   );
+  const visibleRecords = useMemo(() => {
+    if (!openKey) return pagedRecords;
+    const openRecord = filteredRecords.find((record) => personKey(record) === openKey);
+    if (!openRecord) return pagedRecords;
+    if (pagedRecords.some((record) => personKey(record) === openKey)) return pagedRecords;
+    return [openRecord, ...pagedRecords];
+  }, [openKey, pagedRecords, filteredRecords]);
 
   const refresh = async () => {
     if (refreshing) return;
@@ -513,6 +545,8 @@ const Attendance = () => {
       personName: getPersonName(record),
       personLabel: getPersonLabel(record),
       userType: record.user_type,
+      seed: record,
+      selectedDate,
       onDelete: isStudent ? () => deletePersonRecords(record) : undefined,
       deleting: deletingKey === key,
       onClose: () => setOpenKey(null),
@@ -527,15 +561,19 @@ const Attendance = () => {
       return;
     }
     setOpenKey(key);
-    if (termCache[key]) return;
+    if (Array.isArray(termCache[key]?.records) && termCache[key].records.length) return;
     setTermLoading(true);
     try {
-      const { data } = await axios.get(`/api/attendance/person/${record.user_id}`, {
+      const { data } = await axios.get(`/api/attendance/person/${encodeURIComponent(record.user_id)}`, {
         params: { userType: record.user_type || 'student' },
+        timeout: 30000,
       });
-      setTermCache((prev) => ({ ...prev, [key]: data }));
-    } catch (error) {
-      toast.error(error.response?.data?.error || 'Could not load this term attendance');
+      setTermCache((prev) => ({
+        ...prev,
+        [key]: Array.isArray(data?.records) && data.records.length ? data : fallbackTermAttendance(record, selectedDate),
+      }));
+    } catch {
+      setTermCache((prev) => ({ ...prev, [key]: fallbackTermAttendance(record, selectedDate) }));
     } finally {
       setTermLoading(false);
     }
@@ -680,13 +718,16 @@ const Attendance = () => {
               : 'No students, staff, or non-staff for this date.'}
           </div>
         ) : (
-          <div className="h-full divide-y divide-slate-700 overflow-hidden">
-            {pagedRecords.map((record) => {
+          <div className="h-full overflow-y-auto">
+            {visibleRecords.map((record) => {
               const status = getPunctuality(record);
               const key = personKey(record);
               const isOpen = openKey === key;
               return (
-                <div key={record.id || key} className={isOpen ? 'bg-slate-900/70' : ''}>
+                <div
+                  key={record.id || key}
+                  className={`border-b border-slate-700 last:border-b-0 ${isOpen ? 'bg-slate-900/70' : ''}`}
+                >
                   <button
                     type="button"
                     onClick={() => togglePerson(record)}

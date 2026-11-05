@@ -62,7 +62,10 @@
 
   html.attendance-lock,
   html.attendance-lock body,
-  html.attendance-lock #root {
+  html.attendance-lock #root,
+  html.staff-portal-lock,
+  html.staff-portal-lock body,
+  html.staff-portal-lock #root {
     height: 100dvh;
     max-height: 100dvh;
     overflow: hidden;

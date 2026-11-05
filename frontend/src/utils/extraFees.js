@@ -39,6 +39,18 @@ export function extraFeesPayload(rows) {
     .filter((row) => Number.isFinite(row.amount) && row.amount > 0);
 }
 
+export function extraFeesAmount(value) {
+  return parseExtraFees(value)
+    .map((row) => Number(row.amount))
+    .filter((amount) => Number.isFinite(amount) && amount > 0)
+    .reduce((sum, amount) => sum + amount, 0);
+}
+
+export function formatExtraFeesAmount(value) {
+  const total = extraFeesAmount(value);
+  return total > 0 ? formatGhs(total) : '';
+}
+
 export function formatExtraFees(value) {
   const parts = parseExtraFees(value)
     .map((row) => ({ label: row.label, amount: Number(row.amount) }))

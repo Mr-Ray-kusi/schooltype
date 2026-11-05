@@ -29,6 +29,10 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith('/api/')) return;
+  if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') return;
+  if (url.pathname.startsWith('/src/') || url.pathname.startsWith('/@') || url.pathname.includes('node_modules')) {
+    return;
+  }
 
   // Always take the latest HTML so Vite chunk hashes stay in sync after deploy.
   if (isDocumentRequest(request, url)) {
