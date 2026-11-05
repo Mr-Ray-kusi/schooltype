@@ -5,12 +5,18 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import { supabase, platformSupabase, withSchoolDb } from './supabaseClient.js';
-import { createTenantClient, disableTenantJwt, runWithTenant } from './tenantContext.js';
+import {
+  allowsTenantJwtFallback,
+  createTenantClient,
+  disableTenantJwt,
+  runWithTenant,
+} from './tenantContext.js';
 import { isJwtAuthError, jwtClockOffsetSec, noteJwtClockRejection, syncJwtClock } from './jwtClock.js';
 import { readAccessToken, setSessionCookie, clearSessionCookie } from './cookieAuth.js';
 import {
   createAuthSession,
   getAuthSession,
+  requiresAuthSessions,
   revokeAuthSession,
   revokeSchoolSessions,
   sessionTtlSeconds,
@@ -406,13 +412,14 @@ const queryPagedRows = async (table, { schoolId, from, to, q, orFilter, columns,
     );
   }
   if (result.error && (noteJwtClockRejection(result.error.message) || isJwtAuthError(result.error))) {
-    disableTenantJwt(result.error.message);
-    result = await applyFilters(schoolMaster().from(table).select(selectColumns, { count: 'exact' }));
+    if (disableTenantJwt(result.error.message)) {
+      result = await applyFilters(schoolMaster().from(table).select(selectColumns, { count: 'exact' }));
+    }
   }
   if (result.error) {
     result = await applyFilters(supabase.from(table).select('*', { count: 'exact' }));
   }
-  if (result.error && isJwtAuthError(result.error)) {
+  if (result.error && isJwtAuthError(result.error) && allowsTenantJwtFallback()) {
     result = await applyFilters(schoolMaster().from(table).select('*', { count: 'exact' }));
   }
   if (result.error) return result;
@@ -1233,7 +1240,7 @@ const authenticateToken = (req, res, next) => {
       if (session.status === 'ok' && session.session?.school_id && session.session.school_id !== user.schoolId) {
         return res.status(403).json({ error: 'Session ended. Sign in again.' });
       }
-      if (session.status === 'missing' && process.env.REQUIRE_AUTH_SESSIONS === 'true') {
+      if (session.status === 'missing' && requiresAuthSessions()) {
         return res.status(403).json({ error: 'Session ended. Sign in again.' });
       }
     } catch {

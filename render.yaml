@@ -27,6 +27,12 @@ services:
         value: supabase
       - key: AUTH_STORE
         value: supabase
+      # Reject JWTs that have no matching auth_sessions row.
+      - key: REQUIRE_AUTH_SESSIONS
+        value: "true"
+      # Never fall back to the service-role key when a tenant JWT fails.
+      - key: ALLOW_TENANT_JWT_FALLBACK
+        value: "false"
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_ANON_KEY
