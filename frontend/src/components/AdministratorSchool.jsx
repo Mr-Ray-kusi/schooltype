@@ -34,6 +34,8 @@ const AdministratorSchool = ({ schoolName, authHeaders, lead = null }) => {
   const [allowTeacherId, setAllowTeacherId] = useState('');
   const [loadingReports, setLoadingReports] = useState(false);
   const [showAbsentSms, setShowAbsentSms] = useState(false);
+  const [publishBlock, setPublishBlock] = useState(null);
+  const [checkingPublish, setCheckingPublish] = useState(false);
 
   useEffect(() => {
     if (tab === 'payments') setTab('students');
@@ -96,10 +98,47 @@ const AdministratorSchool = ({ schoolName, authHeaders, lead = null }) => {
         { term: reportTerm, class: reportClass, unpublish },
         { headers: authHeaders }
       );
+      setPublishBlock(null);
       toast.success(unpublish ? 'Teachers can edit again' : `Published ${data.classNames?.length || 0} class report(s)`);
       await loadReports();
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Could not update publish state');
+      const payload = error.response?.data;
+      if (!unpublish && Array.isArray(payload?.pendingTeachers)) {
+        setPublishBlock(payload);
+        return;
+      }
+      toast.error(payload?.error || 'Could not update publish state');
+    }
+  };
+
+  const requestPublish = async () => {
+    if (reportTerm === 'all') {
+      toast.error('Pick a term before publishing');
+      return;
+    }
+    setCheckingPublish(true);
+    try {
+      const { data } = await axios.get('/api/staff-portal/session/admin/report-cards/readiness', {
+        headers: authHeaders,
+        params: {
+          term: reportTerm,
+          class: reportClass !== 'all' ? reportClass : undefined,
+        },
+      });
+      if (!data.ready) {
+        setPublishBlock(data);
+        return;
+      }
+      await publishReports(false);
+    } catch (error) {
+      const payload = error.response?.data;
+      if (Array.isArray(payload?.pendingTeachers)) {
+        setPublishBlock(payload);
+        return;
+      }
+      toast.error(payload?.error || 'Could not check whether scores are complete');
+    } finally {
+      setCheckingPublish(false);
     }
   };
 
@@ -202,11 +241,13 @@ const AdministratorSchool = ({ schoolName, authHeaders, lead = null }) => {
                   className="rounded-xl border border-slate-600 bg-slate-900 px-3 py-2 text-sm"
                 >
                   <option value="all">All terms</option>
-                  {reportFilters.terms.map((name) => (
-                    <option key={name} value={name}>
-                      {name}
-                    </option>
-                  ))}
+                  {(reportFilters.terms.length ? reportFilters.terms : ['First Term', 'Second Term', 'Third Term']).map(
+                    (name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    )
+                  )}
                 </select>
                 <button
                   type="button"
@@ -226,10 +267,11 @@ const AdministratorSchool = ({ schoolName, authHeaders, lead = null }) => {
                 </button>
                 <button
                   type="button"
-                  onClick={() => publishReports(false)}
-                  className="inline-flex items-center gap-2 rounded-full bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-500"
+                  onClick={requestPublish}
+                  disabled={checkingPublish}
+                  className="inline-flex items-center gap-2 rounded-full bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-500 disabled:opacity-60"
                 >
-                  Publish report
+                  {checkingPublish ? 'Checking scores…' : 'Publish report'}
                 </button>
                 {reportLock?.published ? (
                   <button
@@ -298,6 +340,47 @@ const AdministratorSchool = ({ schoolName, authHeaders, lead = null }) => {
           ) : null}
         </div>
       </div>
+      {publishBlock ? (
+        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/70 p-4 sm:items-center">
+          <div className="max-h-[80vh] w-full max-w-lg overflow-y-auto rounded-3xl border border-slate-700 bg-slate-950 p-5 shadow-2xl">
+            <h3 className="text-lg font-semibold text-white">Cannot publish yet</h3>
+            <p className="mt-1 text-sm text-slate-300">
+              {publishBlock.reason || 'Teachers still need to enter and save every student score.'}
+            </p>
+            {publishBlock.pendingTeachers?.length ? (
+              <ul className="mt-4 space-y-3">
+                {publishBlock.pendingTeachers.map((teacher) => (
+                  <li key={teacher.id || teacher.name} className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3">
+                    <p className="font-medium text-amber-50">{teacher.name}</p>
+                    <ul className="mt-1 space-y-1 text-xs text-amber-100/85">
+                      {(teacher.gaps || []).map((gap) => (
+                        <li key={`${teacher.id}-${gap.class_name}-${gap.subject}`}>
+                          {gap.class_name} · {gap.subject} — {gap.missing} of {gap.total} students missing
+                          {gap.missing_names?.length
+                            ? ` (${gap.missing_names.join(', ')}${gap.missing > gap.missing_names.length ? '…' : ''})`
+                            : ''}
+                        </li>
+                      ))}
+                    </ul>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {publishBlock.uncoveredClasses?.length ? (
+              <p className="mt-3 text-sm text-slate-300">
+                No teacher assigned: {publishBlock.uncoveredClasses.join(', ')}
+              </p>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => setPublishBlock(null)}
+              className="mt-5 w-full rounded-full bg-slate-100 px-4 py-2.5 text-sm font-semibold text-slate-900"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      ) : null}
       <AbsentParentSmsModal
         open={showAbsentSms}
         onClose={() => setShowAbsentSms(false)}

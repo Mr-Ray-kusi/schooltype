@@ -9,6 +9,7 @@ import {
   publishScoreLocks,
   unpublishScoreLocks,
 } from './scorePublishStore.js';
+import { DEFAULT_TERM_NAMES, listAcademicTerms } from './academicTerms.js';
 
 export function isSchoolHeadRole(role) {
   const value = String(role || '')
@@ -44,6 +45,171 @@ const normalizeType = (value) => {
   if (raw === 'nonstaff' || raw === 'non_staff' || raw === 'non-staff') return 'non-staff';
   return raw || 'student';
 };
+
+export function parseCsvList(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item || '').trim()).filter(Boolean);
+  }
+  return String(value || '')
+    .split(/[,;\n|]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+export function normalizeLabel(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+}
+
+const isTeacherRole = (role) =>
+  String(role || '')
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .trim() === 'teacher';
+
+const isEnrolledStudent = (row) => row?.alumni_year == null || Number(row.alumni_year) <= 0;
+
+export function summarizeMissingScores({ students, teachers, scores, classFilter } = {}) {
+  const wantedClass = classFilter && classFilter !== 'all' ? normalizeLabel(classFilter) : '';
+  const roster = (students || []).filter((row) => {
+    if (!isEnrolledStudent(row)) return false;
+    if (!wantedClass) return true;
+    return normalizeLabel(row.class) === wantedClass;
+  });
+
+  const byClass = new Map();
+  for (const student of roster) {
+    const key = normalizeLabel(student.class);
+    if (!key) continue;
+    const list = byClass.get(key) || [];
+    list.push(student);
+    byClass.set(key, list);
+  }
+
+  const saved = new Set();
+  for (const row of scores || []) {
+    if (row.score == null || row.score === '') continue;
+    if (!Number.isFinite(Number(row.score))) continue;
+    if (!row.student_id) continue;
+    saved.add(`${row.student_id}:${normalizeLabel(row.class_name)}:${normalizeLabel(row.subject)}`);
+  }
+
+  const pendingTeachers = [];
+  const coveredClasses = new Set();
+  let assignmentCount = 0;
+
+  for (const teacher of teachers || []) {
+    if (!isTeacherRole(teacher.role)) continue;
+    const classes = parseCsvList(teacher.class_names || teacher.classNames);
+    const subjects = parseCsvList(teacher.subjects);
+    if (!classes.length || !subjects.length) continue;
+
+    const gaps = [];
+    for (const className of classes) {
+      const classKey = normalizeLabel(className);
+      if (wantedClass && classKey !== wantedClass) continue;
+      const classRoster = byClass.get(classKey) || [];
+      if (!classRoster.length) continue;
+      coveredClasses.add(classKey);
+      for (const subject of subjects) {
+        assignmentCount += 1;
+        const missingStudents = classRoster.filter(
+          (student) => !saved.has(`${student.id}:${classKey}:${normalizeLabel(subject)}`)
+        );
+        if (!missingStudents.length) continue;
+        gaps.push({
+          class_name: className,
+          subject,
+          missing: missingStudents.length,
+          total: classRoster.length,
+          missing_names: missingStudents
+            .slice(0, 6)
+            .map((row) => row.name)
+            .filter(Boolean),
+        });
+      }
+    }
+
+    if (gaps.length) {
+      pendingTeachers.push({
+        id: teacher.id,
+        name: teacher.name || 'Teacher',
+        gaps,
+      });
+    }
+  }
+
+  const uncoveredClasses = [...byClass.entries()]
+    .filter(([key]) => !coveredClasses.has(key))
+    .map(([, list]) => list[0]?.class)
+    .filter(Boolean);
+
+  let reason = '';
+  if (!roster.length) reason = 'No students in this class to publish.';
+  else if (!assignmentCount) reason = 'No teachers are assigned to enter scores for this class yet.';
+  else if (pendingTeachers.length) reason = 'Teachers still need to enter and save every student score.';
+  else if (uncoveredClasses.length) reason = `No teacher is assigned to ${uncoveredClasses.join(', ')}.`;
+
+  return {
+    ready: Boolean(roster.length && assignmentCount && !pendingTeachers.length && !uncoveredClasses.length),
+    studentCount: roster.length,
+    assignmentCount,
+    pendingTeachers,
+    uncoveredClasses,
+    reason,
+  };
+}
+
+async function loadPagedRows(table, columns, apply) {
+  const rows = [];
+  let from = 0;
+  const size = 1000;
+  for (;;) {
+    let query = supabase.from(table).select(columns).order('id', { ascending: true }).range(from, from + size - 1);
+    if (apply) query = apply(query);
+    const { data, error } = await query;
+    if (error) throw error;
+    const batch = data || [];
+    rows.push(...batch);
+    if (batch.length < size) break;
+    from += size;
+    if (from >= 20000) break;
+  }
+  return rows;
+}
+
+async function loadScoreReadiness(schoolId, { term, className } = {}) {
+  let students;
+  try {
+    students = await loadPagedRows('students', 'id, name, class, alumni_year', (query) =>
+      query.eq('school_id', schoolId)
+    );
+  } catch (error) {
+    if (!String(error.message || '').includes('alumni_year')) throw error;
+    students = await loadPagedRows('students', 'id, name, class', (query) => query.eq('school_id', schoolId));
+  }
+
+  let scores = [];
+  try {
+    scores = await loadPagedRows('student_scores', 'id, student_id, class_name, subject, score', (query) =>
+      query.eq('school_id', schoolId).eq('term', term)
+    );
+  } catch (error) {
+    if (error.code !== '42P01') throw error;
+  }
+
+  const teachers = await loadPagedRows('staffs', 'id, name, role, subjects, class_names', (query) =>
+    query.eq('school_id', schoolId)
+  );
+
+  return summarizeMissingScores({
+    students,
+    teachers,
+    scores,
+    classFilter: className,
+  });
+}
 
 export function registerStaffAdminRoutes(app, { authenticateStaffPortal }) {
   app.get(
@@ -364,13 +530,20 @@ export function registerStaffAdminRoutes(app, { authenticateStaffPortal }) {
         if (term && term !== 'all') query = query.eq('term', term);
         const { data: scores, error } = await query;
         if (error) {
-          if (error.code === '42P01') return res.json({ scores: [], filters: { classes: [], terms: [] }, lock: null, teachers: [] });
+          if (error.code === '42P01') {
+            return res.json({
+              scores: [],
+              filters: { classes: [], terms: DEFAULT_TERM_NAMES.slice(0, 3) },
+              lock: null,
+              teachers: [],
+            });
+          }
           throw error;
         }
         const rows = scores || [];
         const studentIds = [...new Set(rows.map((row) => row.student_id).filter(Boolean))];
         const staffIds = [...new Set(rows.map((row) => row.staff_id).filter(Boolean))];
-        const [studentsRes, staffRes, filterRes, lockState, teachersRes] = await Promise.all([
+        const [studentsRes, staffRes, filterRes, lockState, teachersRes, academicTerms, classRows] = await Promise.all([
           studentIds.length
             ? supabase.from('students').select('id, name, class, roll_number').in('id', studentIds)
             : Promise.resolve({ data: [] }),
@@ -379,7 +552,13 @@ export function registerStaffAdminRoutes(app, { authenticateStaffPortal }) {
             : Promise.resolve({ data: [] }),
           supabase.from('student_scores').select('class_name, term').eq('school_id', schoolId).limit(400),
           loadScoreLocks(schoolId),
-          supabase.from('staffs').select('id, name, role').eq('school_id', schoolId).order('name', { ascending: true }),
+          supabase
+            .from('staffs')
+            .select('id, name, role, class_names')
+            .eq('school_id', schoolId)
+            .order('name', { ascending: true }),
+          listAcademicTerms(schoolId).catch(() => []),
+          supabase.from('classes').select('name').eq('school_id', schoolId),
         ]);
         const studentsById = new Map((studentsRes.data || []).map((row) => [row.id, row]));
         const staffById = new Map((staffRes.data || []).map((row) => [row.id, row]));
@@ -428,12 +607,47 @@ export function registerStaffAdminRoutes(app, { authenticateStaffPortal }) {
             .filter((row) => String(row.role || '').toLowerCase() === 'teacher')
             .map((row) => ({ id: row.id, name: row.name })),
           filters: {
-            classes: [...new Set((filterRes.data || []).map((row) => row.class_name).filter(Boolean))].sort(),
-            terms: [...new Set((filterRes.data || []).map((row) => row.term).filter(Boolean))].sort(),
+            classes: [
+              ...new Set(
+                [
+                  ...(filterRes.data || []).map((row) => row.class_name),
+                  ...(classRows.data || []).map((row) => row.name),
+                  ...(teachersRes.data || []).flatMap((row) => parseCsvList(row.class_names)),
+                ].filter(Boolean)
+              ),
+            ].sort(),
+            terms: [
+              ...new Set(
+                [
+                  ...(academicTerms || []).map((row) => row.name),
+                  ...(filterRes.data || []).map((row) => row.term),
+                  ...DEFAULT_TERM_NAMES.slice(0, 3),
+                ].filter(Boolean)
+              ),
+            ],
           },
         });
       } catch (error) {
         res.status(500).json({ error: error.message || 'Failed to load report cards' });
+      }
+    }
+  );
+
+  app.get(
+    '/api/staff-portal/session/admin/report-cards/readiness',
+    authenticateStaffPortal,
+    requireSchoolHead,
+    async (req, res) => {
+      try {
+        const term = String(req.query.term || '').trim();
+        if (!term || term === 'all') {
+          return res.status(400).json({ error: 'Pick a term before publishing' });
+        }
+        const className = String(req.query.class || req.query.className || '').trim();
+        const summary = await loadScoreReadiness(req.staffPortal.schoolId, { term, className });
+        res.json({ ...summary, term, class: className || 'all' });
+      } catch (error) {
+        res.status(500).json({ error: error.message || 'Failed to check report-card scores' });
       }
     }
   );
@@ -449,6 +663,18 @@ export function registerStaffAdminRoutes(app, { authenticateStaffPortal }) {
           return res.status(400).json({ error: 'Pick a term before publishing' });
         }
         const className = String(req.body?.class || req.body?.className || '').trim();
+        const unpublish = Boolean(req.body?.unpublish);
+        if (!unpublish) {
+          const summary = await loadScoreReadiness(req.staffPortal.schoolId, { term, className });
+          if (!summary.ready) {
+            return res.status(409).json({
+              error: summary.reason || 'All student scores must be entered before publishing',
+              ...summary,
+              term,
+              class: className || 'all',
+            });
+          }
+        }
         let classNames = Array.isArray(req.body?.classNames) ? req.body.classNames : [];
         if (!classNames.length && className && className !== 'all') classNames = [className];
         if (!classNames.length) {
@@ -464,7 +690,6 @@ export function registerStaffAdminRoutes(app, { authenticateStaffPortal }) {
           return res.status(400).json({ error: 'No teacher scores to publish for this term' });
         }
         if (!className || className === 'all') classNames = [...classNames, '*'];
-        const unpublish = Boolean(req.body?.unpublish);
         const state = unpublish
           ? await unpublishScoreLocks(req.staffPortal.schoolId, { term, classNames })
           : await publishScoreLocks(req.staffPortal.schoolId, {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { isSchoolHeadRole } from '../staffAdminRoutes.js';
+import { isSchoolHeadRole, summarizeMissingScores } from '../staffAdminRoutes.js';
 import { inspectScoreLock, scoreLockKey } from '../scorePublishStore.js';
 import { parseRequiredGender } from '../peopleCreate.js';
 import { isProtectedStaffRole, staffPortalApiAllowed } from '../staffSchoolAuth.js';
@@ -57,6 +57,38 @@ test('staff administrator can use academic APIs, not salary payments or wallet t
   assert.equal(staffPortalApiAllowed(admin, { method: 'GET', path: '/api/wallet' }).ok, false);
   assert.equal(staffPortalApiAllowed(admin, { method: 'POST', path: '/api/wallet/deposit' }).ok, false);
   assert.equal(staffPortalApiAllowed(admin, { method: 'POST', path: '/api/wallet/withdraw' }).ok, false);
+});
+
+test('report cards stay unpublished until assigned teachers save every student score', () => {
+  const students = [
+    { id: 's1', name: 'Ama', class: 'JHS 2' },
+    { id: 's2', name: 'Kojo', class: 'JHS 2' },
+  ];
+  const teachers = [
+    { id: 't1', name: 'Ms Mensah', role: 'Teacher', subjects: 'Mathematics', class_names: 'JHS 2' },
+  ];
+  const waiting = summarizeMissingScores({
+    students,
+    teachers,
+    scores: [{ student_id: 's1', class_name: 'JHS 2', subject: 'Mathematics', score: 80 }],
+    classFilter: 'JHS 2',
+  });
+  assert.equal(waiting.ready, false);
+  assert.equal(waiting.pendingTeachers.length, 1);
+  assert.equal(waiting.pendingTeachers[0].name, 'Ms Mensah');
+  assert.equal(waiting.pendingTeachers[0].gaps[0].missing, 1);
+
+  const complete = summarizeMissingScores({
+    students,
+    teachers,
+    scores: [
+      { student_id: 's1', class_name: 'JHS 2', subject: 'Mathematics', score: 80 },
+      { student_id: 's2', class_name: 'JHS 2', subject: 'Mathematics', score: 71 },
+    ],
+    classFilter: 'JHS 2',
+  });
+  assert.equal(complete.ready, true);
+  assert.equal(complete.pendingTeachers.length, 0);
 });
 
 test('accountant can manage fees and salary payments but cannot deposit or withdraw', () => {

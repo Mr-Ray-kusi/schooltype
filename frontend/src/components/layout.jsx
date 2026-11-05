@@ -100,7 +100,6 @@ const Layout = ({ children }) => {
       title: 'Main',
       items: [
         { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, featureKey: 'dashboard' },
-        { name: 'Notifications', href: '/notifications', icon: Bell },
       ],
     },
     {
@@ -345,22 +344,22 @@ const Layout = ({ children }) => {
         </>
       ) : null}
 
-      <div className="fixed right-[max(0.75rem,env(safe-area-inset-right))] top-[max(0.75rem,env(safe-area-inset-top))] z-50 hidden lg:right-4 lg:top-4 lg:block">
-        <Link
-          to={isSuperAdmin ? '/super-admin/notifications' : '/notifications'}
-          className={`relative flex h-11 w-11 items-center justify-center rounded-lg shadow-md ${
-            liteMode ? 'bg-white text-slate-800 hover:bg-slate-50' : 'bg-slate-800 text-slate-50 hover:bg-slate-700'
-          }`}
-          aria-label={unread ? `${unread} unread notifications` : 'Notifications'}
-        >
-          <Bell className="h-5 w-5" />
-          {unread > 0 && (
-            <span className="absolute -right-1 -top-1 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-sky-500 px-1 text-[10px] font-bold text-white">
-              {unread > 99 ? '99+' : unread}
-            </span>
-          )}
-        </Link>
-      </div>
+      <Link
+        to={isSuperAdmin ? '/super-admin/notifications' : '/notifications'}
+        className="fixed z-50 flex h-12 w-12 items-center justify-center rounded-full bg-sky-600 text-white shadow-[0_0_0_4px_rgba(56,189,248,0.45),0_0_22px_8px_rgba(14,165,233,0.55)] ring-2 ring-sky-300/90 right-[max(1rem,env(safe-area-inset-right))] bottom-[calc(6.25rem+env(safe-area-inset-bottom))] hover:bg-sky-500 lg:bottom-8 lg:right-8"
+        aria-label={unread ? `${unread} unread notifications` : 'Notifications'}
+      >
+        <span className="pointer-events-none absolute inset-0 rounded-full ring-4 ring-sky-400/60 animate-pulse" />
+        {unread > 0 ? (
+          <span className="pointer-events-none absolute -inset-1 rounded-full bg-sky-400/25 animate-ping" />
+        ) : null}
+        <Bell className="relative h-5 w-5" />
+        {unread > 0 ? (
+          <span className="absolute -right-1 -top-1 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-amber-400 px-1 text-[10px] font-bold text-slate-900">
+            {unread > 99 ? '99+' : unread}
+          </span>
+        ) : null}
+      </Link>
 
       <div
         className={`fixed inset-y-0 left-0 z-40 hidden w-64 flex-col pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)] shadow-xl lg:flex ${
