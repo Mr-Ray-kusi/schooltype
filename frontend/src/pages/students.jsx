@@ -279,12 +279,12 @@ const Students = () => {
 
   return (
     <>
-<div className="space-y-6">
+<div className="space-y-4">
         <div>
-          <h1 className="text-2xl font-bold text-white sm:text-3xl">Students</h1>
+          <h1 className="page-title">Students</h1>
           <p className="mt-1 text-slate-300">{total} student{total !== 1 ? 's' : ''} enrolled</p>
         </div>
-        <div className="flex min-w-0 items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <div className="relative min-w-0 flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input

@@ -10,7 +10,7 @@ const titleOf = (value) => (typeof value === 'string' || typeof value === 'numbe
 
 const PersonRecordTable = ({ columns, rows, onSelect, minWidth = '720px', compact = false, nowrap = compact }) => {
   if (!rows?.length) return null;
-  const cellPad = compact ? 'px-2 py-1.5 text-xs' : 'px-4 py-3';
+  const cellPad = compact ? 'px-2 py-1.5 text-xs' : 'px-3 py-2 text-xs sm:text-sm xl:px-4 xl:py-2.5 xl:text-[15px]';
   const cell = `${cellPad}${nowrap ? ' whitespace-nowrap' : ''}`;
   const primary = columns[0];
   const rest = columns.slice(1);
@@ -42,7 +42,7 @@ const PersonRecordTable = ({ columns, rows, onSelect, minWidth = '720px', compac
         ))}
       </div>
 
-      <div className="hidden overflow-x-auto rounded-3xl border border-slate-700 md:block">
+      <div className="hidden overflow-x-auto rounded-xl border border-slate-700 md:block">
         <table
           className={`w-full text-left ${compact ? 'text-xs' : 'text-sm'}${nowrap ? ' table-fixed' : ''}`}
           style={nowrap ? undefined : { minWidth }}

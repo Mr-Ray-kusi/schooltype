@@ -403,7 +403,7 @@ const SchoolWallet = ({ viewOnly = false } = {}) => {
       <header className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Finance</p>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight text-white md:text-3xl">{title}</h1>
+          <h1 className="page-title mt-1">{title}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
             {isSuperAdmin ? (
               <span

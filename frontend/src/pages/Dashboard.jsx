@@ -204,16 +204,16 @@ const Dashboard = () => {
         <PlanPendingBanner />
         <SubscriptionBanner />
 
-        <header className="dashboard-hero relative mt-8 mb-10 overflow-hidden rounded-[2rem] md:mt-10 md:mb-14">
+        <header className="dashboard-hero relative mt-3 mb-6 overflow-hidden rounded-2xl md:mt-4 md:mb-8">
           {school?.logo_url ? (
             <img
               src={school.logo_url}
               alt={school?.name ? `${school.name} dashboard` : 'Dashboard'}
               decoding="async"
-              className="h-56 w-full object-cover object-[68%_center] sm:h-72 lg:h-80"
+              className="h-40 w-full object-cover object-[68%_center] sm:h-48 lg:h-52 xl:h-72 2xl:h-80"
             />
           ) : (
-            <div className="h-56 w-full bg-slate-900 sm:h-72 lg:h-80" aria-hidden />
+            <div className="h-40 w-full bg-slate-900 sm:h-48 lg:h-52 xl:h-72 2xl:h-80" aria-hidden />
           )}
           <div
             aria-hidden
@@ -224,15 +224,15 @@ const Dashboard = () => {
             className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent"
           />
 
-          <div className="absolute inset-0 z-10 flex flex-wrap items-end justify-between gap-3 px-4 py-5 sm:px-8 sm:py-8">
+          <div className="absolute inset-0 z-10 flex flex-wrap items-end justify-between gap-2 px-4 py-4 sm:px-6 sm:py-5 xl:px-8 xl:py-7">
             <div className="min-w-0 max-w-xl">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-sky-300">
+              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-sky-300 xl:text-xs">
                 Overview
               </p>
-              <h1 className="mt-2 font-display text-xl font-bold leading-tight tracking-tight text-white sm:text-3xl md:text-4xl">
+              <h1 className="mt-1 font-display text-lg font-extrabold leading-tight tracking-tight text-white sm:text-2xl lg:text-3xl xl:text-4xl">
                 {school?.name || 'Dashboard'}
               </h1>
-              <p className="mt-1 truncate text-sm text-white/80 sm:text-base">{todayLabel}</p>
+              <p className="mt-0.5 truncate text-xs font-medium text-white/80 sm:text-sm xl:text-base">{todayLabel}</p>
             </div>
             {school?.plan_name && (
               <div className="mb-1 w-fit shrink-0 rounded-full border border-white/20 bg-slate-950/55 px-3 py-1 text-xs text-white backdrop-blur-sm">
@@ -242,7 +242,7 @@ const Dashboard = () => {
           </div>
         </header>
 
-        <section className="mb-8 md:mb-10">
+        <section className="mb-5 md:mb-6">
           <div className="mb-3">
             <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
               At a glance
@@ -250,13 +250,13 @@ const Dashboard = () => {
           </div>
 
           {peopleCards.length > 0 && (
-            <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+            <div className="grid min-w-0 grid-cols-2 gap-2 md:grid-cols-4">
               {peopleCards.map((stat) => {
                 const Icon = stat.icon;
                 return (
                   <div
                     key={stat.title}
-                    className={`flex items-center gap-2.5 rounded-xl border border-slate-700/80 bg-slate-900/50 px-3 py-2.5 ${
+                    className={`flex min-w-0 items-center gap-2.5 rounded-xl border border-slate-700/80 bg-slate-900/50 px-3 py-2.5 ${
                       locked ? 'opacity-80' : ''
                     }`}
                   >
@@ -266,8 +266,8 @@ const Dashboard = () => {
                       <Icon className="h-3.5 w-3.5" />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-[11px] text-slate-400">{stat.title}</p>
-                      <p className="font-display text-lg font-semibold tabular-nums leading-tight text-white">
+                      <p className="truncate text-[11px] font-semibold text-slate-400 xl:text-xs">{stat.title}</p>
+                      <p className="font-display text-lg font-extrabold tabular-nums leading-tight text-white xl:text-2xl">
                         {locked ? '—' : Number(stat.value || 0).toLocaleString()}
                       </p>
                     </div>
@@ -279,7 +279,7 @@ const Dashboard = () => {
           )}
 
           {financeCards.length > 0 && (
-            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <div className="mt-3 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-3">
               {financeCards.map((stat) => {
                 const Icon = stat.icon;
                 return (
@@ -297,7 +297,7 @@ const Dashboard = () => {
                         <Icon className="h-3.5 w-3.5" />
                       </div>
                     </div>
-                    <p className="mt-2 font-display text-xl font-semibold tabular-nums tracking-tight text-white sm:text-2xl">
+                    <p className="mt-2 font-display text-xl font-extrabold tabular-nums tracking-tight text-white sm:text-2xl xl:text-3xl">
                       {locked ? '—' : stat.value}
                     </p>
                     <p className="mt-1 truncate text-[11px] text-slate-500">
@@ -310,7 +310,7 @@ const Dashboard = () => {
           )}
 
           {snapshotItems.length > 0 && (
-            <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 rounded-xl border border-slate-700/70 bg-slate-900/35 px-3 py-2.5 sm:grid-cols-3 lg:grid-cols-6">
+            <div className="mt-3 grid min-w-0 grid-cols-2 gap-x-3 gap-y-2 rounded-xl border border-slate-700/70 bg-slate-900/35 px-3 py-2.5 sm:grid-cols-3 xl:grid-cols-6">
               {snapshotItems.map((item) => {
                 const Icon = item.icon;
                 return (
@@ -320,7 +320,7 @@ const Dashboard = () => {
                       <p className="truncate text-[10px] uppercase tracking-[0.08em] text-slate-500">
                         {item.label}
                       </p>
-                      <p className="truncate text-sm font-medium tabular-nums text-slate-100">
+                      <p className="truncate text-sm font-bold tabular-nums text-slate-100 xl:text-base">
                         {item.value}
                       </p>
                     </div>
@@ -331,7 +331,7 @@ const Dashboard = () => {
           )}
         </section>
 
-        <div className="mt-8 md:mt-12">
+        <div className="mt-5 md:mt-8">
           <SchoolAnalyticsChart />
         </div>
       </div>

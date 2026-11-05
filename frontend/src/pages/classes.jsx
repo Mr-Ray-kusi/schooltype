@@ -486,7 +486,7 @@ const Setup = () => {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-bold text-white">Setup</h1>
+        <h1 className="page-title">Setup</h1>
         <p className="mt-0.5 text-sm text-slate-400">
           School image, terms, classes, fees, and subjects.
         </p>

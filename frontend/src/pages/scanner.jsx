@@ -145,7 +145,7 @@ const Scanner = () => {
   return (
     <div className="mx-auto w-full max-w-3xl space-y-5">
       <div>
-        <h1 className="text-2xl font-bold text-white sm:text-3xl">Attendance Scanner</h1>
+        <h1 className="page-title">Attendance Scanner</h1>
         <p className="mt-1 text-sm text-slate-400">
           Open the phone link at the gate, or type/scan a code here. The scanner only works from 4 hours before the late
           time until 30 minutes after it.

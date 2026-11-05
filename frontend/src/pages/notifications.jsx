@@ -333,12 +333,12 @@ const Notifications = () => {
         }}
       />
 
-      <header className="mb-8 flex flex-wrap items-start justify-between gap-4">
+      <header className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary-300/90">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-primary-300/90">
             {isSuperAdmin ? 'Platform' : 'School'}
           </p>
-          <h1 className="mt-2 text-3xl font-bold tracking-tight text-white md:text-4xl">
+          <h1 className="page-title mt-1">
             Notifications
           </h1>
         </div>
@@ -352,7 +352,7 @@ const Notifications = () => {
         </button>
       </header>
 
-      <section className="mb-8 rounded-3xl border border-slate-700/80 bg-slate-900/50 p-6 md:p-8">
+      <section className="mb-4 rounded-xl border border-slate-700/80 bg-slate-900/50 p-4">
           <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
             {isSuperAdmin ? 'Compose in-app message' : 'Message another school'}
           </h2>

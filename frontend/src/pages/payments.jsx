@@ -208,7 +208,7 @@ const Payments = () => {
       <header className="flex shrink-0 min-w-0 items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Finance</p>
-          <h1 className="mt-0.5 text-2xl font-bold tracking-tight text-white">Payments</h1>
+          <h1 className="page-title mt-0.5">Payments</h1>
         </div>
         <div className="flex shrink-0 items-center gap-3">
           <p className="text-right">

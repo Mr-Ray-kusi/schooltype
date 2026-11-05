@@ -489,7 +489,7 @@ const AccountantFees = ({
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className="text-2xl font-bold text-white">{showList ? 'Paid and unpaid' : 'Fees'}</h2>
+        <h2 className="page-title">{showList ? 'Paid and unpaid' : 'Fees'}</h2>
         <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap sm:overflow-x-auto">
           <select
             value={classFilter}

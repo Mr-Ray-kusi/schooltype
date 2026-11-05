@@ -255,7 +255,7 @@ const Messages = () => {
 
   return (
     <>
-<div className="relative space-y-10">
+<div className="relative space-y-5">
         <div
           aria-hidden
           className="pointer-events-none absolute inset-x-0 -top-6 -z-10 h-72"
@@ -265,12 +265,12 @@ const Messages = () => {
           }}
         />
 
-        <header className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
+        <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary-300/90">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-primary-300/90">
               Communication
             </p>
-            <h1 className="mt-3 text-4xl font-bold tracking-tight text-white md:text-5xl">
+            <h1 className="page-title mt-1">
               Bulk Messaging
             </h1>
           </div>
@@ -280,17 +280,17 @@ const Messages = () => {
               resetCompose();
               setShowSendModal(true);
             }}
-            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-primary-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-primary-500/20 transition hover:bg-primary-500"
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-primary-500/20 transition hover:bg-primary-500"
           >
             {canEmail && !canSms ? <Mail className="h-4 w-4" /> : <Radio className="h-4 w-4" />}
             New broadcast
           </button>
         </header>
 
-        <section className="grid grid-cols-2 gap-2 xl:grid-cols-4 xl:gap-4">
-          <div className="rounded-2xl border border-slate-700/80 bg-slate-900/50 p-3 xl:p-5">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400 xl:text-xs">Broadcasts</p>
-            <p className="mt-2 text-2xl font-semibold tabular-nums text-white xl:mt-3 xl:text-3xl">{messages.length}</p>
+        <section className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+          <div className="rounded-xl border border-slate-700/80 bg-slate-900/50 p-3">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Broadcasts</p>
+            <p className="mt-1.5 text-xl font-semibold tabular-nums text-white lg:text-2xl">{messages.length}</p>
             <p className="mt-1 text-xs text-slate-500">
               {canSms && canEmail
                 ? `${smsCount} SMS · ${emailCount} email`
@@ -302,21 +302,21 @@ const Messages = () => {
 
           {canSms && (
             <>
-              <div className="rounded-2xl border border-slate-700/80 bg-slate-900/50 p-3 xl:p-5">
-                <p className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-slate-400 xl:text-xs">
+              <div className="rounded-xl border border-slate-700/80 bg-slate-900/50 p-3">
+                <p className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-slate-400">
                   <Coins className="h-3.5 w-3.5" />
                   SMS units
                 </p>
-                <p className="mt-2 text-2xl font-semibold tabular-nums text-emerald-300 xl:mt-3 xl:text-3xl">
+                <p className="mt-1.5 text-xl font-semibold tabular-nums text-emerald-300 lg:text-2xl">
                   {smsBalance?.sms_units ?? '…'}
                 </p>
               </div>
-              <div className="rounded-2xl border border-slate-700/80 bg-slate-900/50 p-3 xl:p-5">
-                <p className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-slate-400 xl:text-xs">
+              <div className="rounded-xl border border-slate-700/80 bg-slate-900/50 p-3">
+                <p className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-slate-400">
                   <Wallet className="h-3.5 w-3.5" />
                   Wallet
                 </p>
-                <p className="mt-2 text-xl font-semibold tabular-nums text-white xl:mt-3 xl:text-3xl">
+                <p className="mt-1.5 text-lg font-semibold tabular-nums text-white lg:text-xl">
                   {formatGhs(smsBalance?.wallet?.available_balance_major)}
                 </p>
                 <p className="mt-1 text-xs text-slate-500">
@@ -325,15 +325,15 @@ const Messages = () => {
                   </Link>
                 </p>
               </div>
-              <div className="rounded-2xl border border-slate-700/80 bg-slate-900/50 p-3 xl:p-5">
-                <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400 xl:text-xs">Unit price</p>
-                <p className="mt-2 text-xl font-semibold tabular-nums text-white xl:mt-3 xl:text-3xl">{formatGhs(unitPrice)}</p>
+              <div className="rounded-xl border border-slate-700/80 bg-slate-900/50 p-3">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Unit price</p>
+                <p className="mt-1.5 text-lg font-semibold tabular-nums text-white lg:text-xl">{formatGhs(unitPrice)}</p>
               </div>
             </>
           )}
 
           {!canSms && (
-            <div className="rounded-2xl border border-slate-700/80 bg-slate-900/50 p-3 xl:col-span-3 xl:p-5">
+            <div className="rounded-xl border border-slate-700/80 bg-slate-900/50 p-3 lg:col-span-3">
               <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Channel</p>
               <p className="mt-3 flex items-center gap-2 text-lg font-semibold text-white">
                 <Mail className="h-5 w-5 text-primary-400" />
@@ -345,7 +345,7 @@ const Messages = () => {
         </section>
 
         {canSms && (
-          <section className="rounded-3xl border border-slate-700/80 bg-slate-900/50 p-6 md:p-8">
+          <section className="rounded-xl border border-slate-700/80 bg-slate-900/50 p-4">
             <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
               <div>
                 <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">

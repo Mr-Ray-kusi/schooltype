@@ -103,10 +103,10 @@ const Fees = () => {
   const filtered = rows;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+    <div className="space-y-4">
+      <div className="flex flex-col gap-2.5 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white sm:text-3xl">Fees</h1>
+          <h1 className="page-title">Fees</h1>
           <p className="mt-1 text-sm text-slate-400">
             Paid and unpaid balances for {data?.term_name || data?.period_label || data?.month || 'this term'}.
           </p>
@@ -142,31 +142,31 @@ const Fees = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-4 md:gap-4">
-        <div className="min-w-0 rounded-2xl border border-slate-700 bg-slate-800 p-3 sm:rounded-3xl sm:p-5">
-          <p className="text-[10px] uppercase leading-tight tracking-wide text-slate-300 sm:text-sm">Amount paid</p>
-          <p className="mt-2 break-words text-lg font-semibold text-emerald-300 sm:mt-4 sm:text-3xl">
+      <div className="grid min-w-0 grid-cols-2 gap-2 md:grid-cols-4">
+        <div className="min-w-0 rounded-xl border border-slate-700 bg-slate-800 p-3">
+          <p className="text-[10px] uppercase leading-tight tracking-wide text-slate-300">Amount paid</p>
+          <p className="mt-1.5 break-words text-lg font-extrabold text-emerald-300 lg:text-xl xl:text-2xl">
             {formatGhs(totals.paid_amount)}
           </p>
-          <p className="mt-1 text-xs text-slate-400">{totals.paid || 0} student{(totals.paid || 0) === 1 ? '' : 's'}</p>
+          <p className="mt-0.5 text-xs text-slate-400">{totals.paid || 0} student{(totals.paid || 0) === 1 ? '' : 's'}</p>
         </div>
-        <div className="min-w-0 rounded-2xl border border-slate-700 bg-slate-800 p-3 sm:rounded-3xl sm:p-5">
-          <p className="text-[10px] uppercase leading-tight tracking-wide text-slate-300 sm:text-sm">Outstanding</p>
-          <p className="mt-2 break-words text-lg font-semibold text-amber-300 sm:mt-4 sm:text-3xl">
+        <div className="min-w-0 rounded-xl border border-slate-700 bg-slate-800 p-3">
+          <p className="text-[10px] uppercase leading-tight tracking-wide text-slate-300">Outstanding</p>
+          <p className="mt-1.5 break-words text-lg font-extrabold text-amber-300 lg:text-xl xl:text-2xl">
             {formatGhs(totals.unpaid_amount)}
           </p>
-          <p className="mt-1 text-xs text-slate-400">{totals.unpaid || 0} student{(totals.unpaid || 0) === 1 ? '' : 's'} owing</p>
+          <p className="mt-0.5 text-xs text-slate-400">{totals.unpaid || 0} student{(totals.unpaid || 0) === 1 ? '' : 's'} owing</p>
         </div>
-        <div className="min-w-0 rounded-2xl border border-slate-700 bg-slate-800 p-3 sm:rounded-3xl sm:p-5">
-          <p className="text-[10px] uppercase leading-tight tracking-wide text-slate-300 sm:text-sm">Term fee billed</p>
-          <p className="mt-2 break-words text-lg font-semibold text-white sm:mt-4 sm:text-3xl">
+        <div className="min-w-0 rounded-xl border border-slate-700 bg-slate-800 p-3">
+          <p className="text-[10px] uppercase leading-tight tracking-wide text-slate-300">Term fee billed</p>
+          <p className="mt-1.5 break-words text-lg font-extrabold text-white lg:text-xl xl:text-2xl">
             {formatGhs(Number(totals.paid_amount || 0) + Number(totals.unpaid_amount || 0))}
           </p>
-          <p className="mt-1 text-xs text-slate-400">{totals.billed || 0} billed student{(totals.billed || 0) === 1 ? '' : 's'}</p>
+          <p className="mt-0.5 text-xs text-slate-400">{totals.billed || 0} billed student{(totals.billed || 0) === 1 ? '' : 's'}</p>
         </div>
-        <div className="min-w-0 rounded-2xl border border-slate-700 bg-slate-800 p-3 sm:rounded-3xl sm:p-5">
-          <p className="text-[10px] uppercase leading-tight tracking-wide text-slate-300 sm:text-sm">Collected this year</p>
-          <p className="mt-2 break-words text-lg font-semibold text-white sm:mt-4 sm:text-3xl">
+        <div className="min-w-0 rounded-xl border border-slate-700 bg-slate-800 p-3">
+          <p className="text-[10px] uppercase leading-tight tracking-wide text-slate-300">Collected this year</p>
+          <p className="mt-1.5 break-words text-lg font-extrabold text-white lg:text-xl xl:text-2xl">
             {formatGhs(totals.year_collected)}
           </p>
         </div>

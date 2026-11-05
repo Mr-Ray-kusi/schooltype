@@ -433,7 +433,7 @@ const StaffPortal = () => {
     return (
       <div className={`flex min-h-screen flex-col items-center justify-center gap-3 px-6 text-center ${liteMode ? 'lite-shell bg-slate-100' : 'bg-slate-950'}`}>
         <h1 className={`text-2xl font-bold ${liteMode ? 'text-slate-900' : 'text-white'}`}>Staff portal unavailable</h1>
-        <p className={liteMode ? 'text-slate-600' : 'text-slate-400'}>{linkError}</p>
+        <p className={liteMode ? 'text-slate-800' : 'text-slate-200'}>{linkError}</p>
       </div>
     );
   }
@@ -500,9 +500,9 @@ const StaffPortal = () => {
   const isAdministrator = ['administrator', 'headteacher', 'head teacher', 'headmistress', 'headmaster'].includes(
     String(staff.role).toLowerCase()
   );
-  const wideLayout = isAccountant || isAdministrator;
-  const shellWidth = wideLayout ? 'max-w-6xl' : 'max-w-5xl';
-  const shellPad = 'px-6 sm:px-8 lg:px-10';
+  const shellPad = 'px-4 sm:px-5 lg:px-6';
+  const shellPadL = 'pl-4 sm:pl-5 lg:pl-6';
+  const shellPadR = 'pr-4 sm:pr-5 lg:pr-6';
   const navBtn =
     'flex shrink-0 items-center rounded-lg px-2 py-1.5 text-left text-[13px] font-medium leading-snug lg:w-full';
   const scoresLocked = Boolean(scoreLock?.published && !scoreLock?.canEdit);
@@ -535,11 +535,11 @@ const StaffPortal = () => {
     >
       <form onSubmit={savePaymentDetails} className="flex flex-col gap-3 sm:flex-row sm:items-end">
         <div className="min-w-0 flex-1">
-          <p className="flex items-center gap-2 text-xs uppercase tracking-wide text-slate-500">
+          <p className="flex items-center gap-2 text-xs uppercase tracking-wide text-slate-300">
             <Smartphone className="h-3.5 w-3.5" />
             Payment details
           </p>
-          <p className={`mt-1 text-xs ${liteMode ? 'text-slate-600' : 'text-slate-400'}`}>
+          <p className={`mt-1 text-xs ${liteMode ? 'text-slate-800' : 'text-slate-200'}`}>
             Enter the MoMo number the school should pay you on, then Update.
           </p>
           <input
@@ -605,13 +605,13 @@ const StaffPortal = () => {
   );
 
   return (
-    <div className={`flex h-dvh flex-col overflow-hidden ${liteMode ? 'lite-shell bg-slate-100 text-slate-900' : 'bg-slate-950 text-white'}`}>
-      <header className={`z-20 shrink-0 border-b py-4 ${liteMode ? 'border-slate-200 bg-white' : 'border-slate-800 bg-slate-900'}`}>
-        <div className={`mx-auto flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between ${shellWidth} ${shellPad}`}>
+    <div className={`app-shell flex h-dvh flex-col overflow-hidden ${liteMode ? 'lite-shell bg-slate-100 text-slate-900' : 'bg-slate-950 text-white'}`}>
+      <header className={`z-20 shrink-0 border-b py-3 ${liteMode ? 'border-slate-200 bg-white' : 'border-slate-800 bg-slate-900'}`}>
+        <div className={`flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between ${shellPad}`}>
           <div className="min-w-0">
-            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{schoolName}</p>
-            <h1 className="truncate text-xl font-bold">{staff.name}</h1>
-            <p className="text-sm text-sky-300">{staff.role}</p>
+            <p className="text-[10px] uppercase tracking-[0.16em] text-slate-300">{schoolName}</p>
+            <h1 className="truncate text-lg font-bold">{staff.name}</h1>
+            <p className="text-xs text-sky-300">{staff.role}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {themeToggle}
@@ -633,15 +633,15 @@ const StaffPortal = () => {
 
       <div className="min-h-0 flex-1 overflow-hidden">
         {isAdministrator ? (
-          <div className={`mx-auto flex h-full min-h-0 ${shellWidth} ${shellPad} flex-col py-4 lg:py-6`}>
+          <div className={`flex h-full min-h-0 w-full min-w-0 ${shellPadL} flex-col py-3 lg:py-4`}>
             <AuthContext.Provider value={portalAuth}>
               <AdministratorSchool schoolName={schoolName} authHeaders={authHeaders} lead={paymentDetails} />
             </AuthContext.Provider>
           </div>
         ) : isAccountant ? (
-          <div className={`mx-auto flex h-full min-h-0 ${shellWidth} ${shellPad} flex-col lg:flex-row lg:gap-4`}>
+          <div className={`flex h-full min-h-0 w-full min-w-0 ${shellPadL} flex-col lg:flex-row lg:gap-4`}>
             <div className="shrink-0 py-4 lg:py-6">{accountantNav}</div>
-            <div className="min-h-0 min-w-0 flex-1 space-y-6 overflow-y-auto py-4 lg:py-6">
+            <div className={`min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto py-3 lg:py-4 ${shellPadR}`}>
               {paymentDetails}
               <AuthContext.Provider value={portalAuth}>
                 {financeTab === 'wallet' ? (
@@ -665,40 +665,40 @@ const StaffPortal = () => {
             </div>
           </div>
         ) : (
-          <main className={`mx-auto h-full ${shellWidth} ${shellPad} space-y-6 overflow-y-auto py-8`}>
+          <main className={`h-full w-full min-w-0 space-y-4 overflow-y-auto py-5 ${shellPadL} ${shellPadR}`}>
             {paymentDetails}
             {!isTeacher ? (
           <div className="rounded-3xl border border-slate-700 bg-slate-900/60 p-8 text-center">
             <p className="text-lg font-semibold">Signed in as {staff.role}</p>
-            <p className="mt-2 text-sm text-slate-400">
+            <p className="mt-2 text-sm text-slate-200">
               Teacher score entry is available when you sign in with the Teacher role. Ask your admin to assign
               subjects and classes on your staff profile.
             </p>
           </div>
         ) : (
           <>
-            <section className="grid gap-4 sm:grid-cols-3">
-              <div className="rounded-2xl border border-slate-700 bg-slate-900/60 p-4">
-                <p className="flex items-center gap-2 text-xs uppercase tracking-wide text-slate-500">
+            <section className="grid gap-2.5 sm:grid-cols-3">
+              <div className="rounded-xl border border-slate-700 bg-slate-900/60 p-3">
+                <p className="flex items-center gap-2 text-xs uppercase tracking-wide text-slate-300">
                   <BookOpen className="h-3.5 w-3.5" /> Subjects
                 </p>
                 <p className="mt-2 text-sm text-slate-200">
                   {staff.subjects?.length ? staff.subjects.join(', ') : 'None assigned'}
                 </p>
               </div>
-              <div className="rounded-2xl border border-slate-700 bg-slate-900/60 p-4">
-                <p className="flex items-center gap-2 text-xs uppercase tracking-wide text-slate-500">
+              <div className="rounded-xl border border-slate-700 bg-slate-900/60 p-3">
+                <p className="flex items-center gap-2 text-xs uppercase tracking-wide text-slate-300">
                   <GraduationCap className="h-3.5 w-3.5" /> Classes
                 </p>
                 <p className="mt-2 text-sm text-slate-200">
                   {staff.classNames?.length ? staff.classNames.join(', ') : 'None assigned'}
                 </p>
               </div>
-              <div className="rounded-2xl border border-slate-700 bg-slate-900/60 p-4">
-                <p className="flex items-center gap-2 text-xs uppercase tracking-wide text-slate-500">
+              <div className="rounded-xl border border-slate-700 bg-slate-900/60 p-3">
+                <p className="flex items-center gap-2 text-xs uppercase tracking-wide text-slate-300">
                   <Users className="h-3.5 w-3.5" /> Students in view
                 </p>
-                <p className="mt-2 text-2xl font-bold text-white">{classStudents.length}</p>
+                <p className="mt-2 text-xl font-bold text-white">{classStudents.length}</p>
               </div>
             </section>
 
@@ -735,7 +735,7 @@ const StaffPortal = () => {
                   </select>
                   <div className="rounded-xl border border-slate-600 bg-slate-900 px-4 py-3 text-sm text-slate-100">
                     <p className="font-medium">{term}</p>
-                    <p className="mt-1 text-xs text-slate-500">
+                    <p className="mt-1 text-xs text-slate-300">
                       Current term only. Past marks stay on the school record.
                     </p>
                   </div>
@@ -747,7 +747,7 @@ const StaffPortal = () => {
                       <h2 className="font-semibold">
                         Scores · {selectedSubject} · {selectedClass}
                       </h2>
-                      <p className="mt-1 text-xs text-slate-400">
+                      <p className="mt-1 text-xs text-slate-200">
                         {viewingSaved
                           ? 'These marks are saved. Click Edit to change them.'
                           : 'Enter a mark for every student, then save once.'}
@@ -792,7 +792,7 @@ const StaffPortal = () => {
                     promotionResult.retained?.length ||
                     promotionResult.pending?.length) ? (
                     <div className="space-y-2 border-b border-slate-800 bg-slate-950/40 px-5 py-4 text-sm">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-200">
                         After this term
                       </p>
                       {promotionResult.promoted?.length ? (
@@ -818,7 +818,7 @@ const StaffPortal = () => {
                   ) : null}
                   <div className="divide-y divide-slate-800">
                     {classStudents.length === 0 ? (
-                      <p className="px-5 py-8 text-center text-sm text-slate-400">
+                      <p className="px-5 py-8 text-center text-sm text-slate-200">
                         No students found in this class. Ask your admin to match the teacher class names with
                         each student&apos;s class from Setup.
                       </p>
@@ -836,7 +836,7 @@ const StaffPortal = () => {
                           >
                             <div className="min-w-0 flex-1">
                               <p className="font-medium text-white">{student.name}</p>
-                              <p className="text-xs text-slate-500">
+                              <p className="text-xs text-slate-300">
                                 {student.class}
                                 {student.roll_number ? ` · ${student.roll_number}` : ''}
                                 {student.parent_phone ? ` · Parent: ${student.parent_phone}` : ''}

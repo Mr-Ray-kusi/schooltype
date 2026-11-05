@@ -179,8 +179,8 @@ const AdministratorSchool = ({ schoolName, authHeaders, lead = null }) => {
 
   return (
     <StaffEmbedProvider value={{ embedded: true, open: setTab }}>
-      <div className="flex h-full min-h-0 flex-1 flex-col lg:flex-row lg:gap-4">
-        <aside className="min-w-0 shrink-0 lg:w-36">
+      <div className="flex h-full min-h-0 flex-1 flex-col lg:flex-row lg:gap-3">
+        <aside className="min-w-0 shrink-0 lg:w-32">
           <div className="flex gap-2 overflow-x-auto pb-1 lg:block lg:max-h-full lg:space-y-1 lg:overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900/70 p-2">
             <p className="hidden px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-sky-300 lg:block">
               Academic
@@ -211,7 +211,7 @@ const AdministratorSchool = ({ schoolName, authHeaders, lead = null }) => {
           </div>
         </aside>
 
-        <div className="min-h-0 min-w-0 flex-1 space-y-6 overflow-y-auto">
+        <div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto pr-4 sm:pr-5 lg:pr-6">
           {lead}
           {tab === 'students' ? <Students /> : null}
           {tab === 'alumni' ? <Alumni /> : null}
@@ -224,21 +224,22 @@ const AdministratorSchool = ({ schoolName, authHeaders, lead = null }) => {
           ) : null}
           {tab === 'scanner' ? <Scanner /> : null}
           {tab === 'reports' ? (
-            <section className="space-y-4">
-              <div className="flex items-center justify-between gap-3">
-                <div className="rounded-2xl border border-slate-700 bg-slate-900/50 p-4 text-sm text-slate-300">
-                  Teachers enter and save marks. You publish the class report. After publish, teachers cannot change
-                  marks unless you allow one teacher. You cannot edit marks from here.
+            <section className="space-y-5">
+              {reportClass ? null : (
+                <div className="flex items-start justify-between gap-3">
+                  <p className="max-w-xl text-sm text-slate-300">
+                    Teachers save marks. You publish the class report. After publish, teachers cannot change marks unless you allow one.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={loadReports}
+                    className="inline-flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm text-slate-200 hover:bg-slate-800 hover:text-white"
+                  >
+                    <RefreshCw className={`h-4 w-4 ${loadingReports ? 'animate-spin' : ''}`} />
+                    Refresh
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={loadReports}
-                  className="inline-flex shrink-0 items-center gap-2 rounded-full border border-slate-600 px-3 py-2 text-sm text-slate-200"
-                >
-                  <RefreshCw className={`h-4 w-4 ${loadingReports ? 'animate-spin' : ''}`} />
-                  Refresh
-                </button>
-              </div>
+              )}
               <ClassReportBoard
                 classes={reportFilters.classes}
                 classCounts={classCounts}
@@ -259,54 +260,59 @@ const AdministratorSchool = ({ schoolName, authHeaders, lead = null }) => {
                       <>
                         <button
                           type="button"
-                          onClick={() => printReports('cards')}
-                          className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500"
+                          onClick={loadReports}
+                          className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-sm text-slate-200 hover:bg-slate-800 hover:text-white"
                         >
-                          <Printer className="h-4 w-4" />
-                          Print class reports
+                          <RefreshCw className={`h-4 w-4 ${loadingReports ? 'animate-spin' : ''}`} />
                         </button>
                         <button
                           type="button"
                           onClick={() => printReports('rankings')}
-                          className="inline-flex items-center gap-2 rounded-full bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-500"
+                          className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 hover:text-white"
                         >
                           <Download className="h-4 w-4" />
-                          Rankings PDF
+                          Rankings
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => printReports('cards')}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-500"
+                        >
+                          <Printer className="h-4 w-4" />
+                          Print
                         </button>
                       </>
                     ) : null}
-                    <button
-                      type="button"
-                      onClick={requestPublish}
-                      disabled={checkingPublish}
-                      className="inline-flex items-center gap-2 rounded-full bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-500 disabled:opacity-60"
-                    >
-                      {checkingPublish ? 'Checking scores…' : 'Publish report'}
-                    </button>
                     {reportLock?.published ? (
                       <button
                         type="button"
                         onClick={() => publishReports(true)}
-                        className="inline-flex items-center gap-2 rounded-full border border-slate-600 px-4 py-2 text-sm text-slate-200"
+                        className="inline-flex items-center rounded-lg px-3 py-2 text-sm text-slate-200 hover:bg-slate-800 hover:text-white"
                       >
                         Unpublish
                       </button>
-                    ) : null}
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={requestPublish}
+                        disabled={checkingPublish}
+                        className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-amber-200 hover:bg-amber-500/10 disabled:opacity-60"
+                      >
+                        {checkingPublish ? 'Checking…' : 'Publish'}
+                      </button>
+                    )}
                   </>
                 }
               />
-              {reportLock?.published ? (
-                <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
-                  <p className="text-sm text-amber-100">
-                    This term/class is published
-                    {reportLock.allowStaffIds?.length ? ` · ${reportLock.allowStaffIds.length} teacher(s) can edit` : ''}.
-                  </p>
+              {reportClass && reportLock?.published ? (
+                <div className="flex flex-wrap items-center gap-2 text-sm text-slate-200">
+                  <span>Allow a teacher to edit</span>
                   <select
                     value={allowTeacherId}
                     onChange={(e) => setAllowTeacherId(e.target.value)}
-                    className="rounded-xl border border-slate-600 bg-slate-900 px-3 py-2 text-sm"
+                    className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm text-slate-200"
                   >
-                    <option value="">Allow a teacher to edit</option>
+                    <option value="">Choose teacher</option>
                     {teachers.map((row) => (
                       <option key={row.id} value={row.id}>
                         {row.name}
@@ -316,9 +322,9 @@ const AdministratorSchool = ({ schoolName, authHeaders, lead = null }) => {
                   <button
                     type="button"
                     onClick={allowTeacherEdit}
-                    className="rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-900"
+                    className="rounded-lg px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-800"
                   >
-                    Allow edit
+                    Allow
                   </button>
                 </div>
               ) : null}
