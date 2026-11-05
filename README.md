@@ -82,6 +82,8 @@ cp backend/.env.example backend/.env
 | --- | --- |
 | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | Database access. Use the project URL, not a Postgres connection string. |
 | `SUPABASE_JWT_SECRET` | Scopes each request to one school. |
+| `ALLOW_TENANT_JWT_FALLBACK` | Leave unset/false in production so a bad tenant JWT fails closed instead of using the service-role key. |
+| `REQUIRE_AUTH_SESSIONS` | Production default: require a live `auth_sessions` row; set `false` only while that table is missing. |
 | `SUPABASE_DB_URL` | Transaction pooler URL on port 6543, not the direct URI on 5432. Morning attendance scanning is many small writes and will exhaust a direct connection limit. |
 | `JWT_SECRET` | Session signing, 32+ characters. The API refuses to issue sessions in production if this is still the default. |
 | `PAYSTACK_SECRET_KEY`, `PAYSTACK_PUBLIC_KEY` | School signup and parent fee payments. |

@@ -53,8 +53,10 @@ export async function withSchoolDb(run) {
   const first = await run(supabase);
   if (!first?.error || !isJwtAuthError(first.error)) return first;
   noteJwtClockRejection(first.error.message || first.error.code);
-  disableTenantJwt(first.error.message || first.error.code);
-  if (!platform || platform === supabase) return first;
+  // Adjust clock skew for the next attempt, but only fall back to the master
+  // key when explicitly allowed (never the production default).
+  const mayFallback = disableTenantJwt(first.error.message || first.error.code);
+  if (!mayFallback || !platform || platform === supabase) return first;
   return run(platform);
 }
 

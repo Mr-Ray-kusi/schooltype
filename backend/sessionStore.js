@@ -285,6 +285,13 @@ export function releaseScannerSlot(schoolId, deviceId) {
     });
 }
 
+/** Production requires a live auth_sessions row unless REQUIRE_AUTH_SESSIONS=false. */
+export function requiresAuthSessions() {
+  if (process.env.REQUIRE_AUTH_SESSIONS === 'true') return true;
+  if (process.env.REQUIRE_AUTH_SESSIONS === 'false') return false;
+  return process.env.NODE_ENV === 'production';
+}
+
 export async function getAuthSession(token) {
   if (!token) return { status: 'missing' };
   const tokenHash = hashToken(token);

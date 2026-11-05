@@ -14,12 +14,41 @@ export function runWithTenant(store, fn) {
   return tenantAls.run(store, fn);
 }
 
+/**
+ * When false (production default), JWT/RLS failures stay on the tenant client.
+ * Service-role fallback is only for local/dev, or ALLOW_TENANT_JWT_FALLBACK=true.
+ */
+export function allowsTenantJwtFallback() {
+  if (process.env.ALLOW_TENANT_JWT_FALLBACK === 'true') return true;
+  if (process.env.ALLOW_TENANT_JWT_FALLBACK === 'false') return false;
+  return process.env.NODE_ENV !== 'production';
+}
+
+export function isTenantJwtDisabled() {
+  return tenantJwtDisabled;
+}
+
+/** Test helper — do not use in request paths. */
+export function resetTenantJwtDisabledForTests() {
+  tenantJwtDisabled = false;
+}
+
+/**
+ * @returns {boolean} true if tenant JWT was paused and callers may use the service-role client
+ */
 export function disableTenantJwt(reason) {
-  if (tenantJwtDisabled) return;
+  if (!allowsTenantJwtFallback()) {
+    console.error(
+      `Tenant JWT rejected (${reason || 'auth error'}). Failing closed — keeping RLS (no service-role fallback).`
+    );
+    return false;
+  }
+  if (tenantJwtDisabled) return true;
   tenantJwtDisabled = true;
   console.warn(
     `Tenant JWT paused (${reason || 'clock mismatch'}). School screens still load with school_id filters.`
   );
+  return true;
 }
 
 function encodeJwtPart(value) {
