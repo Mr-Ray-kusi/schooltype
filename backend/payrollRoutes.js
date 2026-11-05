@@ -19,6 +19,7 @@ import {
 } from './schoolWalletStore.js';
 import { supabase } from './supabaseClient.js';
 import { ensureStudentProfileColumns } from './dbPooler.js';
+import { cacheInvalidate } from './ttlCache.js';
 
 const pendingPayroll = new Map();
 
@@ -111,6 +112,7 @@ async function rememberPhone(person, phone, schoolId) {
   if (error && !/momo_phone|does not exist|could not find/i.test(error.message || '')) {
     console.warn('Could not save MoMo number:', error.message);
   }
+  if (schoolId) cacheInvalidate(`dash:${schoolId}`);
 }
 
 async function payPerson({ schoolId, person, amount, phone, requestedBy }) {

@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
-import { supabase, platformSupabase } from './supabaseClient.js';
+import { supabase, platformSupabase, withSchoolDb } from './supabaseClient.js';
 import { createTenantClient, disableTenantJwt, runWithTenant } from './tenantContext.js';
 import { isJwtAuthError, jwtClockOffsetSec, noteJwtClockRejection, syncJwtClock } from './jwtClock.js';
 import { readAccessToken, setSessionCookie, clearSessionCookie } from './cookieAuth.js';
@@ -5340,7 +5340,10 @@ const authenticateStaffPortal = (req, res, next) => {
       });
     }
     req.staffPortal = payload;
-    next();
+    req.user = staffPortalAsSchoolUser(payload);
+    req.accessToken = token;
+    const tenantDb = createTenantClient(payload.schoolId, 'school');
+    return runWithTenant({ db: tenantDb, schoolId: payload.schoolId }, () => next());
   });
 };
 
@@ -5711,12 +5714,26 @@ app.patch('/api/staff-portal/session/me', authenticateStaffPortal, async (req, r
       return res.status(400).json({ error: 'Enter a Ghana MoMo number, like 0241234567.' });
     }
 
-    const { data: staff, error } = await updateStaffRecord(req.staffPortal.staffId, req.staffPortal.schoolId, {
+    let { data: staff, error } = await updateStaffRecord(req.staffPortal.staffId, req.staffPortal.schoolId, {
       momo_phone: phone || null,
     });
+    if (error) {
+      const retry = await withSchoolDb((db) =>
+        db
+          .from('staffs')
+          .update({ momo_phone: phone || null })
+          .eq('id', req.staffPortal.staffId)
+          .eq('school_id', req.staffPortal.schoolId)
+          .select()
+          .single()
+      );
+      staff = retry.data;
+      error = retry.error;
+    }
     if (error) throw error;
     if (!staff) return res.status(404).json({ error: 'Staff member not found' });
 
+    bumpSchoolCaches(req.staffPortal.schoolId);
     const momoPhone = staff.momo_phone ? normalizeGhanaPhone(staff.momo_phone) : '';
     res.json({
       momo_phone: momoPhone,

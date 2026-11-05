@@ -178,5 +178,46 @@ export function invalidateCache(prefix = '') {
   persistSnapshot();
 }
 
+const SCHOOL_DATA_EVENT = 'schooltype:data';
+const SCHOOL_DATA_REV_KEY = 'st_data_rev';
+
+export function notifySchoolDataChanged(prefixes = ['staff']) {
+  const list = Array.isArray(prefixes) ? prefixes.filter(Boolean) : [prefixes].filter(Boolean);
+  if (!list.length) invalidateCache();
+  else list.forEach((prefix) => invalidateCache(prefix));
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(SCHOOL_DATA_EVENT, { detail: { prefixes: list } }));
+  try {
+    localStorage.setItem(SCHOOL_DATA_REV_KEY, JSON.stringify({ at: Date.now(), prefixes: list }));
+  } catch {
+    // private mode
+  }
+}
+
+export function onSchoolDataChanged(handler) {
+  if (typeof window === 'undefined' || typeof handler !== 'function') return () => {};
+  const onEvent = (event) => handler(event.detail?.prefixes || []);
+  const onStorage = (event) => {
+    if (event.key !== SCHOOL_DATA_REV_KEY) return;
+    try {
+      const parsed = JSON.parse(event.newValue || '{}');
+      handler(parsed.prefixes || []);
+    } catch {
+      handler([]);
+    }
+  };
+  const onVisible = () => {
+    if (document.visibilityState === 'visible') handler(['visible']);
+  };
+  window.addEventListener(SCHOOL_DATA_EVENT, onEvent);
+  window.addEventListener('storage', onStorage);
+  document.addEventListener('visibilitychange', onVisible);
+  return () => {
+    window.removeEventListener(SCHOOL_DATA_EVENT, onEvent);
+    window.removeEventListener('storage', onStorage);
+    document.removeEventListener('visibilitychange', onVisible);
+  };
+}
+
 export const DASHBOARD_CACHE_MS = 5 * 60 * 1000;
 export const REPORT_CACHE_MS = 5 * 60 * 1000;

@@ -295,11 +295,18 @@ export function registerStaffAdminRoutes(app, { authenticateStaffPortal }) {
     requireSchoolHead,
     async (req, res) => {
       try {
-        const { data, error } = await supabase
+        let { data, error } = await supabase
           .from('staffs')
-          .select('id, name, role, subjects, class_names')
+          .select('id, name, role, subjects, class_names, salary, momo_phone, secret_code')
           .eq('school_id', req.staffPortal.schoolId)
           .order('name', { ascending: true });
+        if (error && /momo_phone|salary|secret_code|does not exist|could not find/i.test(error.message || '')) {
+          ({ data, error } = await supabase
+            .from('staffs')
+            .select('id, name, role, subjects, class_names')
+            .eq('school_id', req.staffPortal.schoolId)
+            .order('name', { ascending: true }));
+        }
         if (error) throw error;
         res.json({ items: data || [] });
       } catch (error) {

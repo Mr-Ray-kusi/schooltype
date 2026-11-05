@@ -10,6 +10,7 @@ import Payments from './payments';
 import { AuthContext } from '../contexts/authcontext';
 import useLiteMode from '../hooks/useLiteMode';
 import { readStaffPortalSession, staffPortalSessionForPath } from '../utils/staffPortalSession';
+import { notifySchoolDataChanged, onSchoolDataChanged } from '../utils/requestCache';
 
 const ROLES = ['Administrator', 'Teacher', 'Accountant'];
 const ATTITUDES = ['Excellent', 'Good', 'Bad', 'Worse'];
@@ -252,8 +253,17 @@ const StaffPortal = () => {
       }
     };
     restore();
+    const stop = onSchoolDataChanged((prefixes) => {
+      if (
+        prefixes.includes('visible') ||
+        prefixes.some((prefix) => !prefix || prefix === 'staff' || prefix.startsWith('staff'))
+      ) {
+        restore();
+      }
+    });
     return () => {
       cancelled = true;
+      stop();
     };
   }, [sessionToken, authHeaders]);
 
@@ -400,6 +410,7 @@ const StaffPortal = () => {
       setStaff(nextStaff);
       setMomoPhone(nextStaff.momo_phone);
       persistSession(sessionToken, nextStaff, schoolName, schoolRecord);
+      notifySchoolDataChanged(['staff', 'staff-combined']);
       toast.success('Payment details updated. The school can use this number to pay you.');
     } catch (err) {
       toast.error(err.response?.data?.error || 'Could not update payment details');

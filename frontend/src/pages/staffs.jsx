@@ -17,7 +17,7 @@ import {
   Download,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { forceGet, invalidateCache, peekCache, staleGet } from '../utils/requestCache';
+import { forceGet, invalidateCache, notifySchoolDataChanged, onSchoolDataChanged, peekCache, staleGet } from '../utils/requestCache';
 import { fetchRecord, parseListResponse, LIST_PAGE_SIZE } from '../utils/listApi.js';
 import { downloadPersonPack, downloadPeoplePacks, staffPack, nonStaffPack } from '../utils/personPackExport';
 import { buildTermAttendancePdfBytes } from '../utils/attendanceTermPdf';
@@ -123,6 +123,17 @@ const Staff = () => {
 
   useEffect(() => {
     fetchPeople();
+  }, [page, debouncedSearch, canStaff, canNonStaff, peopleFilter]);
+
+  useEffect(() => {
+    return onSchoolDataChanged((prefixes) => {
+      if (
+        prefixes.includes('visible') ||
+        prefixes.some((prefix) => !prefix || prefix === 'staff' || prefix.startsWith('staff'))
+      ) {
+        fetchPeople({ force: true });
+      }
+    });
   }, [page, debouncedSearch, canStaff, canNonStaff, peopleFilter]);
 
   const portalUrl = portalPath
@@ -272,8 +283,7 @@ const Staff = () => {
         toast.success('Staff updated');
         setShowStaffModal(false);
         resetStaffForm();
-        invalidateCache('staff');
-        invalidateCache('dashboard');
+        notifySchoolDataChanged(['staff', 'dashboard']);
         await fetchPeople({ force: true });
         return;
       }
@@ -281,8 +291,7 @@ const Staff = () => {
       toast.success('Staff added — attendance QR code generated');
       setShowStaffModal(false);
       resetStaffForm();
-      invalidateCache('staff');
-      invalidateCache('dashboard');
+      notifySchoolDataChanged(['staff', 'dashboard']);
       setPeople((prev) => [asStaffRow(data), ...prev.filter((row) => row.id !== data.id)].slice(0, LIST_PAGE_SIZE));
       setTotal((current) => current + 1);
       setPage(1);
@@ -309,9 +318,7 @@ const Staff = () => {
         toast.success('Non-staff updated');
         setShowNonStaffModal(false);
         resetNonStaffForm();
-        invalidateCache('non-staff');
-        invalidateCache('staff');
-        invalidateCache('dashboard');
+        notifySchoolDataChanged(['staff', 'non-staff', 'dashboard']);
         await fetchPeople({ force: true });
         return;
       }
@@ -319,9 +326,7 @@ const Staff = () => {
       toast.success('Non-staff added — attendance QR code generated');
       setShowNonStaffModal(false);
       resetNonStaffForm();
-      invalidateCache('non-staff');
-      invalidateCache('staff');
-      invalidateCache('dashboard');
+      notifySchoolDataChanged(['staff', 'non-staff', 'dashboard']);
       setPeople((prev) => [asNonStaffRow(data), ...prev.filter((row) => row.id !== data.id)].slice(0, LIST_PAGE_SIZE));
       setTotal((current) => current + 1);
       setPage(1);

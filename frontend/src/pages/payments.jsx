@@ -3,6 +3,7 @@ import axios from 'axios';
 import toast from 'react-hot-toast';
 import { RefreshCw, Wallet } from 'lucide-react';
 import PaginationBar from '../components/PaginationBar';
+import { notifySchoolDataChanged, onSchoolDataChanged } from '../utils/requestCache';
 
 const PAYMENT_ROW_HEIGHT = 48;
 const PAYMENT_HEAD_HEIGHT = 36;
@@ -30,16 +31,12 @@ const Payments = () => {
     setLoading(true);
     try {
       const { data } = await axios.get('/api/payroll');
-      setPeople(data.people || []);
+      const rows = data.people || [];
+      setPeople(rows);
       setWallet(data.wallet || null);
-      setPhones((current) => {
-        const next = { ...current };
-        for (const person of data.people || []) {
-          const key = `${person.kind}:${person.id}`;
-          if (person.momo_phone) next[key] = person.momo_phone;
-        }
-        return next;
-      });
+      setPhones(
+        Object.fromEntries(rows.map((person) => [`${person.kind}:${person.id}`, person.momo_phone || '']))
+      );
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to load salary payments');
     } finally {
@@ -49,6 +46,17 @@ const Payments = () => {
 
   useEffect(() => {
     load();
+  }, [load]);
+
+  useEffect(() => {
+    return onSchoolDataChanged((prefixes) => {
+      if (
+        prefixes.includes('visible') ||
+        prefixes.some((prefix) => !prefix || prefix === 'staff' || prefix.startsWith('staff'))
+      ) {
+        load();
+      }
+    });
   }, [load]);
 
   const visible = useMemo(
@@ -100,6 +108,7 @@ const Payments = () => {
         rows.map((row) => (row.kind === person.kind && row.id === person.id ? { ...row, momo_phone: saved } : row))
       );
       setPhones((currentPhones) => ({ ...currentPhones, [key]: saved }));
+      notifySchoolDataChanged(['staff']);
       toast.success(`Saved ${person.name}'s MoMo number`);
     } catch (err) {
       toast.error(err.response?.data?.error || 'Could not save that MoMo number');
@@ -322,7 +331,7 @@ const Payments = () => {
                         <td className="truncate px-3 text-slate-300 md:px-4">{person.role || '—'}</td>
                         <td className="px-3 md:px-4">
                           <input
-                            value={phones[key] || ''}
+                            value={phones[key] ?? person.momo_phone ?? ''}
                             onChange={(event) => setPhones((current) => ({ ...current, [key]: event.target.value }))}
                             onBlur={() => saveNonStaffPhone(person)}
                             onKeyDown={(event) => {

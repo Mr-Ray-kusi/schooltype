@@ -13,7 +13,7 @@ import {
   X,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { invalidateCache } from '../utils/requestCache';
+import { notifySchoolDataChanged } from '../utils/requestCache';
 import { emptyExtraFee, extraFeesPayload } from '../utils/extraFees';
 
 const fieldClass =
@@ -62,8 +62,7 @@ const AddStudent = ({ onClose } = {}) => {
         ...formData,
         extraFees: extraFeesPayload(formData.extraFees),
       });
-      invalidateCache('students');
-      invalidateCache('dashboard');
+      notifySchoolDataChanged(['students', 'dashboard']);
       if (data?.warning) toast.error(data.warning);
       if (data?.roll_number && data?.portal_password) {
         setIssued({ name: data.name, id: data.roll_number, password: data.portal_password });

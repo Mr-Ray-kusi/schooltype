@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { buildStudentIdUrl } from '../utils/studentIdQr';
-import { forceGet, invalidateCache, peekCache, staleGet } from '../utils/requestCache';
+import { forceGet, invalidateCache, notifySchoolDataChanged, onSchoolDataChanged, peekCache, staleGet } from '../utils/requestCache';
 import { parseListResponse, fetchAllPages, fetchRecord, LIST_PAGE_SIZE } from '../utils/listApi.js';
 import { downloadPersonPack, downloadPeoplePacks, studentPack } from '../utils/personPackExport';
 import PersonRecordTable from '../components/PersonRecordTable';
@@ -48,6 +48,17 @@ const Students = () => {
 
   useEffect(() => {
     fetchStudents();
+  }, [page, debouncedSearch, selectedClass]);
+
+  useEffect(() => {
+    return onSchoolDataChanged((prefixes) => {
+      if (
+        prefixes.includes('visible') ||
+        prefixes.some((prefix) => !prefix || prefix === 'students' || prefix.startsWith('students'))
+      ) {
+        fetchStudents({ force: true });
+      }
+    });
   }, [page, debouncedSearch, selectedClass]);
 
   const passwordStudentId = viewingStudent?.id || editingStudent?.id;
@@ -177,9 +188,7 @@ const Students = () => {
     try {
       await axios.delete(`/api/students/${student.id}`);
       toast.success('Student and related records removed');
-      invalidateCache('students');
-      invalidateCache('dashboard');
-      invalidateCache('attendance');
+      notifySchoolDataChanged(['students', 'dashboard', 'attendance']);
       setPendingDelete(null);
       setViewingStudent(null);
       fetchStudents();
@@ -218,8 +227,7 @@ const Students = () => {
         extraFees: extraFeesPayload(editingStudent.extraFees),
         rollNumber: editingStudent.roll_number,
       });
-      invalidateCache('students');
-      invalidateCache('dashboard');
+      notifySchoolDataChanged(['students', 'dashboard']);
       setEditingStudent(null);
       if (data) setViewingStudent(data);
       toast.success('Student updated');
