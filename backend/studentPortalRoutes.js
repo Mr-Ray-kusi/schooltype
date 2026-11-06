@@ -321,7 +321,7 @@ async function classStanding(schoolId, student, termName) {
   return { classSize: classIds.size, position };
 }
 
-export function registerStudentPortalRoutes(app, { authenticateToken }) {
+export function registerStudentPortalRoutes(app, { authenticateToken, enforcePlanApproval }) {
   app.get('/api/student-portal/schools', async (_req, res) => {
     try {
       const client = platformSupabase || supabase;
@@ -562,7 +562,7 @@ export function registerStudentPortalRoutes(app, { authenticateToken }) {
     }
   });
 
-  app.get('/api/students/:id/portal-password', authenticateToken, async (req, res) => {
+  app.get('/api/students/:id/portal-password', authenticateToken, enforcePlanApproval, async (req, res) => {
     try {
       if (req.user.role === 'super_admin') return res.status(400).json({ error: 'Open a school account' });
       const password = await revealStudentPortalPassword(req.user.schoolId, req.params.id);
@@ -572,7 +572,7 @@ export function registerStudentPortalRoutes(app, { authenticateToken }) {
     }
   });
 
-  app.post('/api/students/:id/portal-password', authenticateToken, async (req, res) => {
+  app.post('/api/students/:id/portal-password', authenticateToken, enforcePlanApproval, async (req, res) => {
     try {
       if (req.user.role === 'super_admin') return res.status(400).json({ error: 'Open a school account' });
       const student = await schoolStudent(req.user.schoolId, req.params.id, 'id');
@@ -584,7 +584,7 @@ export function registerStudentPortalRoutes(app, { authenticateToken }) {
     }
   });
 
-  app.post('/api/students/:id/portal-password/sms', authenticateToken, async (req, res) => {
+  app.post('/api/students/:id/portal-password/sms', authenticateToken, enforcePlanApproval, async (req, res) => {
     try {
       if (req.user.role === 'super_admin') return res.status(400).json({ error: 'Open a school account' });
       const schoolId = req.user.schoolId;

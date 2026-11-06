@@ -7,10 +7,10 @@ process.env.SUPABASE_JWT_SECRET = 'test-supabase-jwt-secret-32-chars!!';
 
 const { gateProfile, publicIdRateLimited, recordPublicIdFailure } =
   await import('../publicIdGate.js');
-const { paymentCreatesSchool } = await import('../schoolSignupPayment.js');
+const { paymentCreatesSchool, chargeCoversPlan } = await import('../schoolSignupPayment.js');
 const { signTenantJwt } = await import('../tenantContext.js');
 const { checkLoginAllowed, recordLoginFailure } = await import('../authSecurity.js');
-const { schoolHasPaidPlan } = await import('../schoolPlanStore.js');
+const { schoolHasPaidPlan, confirmedPlanCharge } = await import('../schoolPlanStore.js');
 
 test('a public ID shows name, school, and class without the parent phone number', () => {
   const open = gateProfile({
@@ -74,34 +74,71 @@ test('a locked account stays locked after more attempts', async () => {
   assert.equal(still.allowed, false);
 });
 
-test('a school that already paid at signup is not asked to pay again', () => {
-  assert.equal(
-    schoolHasPaidPlan({
-      payment_plan: 'starter',
-      plan_status: 'pending',
-      last_payment_at: '2026-10-13',
-      subscription_started_at: '2026-10-13',
-      total_paid: 10,
-    }),
-    true
-  );
-  assert.equal(
-    schoolHasPaidPlan({
-      plan_status: 'pending',
-      total_paid: 10,
-    }),
-    true
-  );
-  assert.equal(schoolHasPaidPlan({ payment_plan: 'starter', plan_status: 'pending' }), false);
-  assert.equal(schoolHasPaidPlan({ payment_plan: 'starter', plan_status: 'approved' }), true);
+test('only an approved plan status unlocks the school', () => {
+  assert.equal(schoolHasPaidPlan({ payment_plan: 'small', plan_status: 'approved' }), true);
   assert.equal(
     schoolHasPaidPlan({
       payment_plan: 'small',
       plan_status: 'pending',
+      last_payment_at: '2026-10-13',
+      subscription_started_at: '2026-10-13',
+      total_paid: 10,
       plan_selected_at: '2026-10-13T12:00:00.000Z',
     }),
-    true
+    false
   );
+  assert.equal(schoolHasPaidPlan({ plan_status: 'pending', total_paid: 10 }), false);
+  assert.equal(schoolHasPaidPlan({ payment_plan: 'small', plan_status: 'pending' }), false);
+  assert.equal(schoolHasPaidPlan({ payment_plan: 'small', plan_status: 'rejected' }), false);
+});
+
+test('a ledger row counts only when the Paystack charge covers the plan in cedis', () => {
+  assert.deepEqual(
+    confirmedPlanCharge({
+      amount: 10,
+      plan_id: 'small',
+      reference: 'signup_123',
+      source: 'paystack',
+      currency: 'GHS',
+      status: 'success',
+    }),
+    { planId: 'small', amount: 10, reference: 'signup_123' }
+  );
+  assert.equal(
+    confirmedPlanCharge({
+      amount: 10,
+      plan_id: 'small',
+      reference: 'signup_123',
+      status: 'pending',
+    }),
+    null
+  );
+  assert.equal(
+    confirmedPlanCharge({
+      amount: 1,
+      plan_id: 'small',
+      reference: 'signup_123',
+      source: 'paystack',
+      status: 'success',
+    }),
+    null
+  );
+  assert.equal(
+    confirmedPlanCharge({
+      amount: 10,
+      plan: 'small',
+      status: 'approved',
+    }),
+    null
+  );
+});
+
+test('a signup charge must be Ghana cedis and at least the plan price', () => {
+  const plan = { price: 10 };
+  assert.equal(chargeCoversPlan({ status: 'success', currency: 'GHS', amount: 1000 }, plan), true);
+  assert.equal(chargeCoversPlan({ status: 'success', currency: 'GHS', amount: 999 }, plan), false);
+  assert.equal(chargeCoversPlan({ status: 'success', currency: 'USD', amount: 1000 }, plan), false);
+  assert.equal(chargeCoversPlan({ status: 'success', currency: 'GHS' }, plan), false);
 });
 
 test('Small, Mid, and Large school plans all include SMS and email', async () => {

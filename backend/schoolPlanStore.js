@@ -1,7 +1,7 @@
 import { randomBytes } from 'crypto';
 import { supabase, platformSupabase } from './supabaseClient.js';
 import { initializeSubscription } from './subscription.js';
-import { PAYMENT_PLANS, resolvePlanId } from './plans.js';
+import { PAYMENT_PLANS, getPlan } from './plans.js';
 
 function billingDb() {
   return platformSupabase || supabase;
@@ -303,31 +303,44 @@ export function inferPlanIdFromAmount(amount) {
   return 'small';
 }
 
-/** True when signup/renewal payment already happened — do not send the school to pay again. */
+const CONFIRMED_CHARGE_STATUSES = new Set(['approved', 'paid', 'success', 'complete', 'successful']);
+
+/**
+ * A subscription row counts only when it is a Ghana-cedi Paystack charge
+ * for at least that plan's price. A selected plan, a date, or a bare total does not.
+ */
+export function confirmedPlanCharge(record) {
+  if (!record || typeof record !== 'object') return null;
+  const reference = String(record.reference || '').trim();
+  const source = String(record.source || '').toLowerCase();
+  const signupReference = /^(signup_|splan_)/i.test(reference);
+  if (!reference || (!signupReference && source !== 'paystack')) return null;
+
+  const currency = record.currency == null || record.currency === ''
+    ? 'GHS'
+    : String(record.currency).toUpperCase();
+  if (currency !== 'GHS') return null;
+
+  const status = String(record.status || '').toLowerCase();
+  if (status && !CONFIRMED_CHARGE_STATUSES.has(status)) return null;
+
+  const amount = Number(record.amount);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  const plan = getPlan(record.plan_id || record.plan || record.payment_plan);
+  if (!plan || amount + 0.001 < Number(plan.price)) return null;
+  return { planId: plan.id, amount, reference };
+}
+
+/** True only after a real charge has been saved as plan_status approved. */
 export function schoolHasPaidPlan(school) {
   if (!school) return false;
   const status = String(school.plan_status || '').toLowerCase();
   if (status === 'rejected') return false;
-  if (status === 'approved' || school.plan_approved === true) return true;
-  if (['paid', 'active', 'success', 'complete'].includes(status)) return true;
-  if (Number(school.total_paid) > 0) return true;
-  if (school.last_payment_at || school.subscription_started_at) return true;
-  if (Array.isArray(school.payment_records) && school.payment_records.length > 0) return true;
-  if (typeof school.payment_records === 'string' && school.payment_records.trim().length > 2 && school.payment_records.trim() !== '[]') {
-    return true;
-  }
-  if (!school.payment_plan) return false;
-  if (school.plan_selected_at) return true;
-  return false;
-}
-
-function paidSignupStatus(status) {
-  const value = String(status || '').toLowerCase();
-  return ['fulfilled', 'paid', 'complete', 'success', 'approved'].includes(value);
+  return status === 'approved';
 }
 
 /**
- * If Paystack already created/paid this school but plan_status stayed pending,
+ * If a confirmed Paystack charge is already on the ledger but plan_status stayed pending,
  * copy that proof onto the school row so sign-in opens the dashboard.
  */
 export async function syncPaidPlanFromLedger(school) {
@@ -335,60 +348,58 @@ export async function syncPaidPlanFromLedger(school) {
   if (String(school.role || '') === 'super_admin') return school;
 
   const merged = mergeSchoolWithExtras(school);
-  if (schoolHasPaidPlan(merged) && merged.plan_status === 'approved' && merged.payment_plan) {
+  if (String(merged.plan_status || '').toLowerCase() === 'rejected') {
+    return { ...school, ...merged };
+  }
+  if (schoolHasPaidPlan(merged) && merged.payment_plan) {
     return { ...school, ...merged, plan_status: 'approved' };
   }
 
   const client = billingDb();
-  if (!client) {
-    return schoolHasPaidPlan(merged) ? { ...school, ...merged, plan_status: 'approved' } : school;
+  let confirmed = null;
+  for (const record of parsePaymentRecords(merged)) {
+    confirmed = confirmedPlanCharge({
+      ...record,
+      status: record.status || 'success',
+      currency: record.currency || 'GHS',
+    });
+    if (confirmed) break;
   }
 
-  let planId = resolvePlanId(merged.payment_plan) || inferPlanIdFromAmount(merged.total_paid);
-  let paid = schoolHasPaidPlan(merged);
-  let totalPaid = Number(merged.total_paid) || 0;
-
-  try {
-    if (school.email) {
-      const { data: pendingRows } = await client
-        .from('pending_signups')
-        .select('payment_plan, status, paystack_reference, school_id')
-        .eq('email', String(school.email).trim().toLowerCase())
+  if (!confirmed && client) {
+    try {
+      let result = await client
+        .from('subscription_payments')
+        .select('amount, plan, plan_name, status, reference, currency, source')
+        .eq('school_id', school.id)
         .limit(20);
-      const hit = (pendingRows || []).find(
-        (row) =>
-          String(row.status || '') !== 'replaced' &&
-          (paidSignupStatus(row.status) || row.payment_plan || row.paystack_reference)
-      );
-      if (hit) {
-        paid = true;
-        planId = planId || resolvePlanId(hit.payment_plan);
+      if (result.error && (isMissingColumnError(result.error, 'reference') || isMissingColumnError(result.error, 'currency') || isMissingColumnError(result.error, 'source'))) {
+        result = await client
+          .from('subscription_payments')
+          .select('amount, plan, plan_name, status, reference')
+          .eq('school_id', school.id)
+          .limit(20);
       }
+      for (const row of result.data || []) {
+        confirmed = confirmedPlanCharge({
+          amount: row.amount,
+          plan: row.plan,
+          plan_id: row.plan,
+          status: row.status,
+          reference: row.reference,
+          currency: row.currency,
+          source: row.source,
+        });
+        if (confirmed) break;
+      }
+    } catch {
+      // subscription_payments may be missing
     }
-  } catch {
-    // pending_signups may be missing
   }
 
-  try {
-    const { data: pays } = await client
-      .from('subscription_payments')
-      .select('amount, plan, plan_id, status, created_at')
-      .eq('school_id', school.id)
-      .limit(20);
-    const hit = (pays || []).find(
-      (row) => Number(row.amount) > 0 || paidSignupStatus(row.status) || row.plan || row.plan_id
-    );
-    if (hit) {
-      paid = true;
-      planId = planId || resolvePlanId(hit.plan || hit.plan_id);
-      totalPaid = Math.max(totalPaid, Number(hit.amount) || 0);
-    }
-  } catch {
-    // subscription_payments may be missing
-  }
-
-  if (!paid) return school;
-  if (!planId) planId = 'small';
+  if (!confirmed) return { ...school, ...merged };
+  const planId = confirmed.planId;
+  const totalPaid = Math.max(Number(merged.total_paid) || 0, confirmed.amount);
 
   const subscription =
     merged.subscription_started_at && merged.next_payment_due
@@ -407,16 +418,25 @@ export async function syncPaidPlanFromLedger(school) {
     ...subscription,
   };
 
-  try {
-    await client.from('schools').update(updates).eq('id', school.id);
-    cache.set(school.id, {
-      ...(cache.get(school.id) || {}),
-      ...updates,
-      school_id: school.id,
-    });
-  } catch (error) {
-    console.warn('Failed to persist paid plan after signup payment:', error.message || error);
+  let saved = false;
+  if (client) {
+    try {
+      const { error } = await client.from('schools').update(updates).eq('id', school.id);
+      if (!error) {
+        saved = true;
+        cache.set(school.id, {
+          ...(cache.get(school.id) || {}),
+          ...updates,
+          school_id: school.id,
+        });
+      } else {
+        console.warn('Failed to persist paid plan after signup payment:', error.message || error);
+      }
+    } catch (error) {
+      console.warn('Failed to persist paid plan after signup payment:', error.message || error);
+    }
   }
+  if (!saved) return { ...school, ...merged };
 
   return { ...school, ...merged, ...updates };
 }
@@ -427,24 +447,11 @@ export function mergeSchoolWithExtras(school) {
   // Prefer Postgres columns; cache is only a fallback for the same instance.
   const extras = getSchoolExtrasSync(school.id) || {};
   const paymentPlan = school.payment_plan || extras.payment_plan || null;
-  // Prefer explicit DB status; never invent "pending" over a cached "approved".
-  const rawStatus = school.plan_status ?? extras.plan_status ?? null;
-  let planStatus = rawStatus || (paymentPlan ? 'pending' : null);
-
-  const paymentEvidence = {
-    payment_plan: paymentPlan,
-    plan_status: extras.plan_status === 'approved' ? 'approved' : planStatus,
-    plan_approved: school.plan_approved || extras.plan_approved,
-    total_paid: school.total_paid ?? extras.total_paid,
-    last_payment_at: school.last_payment_at || extras.last_payment_at,
-    subscription_started_at: school.subscription_started_at || extras.subscription_started_at,
-    payment_records: school.payment_records || extras.payment_records,
-  };
-
-  // Signup payment can leave billing dates / total_paid while plan_status stays pending.
-  if (paymentPlan && planStatus !== 'rejected' && schoolHasPaidPlan(paymentEvidence)) {
-    planStatus = 'approved';
-  }
+  // The database status wins. A cached "approved" must not unlock a pending school.
+  const rawStatus = school.plan_status != null && school.plan_status !== ''
+    ? school.plan_status
+    : extras.plan_status ?? null;
+  const planStatus = rawStatus || (paymentPlan ? 'pending' : null);
 
   return {
     ...school,
