@@ -463,18 +463,6 @@ const formatSchool = (school, { includeCredentials = false, light = false } = {}
   const subscription = getSubscriptionInfo({ ...merged, plan_status: planStatus });
   const featuresUnlocked = planApproved && subscription.subscription_active;
 
-  // Persist approval when signup payment already landed but plan_status was left pending.
-  if (school?.id && planApproved && (school.plan_status !== 'approved' || !school.payment_plan) && paymentPlan) {
-    const repair = { payment_plan: paymentPlan, plan_status: 'approved' };
-    if (!merged.subscription_started_at && !merged.next_payment_due) {
-      Object.assign(repair, initializeSubscription());
-    }
-    updateSchoolRecord(school.id, repair).catch((err) => {
-      console.warn('Failed to repair plan_status to approved:', err?.message || err);
-    });
-    upsertSchoolExtras(school.id, repair).catch(() => {});
-  }
-
   const formatted = {
     id: merged.id,
     name: merged.name,
@@ -2078,9 +2066,10 @@ app.post('/api/school/select-plan', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'School not found' });
     }
 
-    const merged = mergeSchoolWithExtras(currentSchool);
+    const synced = await syncPaidPlanFromLedger(currentSchool);
+    const merged = mergeSchoolWithExtras(synced);
     if (schoolHasPaidPlan(merged)) {
-      return res.json({ school: formatSchool(currentSchool), alreadyPaid: true });
+      return res.json({ school: formatSchool(merged), alreadyPaid: true });
     }
 
     const checkout = await startSchoolPlanCheckout({
@@ -2104,7 +2093,7 @@ app.post('/api/school/select-plan', authenticateToken, async (req, res) => {
   }
 });
 
-app.get('/api/school/branding', authenticateToken, async (req, res) => {
+app.get('/api/school/branding', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
     if (req.user.role === 'super_admin') {
       return res.json({ logo_url: null });
@@ -2120,7 +2109,7 @@ app.get('/api/school/branding', authenticateToken, async (req, res) => {
   }
 });
 
-app.put('/api/school/branding', authenticateToken, async (req, res) => {
+app.put('/api/school/branding', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
     if (req.user.role === 'super_admin') {
       return res.status(400).json({ error: 'Super admin does not have a school dashboard image' });
@@ -2152,7 +2141,7 @@ app.put('/api/school/branding', authenticateToken, async (req, res) => {
   }
 });
 
-app.get('/api/school/fees-settings', authenticateToken, async (req, res) => {
+app.get('/api/school/fees-settings', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
     if (req.user.role === 'super_admin') {
       return res.json({ fee_currency: 'GHS', currencies: FEE_CURRENCIES });
@@ -2171,7 +2160,7 @@ app.get('/api/school/fees-settings', authenticateToken, async (req, res) => {
   }
 });
 
-app.put('/api/school/fees-settings', authenticateToken, async (req, res) => {
+app.put('/api/school/fees-settings', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
     if (req.user.role === 'super_admin') {
       return res.status(400).json({ error: 'Open a school account to set fees currency' });
@@ -3483,7 +3472,7 @@ const backfillMissedAttendance = async (schoolId) => {
   return inserted;
 };
 
-app.post('/api/telemetry', authenticateToken, async (req, res) => {
+app.post('/api/telemetry', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
     if (req.user.role === 'super_admin') {
       return res.json({ ok: true, skipped: true });
@@ -3830,7 +3819,7 @@ registerWalletRoutes(app, {
 });
 registerFeeRoutes(app, { authenticateToken, enforcePlanApproval });
 registerPayrollRoutes(app, { authenticateToken, enforcePlanApproval });
-registerStudentPortalRoutes(app, { authenticateToken });
+registerStudentPortalRoutes(app, { authenticateToken, enforcePlanApproval });
 registerAlumniRoutes(app, { authenticateToken, enforcePlanApproval });
 registerSmsBillingRoutes(app, {
   authenticateToken,
@@ -7175,19 +7164,10 @@ app.post('/api/messages', authenticateToken, enforcePlanApproval, async (req, re
 
 app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
   try {
-    const today = schoolLocalDate();
-    const requestedDate = req.query.date || today;
-    const selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) ? requestedDate : today;
-    const filled = await ensureUnscannedStudentsMarkedLate(req.user.schoolId, selectedDate);
-    const cacheKey = `dash:${req.user.schoolId}:${selectedDate}`;
-    const cached = cacheGet(cacheKey);
-    if (cached && !filled) return res.json(cached);
-
     if (req.user.role !== 'super_admin') {
       const { data: schoolAccount } = await selectSchoolById(req.user.schoolId, SCHOOL_PLAN_COLUMNS);
       const merged = mergeSchoolWithExtras(schoolAccount);
-
-      if (!merged?.payment_plan || (merged.plan_status || 'pending') !== 'approved') {
+      if (!schoolHasPaidPlan(merged)) {
         return res.json({
           totalStudents: 0,
           totalStaff: 0,
@@ -7211,6 +7191,14 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
         });
       }
     }
+
+    const today = schoolLocalDate();
+    const requestedDate = req.query.date || today;
+    const selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) ? requestedDate : today;
+    const filled = await ensureUnscannedStudentsMarkedLate(req.user.schoolId, selectedDate);
+    const cacheKey = `dash:${req.user.schoolId}:${selectedDate}`;
+    const cached = cacheGet(cacheKey);
+    if (cached && !filled) return res.json(cached);
 
     const schoolId = req.user.schoolId;
     const attendanceFor = (userType) =>
@@ -7583,7 +7571,7 @@ app.get('/api/cron/subscription-reminders', requireCronSecret, async (req, res) 
   }
 });
 
-app.get('/api/notifications', authenticateToken, async (req, res) => {
+app.get('/api/notifications', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
     if (req.user.role === 'super_admin') {
       const [items, unread] = await Promise.all([
@@ -7602,7 +7590,7 @@ app.get('/api/notifications', authenticateToken, async (req, res) => {
   }
 });
 
-app.get('/api/notifications/schools', authenticateToken, async (req, res) => {
+app.get('/api/notifications/schools', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
     if (req.user.role === 'super_admin') {
       const { data, error } = await supabase
@@ -7620,7 +7608,7 @@ app.get('/api/notifications/schools', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/notifications/compose', authenticateToken, async (req, res) => {
+app.post('/api/notifications/compose', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
     if (req.user.role === 'super_admin') {
       return res.status(403).json({ error: 'Use the platform compose endpoint' });
@@ -7662,7 +7650,7 @@ app.post('/api/notifications/compose', authenticateToken, async (req, res) => {
   }
 });
 
-app.get('/api/notifications/unread-count', authenticateToken, async (req, res) => {
+app.get('/api/notifications/unread-count', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
     if (req.user.role === 'super_admin') {
       const unread = await countUnreadSuperAdminNotifications();
@@ -7675,7 +7663,7 @@ app.get('/api/notifications/unread-count', authenticateToken, async (req, res) =
   }
 });
 
-app.post('/api/notifications/:id/read', authenticateToken, async (req, res) => {
+app.post('/api/notifications/:id/read', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
     if (req.user.role === 'super_admin') {
       const { data, error } = await supabase
@@ -7695,7 +7683,7 @@ app.post('/api/notifications/:id/read', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/notifications/read-all', authenticateToken, async (req, res) => {
+app.post('/api/notifications/read-all', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
     if (req.user.role === 'super_admin') {
       await supabase
@@ -7712,7 +7700,7 @@ app.post('/api/notifications/read-all', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/notifications/:id/reply', authenticateToken, async (req, res) => {
+app.post('/api/notifications/:id/reply', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
     const body = String(req.body.body || req.body.message || '').trim();
     if (!body) return res.status(400).json({ error: 'Reply message is required' });

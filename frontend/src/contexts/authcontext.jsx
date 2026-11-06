@@ -14,12 +14,7 @@ export const useAuth = () => useContext(AuthContext);
 
 export const isSchoolPaid = (school) => {
   if (!school) return false;
-  if (school.plan_approved === true || school.plan_status === 'approved') return true;
-  if (String(school.plan_status || '').toLowerCase() === 'rejected') return false;
-  if (Number(school.total_paid) > 0) return true;
-  if (school.last_payment_at || school.subscription_started_at) return true;
-  if (!school.payment_plan) return false;
-  return Boolean(school.plan_selected_at);
+  return String(school.plan_status || '').toLowerCase() === 'approved';
 };
 
 export const getPostAuthPath = (school) => {
@@ -128,10 +123,11 @@ const schoolApprovalSnapshot = (school) =>
 const mergeSchoolState = (incoming, previous) => {
   if (!incoming) return previous || null;
   if (!previous) {
+    const paid = isSchoolPaid(incoming);
     return {
       ...incoming,
-      plan_approved: isSchoolPaid(incoming),
-      plan_status: isSchoolPaid(incoming) ? 'approved' : incoming.plan_status || null,
+      plan_approved: paid,
+      plan_status: paid ? 'approved' : incoming.plan_status || null,
     };
   }
 
@@ -158,16 +154,14 @@ const mergeSchoolState = (incoming, previous) => {
     merged.logo_url = previous.logo_url;
   }
 
-  if (incoming.plan_status === 'rejected') {
-    merged.plan_approved = false;
-    merged.plan_status = 'rejected';
-  } else if (isSchoolPaid(incoming) || isSchoolPaid(previous) || isSchoolPaid(merged)) {
-    merged.plan_approved = true;
-    merged.plan_status = 'approved';
-  } else {
-    const status = merged.plan_status || previous.plan_status || null;
-    merged.plan_status = status;
-    merged.plan_approved = status === 'approved';
+  if (incoming.plan_status !== undefined || incoming.plan_approved !== undefined) {
+    const paid = isSchoolPaid(incoming);
+    merged.plan_approved = paid;
+    merged.plan_status = paid
+      ? 'approved'
+      : String(incoming.plan_status || '').toLowerCase() === 'rejected'
+        ? 'rejected'
+        : incoming.plan_status || 'pending';
   }
 
   // If server says approved, unlock features even when plan_features was empty in a stale payload.

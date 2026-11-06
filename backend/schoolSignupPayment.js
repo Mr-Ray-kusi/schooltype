@@ -648,6 +648,16 @@ export function isSuccessfulCharge(status) {
   return String(status || '').toLowerCase() === 'success';
 }
 
+/** A signup charge counts only in Ghana cedis, for at least the plan price. */
+export function chargeCoversPlan(verified, plan) {
+  const currency = String(verified?.currency || '').toUpperCase();
+  const paidMinor = Number(verified?.amount);
+  const expectedMinor = toMinorUnits(plan?.price);
+  if (currency !== 'GHS') return false;
+  if (!Number.isFinite(paidMinor) || !Number.isFinite(expectedMinor) || expectedMinor <= 0) return false;
+  return paidMinor >= expectedMinor;
+}
+
 /** Failed or incomplete Paystack charges must not create a school. */
 export function paymentCreatesSchool(status) {
   return isSuccessfulCharge(status);
@@ -698,6 +708,8 @@ async function applySuccessfulPlanPayment(school, { plan, reference }) {
       recorded_at: new Date().toISOString(),
       source: 'paystack',
       reference: reference || null,
+      currency: 'GHS',
+      status: 'success',
     });
     const merged = { ...school, ...extras };
     const alreadyLive = (merged.plan_status || '') === 'approved' && merged.subscription_started_at;
@@ -916,12 +928,13 @@ async function fulfillSchoolCheckoutOnce(reference) {
   const kind = checkoutKindFrom(metadata, reference, pending);
   const planId = metadata.payment_plan || pending?.payment_plan;
   const { plan } = requirePlan(planId);
-  const paidMinor = Number(verified.amount);
-  const expectedMinor = toMinorUnits(plan.price);
-  if (Number.isFinite(paidMinor) && paidMinor + 1 < expectedMinor) {
-    const err = new Error('Paid amount does not match the selected plan.');
-    err.status = 400;
-    throw err;
+  if (!chargeCoversPlan(verified, plan)) {
+    return {
+      ok: false,
+      pending: false,
+      status: 'amount_mismatch',
+      error: 'Paid amount does not match the selected plan.',
+    };
   }
 
   if (kind === PLAN_KIND && metadata.school_id) {

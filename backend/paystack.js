@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { isProduction } from './runtime.js';
 
 const PAYSTACK_BASE = 'https://api.paystack.co';
 
@@ -21,6 +22,12 @@ async function paystackRequest(path, { method = 'GET', body } = {}) {
   if (!secretKey) {
     const err = new Error('Paystack is not configured. Set PAYSTACK_SECRET_KEY in backend/.env');
     err.code = 'PAYSTACK_NOT_CONFIGURED';
+    err.status = 503;
+    throw err;
+  }
+  if (isProduction() && String(secretKey).startsWith('sk_test_')) {
+    const err = new Error('Paystack is still using a test secret. Set the live PAYSTACK_SECRET_KEY on the server.');
+    err.code = 'PAYSTACK_TEST_KEY';
     err.status = 503;
     throw err;
   }
