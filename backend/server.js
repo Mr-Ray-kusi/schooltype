@@ -1078,16 +1078,24 @@ const hasValidEmailConfig = () => {
 const resolveEmailTransportOptions = (emailUser, emailPass) => {
   const auth = { user: emailUser, pass: emailPass };
   const rawHost = String(process.env.EMAIL_HOST || '').trim();
-  const service = String(process.env.EMAIL_SERVICE || '').trim() || 'gmail';
+  // Prefer IPv4. Gmail's AAAA records often yield ENETUNREACH (no IPv6 route).
+  const family = 4;
   // EMAIL_HOST=gmail is a service name, not a DNS host. Using it as `host` makes
   // SMTP verify fail (ENOTFOUND gmail) and signup looks "unconfigured".
   if (!rawHost || GMAIL_HOST_ALIASES.has(rawHost.toLowerCase())) {
-    return { service, auth };
+    return {
+      host: 'smtp.gmail.com',
+      port: Number(process.env.EMAIL_PORT || 587),
+      secure: String(process.env.EMAIL_SECURE || '').toLowerCase() === 'true',
+      family,
+      auth,
+    };
   }
   return {
     host: rawHost,
     port: Number(process.env.EMAIL_PORT || 587),
     secure: String(process.env.EMAIL_SECURE || '').toLowerCase() === 'true',
+    family,
     auth,
   };
 };

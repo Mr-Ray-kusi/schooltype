@@ -1,9 +1,18 @@
+import dns from 'node:dns';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
 import { disableTenantJwt, getTenantStore } from './tenantContext.js';
 import { isJwtAuthError, noteJwtClockRejection } from './jwtClock.js';
+
+try {
+  // Node 17+ prefers IPv6. Many local ISPs have no route, which shows up as
+  // SMTP ENETUNREACH on 2607:f8b0:…:587 and failed fetch() to Supabase.
+  dns.setDefaultResultOrder('ipv4first');
+} catch {
+  // Node < 16
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({
