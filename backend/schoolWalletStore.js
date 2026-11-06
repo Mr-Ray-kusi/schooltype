@@ -184,6 +184,70 @@ function isDuplicateKey(error) {
   return error?.code === '23505' || msg.includes('duplicate');
 }
 
+const OPEN_WITHDRAWAL_STATUSES = ['pending', 'processing'];
+
+let localWrite = Promise.resolve();
+
+function withLocalWrite(fn) {
+  const run = localWrite.then(fn, fn);
+  localWrite = run.then(
+    () => {},
+    () => {}
+  );
+  return run;
+}
+
+async function applyCloudWalletDelta(schoolId, { availableDelta = 0, pendingDelta = 0 } = {}) {
+  assertCloud();
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const wallet = await getWallet(schoolId);
+    const nextAvailable = wallet.available_balance + availableDelta;
+    const nextPending = Math.max(0, wallet.pending_balance + pendingDelta);
+    if (nextAvailable < 0) {
+      const err = new Error('Insufficient wallet balance');
+      err.status = 400;
+      throw err;
+    }
+    const { data, error } = await supabase
+      .from('school_wallets')
+      .update({
+        available_balance: nextAvailable,
+        pending_balance: nextPending,
+        updated_at: nowIso(),
+      })
+      .eq('school_id', schoolId)
+      .eq('available_balance', wallet.available_balance)
+      .eq('pending_balance', wallet.pending_balance)
+      .select('school_id, available_balance, pending_balance, currency, updated_at');
+    if (error) throwWalletError(error);
+    if (data?.length) return mapWallet(data[0]);
+  }
+  const err = new Error('Wallet was updated by another payment. Try again.');
+  err.status = 409;
+  throw err;
+}
+
+async function claimCloudTransaction(reference, fromStatuses, patch) {
+  assertCloud();
+  const { data, error } = await supabase
+    .from('wallet_transactions')
+    .update({ ...patch, updated_at: nowIso() })
+    .eq('reference', reference)
+    .in('status', fromStatuses)
+    .select('id');
+  if (error) throwWalletError(error);
+  return Boolean(data?.length);
+}
+
+async function restoreCloudTransactionStatus(reference, status, claimedStatus) {
+  const { error } = await supabase
+    .from('wallet_transactions')
+    .update({ status, updated_at: nowIso() })
+    .eq('reference', reference)
+    .eq('status', claimedStatus);
+  if (error) console.warn('Could not restore wallet transaction status:', error.message || error);
+}
+
 async function ensureWalletCloud(schoolId, currency = 'GHS') {
   assertCloud();
   const { data, error } = await supabase
@@ -777,53 +841,48 @@ export async function creditDeposit(reference) {
         transaction: await getWalletTransactionByReference(reference),
       };
     }
-    const wallet = await getWallet(tx.school_id);
-    const { error } = await supabase
-      .from('school_wallets')
-      .update({
-        available_balance: wallet.available_balance + tx.amount,
-        updated_at: nowIso(),
-      })
-      .eq('school_id', tx.school_id);
-    if (error) throwWalletError(error);
+    let wallet;
+    try {
+      wallet = await applyCloudWalletDelta(tx.school_id, { availableDelta: tx.amount });
+    } catch (err) {
+      await restoreCloudTransactionStatus(reference, tx.status, 'success');
+      throw err;
+    }
     return {
-      wallet: await getWallet(tx.school_id),
+      wallet,
       transaction: await getWalletTransactionByReference(reference),
     };
   }
 
-  const db = await getDb();
-  await ensureWallet(tx.school_id);
-  await db.run('BEGIN');
-  try {
-    const marked = await db.run(
-      `UPDATE wallet_transactions SET status = 'success', updated_at = ?
-       WHERE reference = ? AND status <> 'success'`,
-      [nowIso(), reference]
-    );
-    if (!marked.changes) {
+  return withLocalWrite(async () => {
+    const db = await getDb();
+    await ensureWallet(tx.school_id);
+    await db.run('BEGIN');
+    try {
+      const marked = await db.run(
+        `UPDATE wallet_transactions SET status = 'success', updated_at = ?
+         WHERE reference = ? AND status <> 'success'`,
+        [nowIso(), reference]
+      );
+      if (marked.changes) {
+        await db.run(
+          `UPDATE school_wallets
+           SET available_balance = available_balance + ?, updated_at = ?
+           WHERE school_id = ?`,
+          [tx.amount, nowIso(), tx.school_id]
+        );
+      }
       await db.run('COMMIT');
-      return {
-        wallet: await getWallet(tx.school_id),
-        transaction: await getWalletTransactionByReference(reference),
-      };
+    } catch (err) {
+      await db.run('ROLLBACK');
+      throw err;
     }
-    await db.run(
-      `UPDATE school_wallets
-       SET available_balance = available_balance + ?, updated_at = ?
-       WHERE school_id = ?`,
-      [tx.amount, nowIso(), tx.school_id]
-    );
-    await db.run('COMMIT');
-  } catch (err) {
-    await db.run('ROLLBACK');
-    throw err;
-  }
 
-  return {
-    wallet: await getWallet(tx.school_id),
-    transaction: await getWalletTransactionByReference(reference),
-  };
+    return {
+      wallet: await getWallet(tx.school_id),
+      transaction: await getWalletTransactionByReference(reference),
+    };
+  });
 }
 
 /**
@@ -881,52 +940,61 @@ export async function reserveWithdrawal(schoolId, amountMinor) {
 export async function completeWithdrawal(reference) {
   const tx = await getWalletTransactionByReference(reference);
   if (!tx) return null;
-  if (tx.status === 'success') return { wallet: await getWallet(tx.school_id), transaction: tx };
+  if (tx.status === 'success' || tx.status === 'failed') {
+    return { wallet: await getWallet(tx.school_id), transaction: tx };
+  }
 
   if (useCloudWallet()) {
     assertCloud();
-    const wallet = await getWallet(tx.school_id);
-    const nextPending = Math.max(0, wallet.pending_balance - tx.amount);
-    const { error: walletErr } = await supabase
-      .from('school_wallets')
-      .update({ pending_balance: nextPending, updated_at: nowIso() })
-      .eq('school_id', tx.school_id);
-    if (walletErr) throwWalletError(walletErr);
-    const { error: txErr } = await supabase
-      .from('wallet_transactions')
-      .update({ status: 'success', updated_at: nowIso() })
-      .eq('reference', reference);
-    if (txErr) throwWalletError(txErr);
+    const claimed = await claimCloudTransaction(reference, OPEN_WITHDRAWAL_STATUSES, { status: 'success' });
+    if (!claimed) {
+      return {
+        wallet: await getWallet(tx.school_id),
+        transaction: await getWalletTransactionByReference(reference),
+      };
+    }
+    let wallet;
+    try {
+      wallet = await applyCloudWalletDelta(tx.school_id, { pendingDelta: -tx.amount });
+    } catch (err) {
+      await restoreCloudTransactionStatus(reference, tx.status, 'success');
+      throw err;
+    }
     return {
-      wallet: await getWallet(tx.school_id),
+      wallet,
       transaction: await getWalletTransactionByReference(reference),
     };
   }
 
-  const db = await getDb();
-  await db.run('BEGIN');
-  try {
-    await db.run(
-      `UPDATE school_wallets
-       SET pending_balance = CASE WHEN pending_balance >= ? THEN pending_balance - ? ELSE 0 END,
-           updated_at = ?
-       WHERE school_id = ?`,
-      [tx.amount, tx.amount, nowIso(), tx.school_id]
-    );
-    await db.run(
-      `UPDATE wallet_transactions SET status = 'success', updated_at = ? WHERE reference = ?`,
-      [nowIso(), reference]
-    );
-    await db.run('COMMIT');
-  } catch (err) {
-    await db.run('ROLLBACK');
-    throw err;
-  }
+  return withLocalWrite(async () => {
+    const db = await getDb();
+    await db.run('BEGIN');
+    try {
+      const marked = await db.run(
+        `UPDATE wallet_transactions SET status = 'success', updated_at = ?
+         WHERE reference = ? AND status IN ('pending', 'processing')`,
+        [nowIso(), reference]
+      );
+      if (marked.changes) {
+        await db.run(
+          `UPDATE school_wallets
+           SET pending_balance = CASE WHEN pending_balance >= ? THEN pending_balance - ? ELSE 0 END,
+               updated_at = ?
+           WHERE school_id = ?`,
+          [tx.amount, tx.amount, nowIso(), tx.school_id]
+        );
+      }
+      await db.run('COMMIT');
+    } catch (err) {
+      await db.run('ROLLBACK');
+      throw err;
+    }
 
-  return {
-    wallet: await getWallet(tx.school_id),
-    transaction: await getWalletTransactionByReference(reference),
-  };
+    return {
+      wallet: await getWallet(tx.school_id),
+      transaction: await getWalletTransactionByReference(reference),
+    };
+  });
 }
 
 export async function failWithdrawal(reference, reason) {
@@ -938,59 +1006,63 @@ export async function failWithdrawal(reference, reason) {
 
   if (useCloudWallet()) {
     assertCloud();
-    const wallet = await getWallet(tx.school_id);
-    const release = Math.min(wallet.pending_balance, tx.amount);
-    const { error: walletErr } = await supabase
-      .from('school_wallets')
-      .update({
-        pending_balance: wallet.pending_balance - release,
-        available_balance: wallet.available_balance + tx.amount,
-        updated_at: nowIso(),
-      })
-      .eq('school_id', tx.school_id);
-    if (walletErr) throwWalletError(walletErr);
-    const { error: txErr } = await supabase
-      .from('wallet_transactions')
-      .update({
-        status: 'failed',
-        description: reason || tx.description,
-        updated_at: nowIso(),
-      })
-      .eq('reference', reference);
-    if (txErr) throwWalletError(txErr);
+    const claimed = await claimCloudTransaction(reference, OPEN_WITHDRAWAL_STATUSES, {
+      status: 'failed',
+      description: reason || tx.description,
+    });
+    if (!claimed) {
+      return {
+        wallet: await getWallet(tx.school_id),
+        transaction: await getWalletTransactionByReference(reference),
+      };
+    }
+    let wallet;
+    try {
+      wallet = await applyCloudWalletDelta(tx.school_id, {
+        availableDelta: tx.amount,
+        pendingDelta: -tx.amount,
+      });
+    } catch (err) {
+      await restoreCloudTransactionStatus(reference, tx.status, 'failed');
+      throw err;
+    }
     return {
-      wallet: await getWallet(tx.school_id),
+      wallet,
       transaction: await getWalletTransactionByReference(reference),
     };
   }
 
-  const db = await getDb();
-  await db.run('BEGIN');
-  try {
-    await db.run(
-      `UPDATE school_wallets
-       SET pending_balance = CASE WHEN pending_balance >= ? THEN pending_balance - ? ELSE 0 END,
-           available_balance = available_balance + ?,
-           updated_at = ?
-       WHERE school_id = ?`,
-      [tx.amount, tx.amount, tx.amount, nowIso(), tx.school_id]
-    );
-    await db.run(
-      `UPDATE wallet_transactions
-       SET status = 'failed', description = COALESCE(?, description), updated_at = ?
-       WHERE reference = ?`,
-      [reason || tx.description, nowIso(), reference]
-    );
-    await db.run('COMMIT');
-  } catch (err) {
-    await db.run('ROLLBACK');
-    throw err;
-  }
+  return withLocalWrite(async () => {
+    const db = await getDb();
+    await db.run('BEGIN');
+    try {
+      const marked = await db.run(
+        `UPDATE wallet_transactions
+         SET status = 'failed', description = COALESCE(?, description), updated_at = ?
+         WHERE reference = ? AND status IN ('pending', 'processing')`,
+        [reason || null, nowIso(), reference]
+      );
+      if (marked.changes) {
+        await db.run(
+          `UPDATE school_wallets
+           SET pending_balance = CASE WHEN pending_balance >= ? THEN pending_balance - ? ELSE 0 END,
+               available_balance = available_balance + ?,
+               updated_at = ?
+           WHERE school_id = ?`,
+          [tx.amount, tx.amount, tx.amount, nowIso(), tx.school_id]
+        );
+      }
+      await db.run('COMMIT');
+    } catch (err) {
+      await db.run('ROLLBACK');
+      throw err;
+    }
 
-  return {
-    wallet: await getWallet(tx.school_id),
-    transaction: await getWalletTransactionByReference(reference),
-  };
+    return {
+      wallet: await getWallet(tx.school_id),
+      transaction: await getWalletTransactionByReference(reference),
+    };
+  });
 }
 
 export function makeWalletReference(prefix = 'wlt') {
