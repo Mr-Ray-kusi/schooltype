@@ -1042,11 +1042,13 @@ async function issueSchoolSession(res, school, { remember = false } = {}) {
 // Email transporter configuration - uses Gmail SMTP or custom SMTP
 let emailTransporter = null;
 let emailReady = false;
+let lastEmailError = '';
 
 const PLACEHOLDER_EMAIL_USERS = new Set([
   'your-email@gmail.com',
   'your-kusiraymond208@gmail.com',
 ]);
+const GMAIL_HOST_ALIASES = new Set(['gmail', 'google', 'googlemail']);
 
 const getEmailUser = () => {
   const candidates = [process.env.EMAIL_USER, process.env.BROADCAST_EMAIL];
@@ -1073,9 +1075,43 @@ const hasValidEmailConfig = () => {
   );
 };
 
+const resolveEmailTransportOptions = (emailUser, emailPass) => {
+  const auth = { user: emailUser, pass: emailPass };
+  const rawHost = String(process.env.EMAIL_HOST || '').trim();
+  const service = String(process.env.EMAIL_SERVICE || '').trim() || 'gmail';
+  // EMAIL_HOST=gmail is a service name, not a DNS host. Using it as `host` makes
+  // SMTP verify fail (ENOTFOUND gmail) and signup looks "unconfigured".
+  if (!rawHost || GMAIL_HOST_ALIASES.has(rawHost.toLowerCase())) {
+    return { service, auth };
+  }
+  return {
+    host: rawHost,
+    port: Number(process.env.EMAIL_PORT || 587),
+    secure: String(process.env.EMAIL_SECURE || '').toLowerCase() === 'true',
+    auth,
+  };
+};
+
+const emailNotReadyResponse = () => {
+  if (!hasValidEmailConfig()) {
+    return {
+      error:
+        'Email verification is not configured on the server. Set EMAIL_USER and EMAIL_PASSWORD, then try again.',
+      code: 'EMAIL_NOT_CONFIGURED',
+    };
+  }
+  return {
+    error: lastEmailError
+      ? `Email is set, but the mail server is not ready: ${lastEmailError}`
+      : 'Email is set, but the mail server is not ready yet. Wait a few seconds and try again.',
+    code: 'EMAIL_NOT_READY',
+  };
+};
+
 const initEmailTransporter = () => {
   emailTransporter = null;
   emailReady = false;
+  lastEmailError = '';
 
   if (!hasValidEmailConfig()) {
     console.warn(
@@ -1086,29 +1122,15 @@ const initEmailTransporter = () => {
 
   const emailUser = getEmailUser();
   const emailPass = getEmailPassword();
-
-  const emailTransportOptions = process.env.EMAIL_HOST
-    ? {
-        host: process.env.EMAIL_HOST,
-        port: Number(process.env.EMAIL_PORT || 587),
-        secure: process.env.EMAIL_SECURE === 'true',
-        auth: {
-          user: emailUser,
-          pass: emailPass,
-        },
-      }
-    : {
-        service: process.env.EMAIL_SERVICE || 'gmail',
-        auth: {
-          user: emailUser,
-          pass: emailPass,
-        },
-      };
+  const emailTransportOptions = resolveEmailTransportOptions(emailUser, emailPass);
 
   emailTransporter = nodemailer.createTransport(emailTransportOptions);
   // Allow sends once credentials exist; SMTP verify can be slow or flaky.
   emailReady = true;
-  console.log(`Email transporter configured (${emailUser})`);
+  const via = emailTransportOptions.service
+    ? `service=${emailTransportOptions.service}`
+    : `host=${emailTransportOptions.host}:${emailTransportOptions.port}`;
+  console.log(`Email transporter configured (${emailUser}, ${via})`);
 
   // Confirm SMTP once on the long-running server. A serverless boot used to skip this.
   if (!isVercel()) {
@@ -1116,10 +1138,12 @@ const initEmailTransporter = () => {
     emailTransporter.verify((error) => {
       if (error) {
         emailReady = false;
-        console.warn('Email SMTP verify failed:', error.message);
-        console.warn('Broadcast email will stay disabled until EMAIL_USER / EMAIL_PASSWORD are valid.');
+        lastEmailError = String(error.message || error).split('\n')[0];
+        console.warn('Email SMTP verify failed:', lastEmailError);
+        console.warn('Signup verification stays off until SMTP login succeeds.');
       } else {
         emailReady = true;
+        lastEmailError = '';
         console.log(`Email service ready (${emailUser})`);
       }
     });
@@ -1141,8 +1165,9 @@ async function sendAuthEmail({ to, subject, text, html }) {
     throw err;
   }
   if (!emailReady || !emailTransporter) {
-    const err = new Error('Email is not configured on the server.');
-    err.code = 'EMAIL_NOT_CONFIGURED';
+    const payload = emailNotReadyResponse();
+    const err = new Error(payload.error);
+    err.code = payload.code;
     throw err;
   }
 
@@ -1269,11 +1294,7 @@ app.post('/api/auth/signup', async (req, res) => {
     }
 
     if (!emailReady || !emailTransporter) {
-      return res.status(503).json({
-        error:
-          'Email verification is not configured on the server. Set EMAIL_USER and EMAIL_PASSWORD, then try again.',
-        code: 'EMAIL_NOT_CONFIGURED',
-      });
+      return res.status(503).json(emailNotReadyResponse());
     }
 
     const logoError = validateLogo(logo);
@@ -1853,10 +1874,7 @@ app.post('/api/auth/resend-verification', async (req, res) => {
     await recordResendAttempt(email, clientIp);
 
     if (!emailReady || !emailTransporter) {
-      return res.status(503).json({
-        error: 'Email is not configured on the server.',
-        code: 'EMAIL_NOT_CONFIGURED',
-      });
+      return res.status(503).json(emailNotReadyResponse());
     }
 
     const school = await findSchoolByEmail(email);
@@ -2270,6 +2288,7 @@ app.get('/api/super-admin/email-status', authenticateToken, requireSuperAdmin, (
     configured: hasValidEmailConfig(),
     ready: Boolean(emailReady && emailTransporter),
     from: hasValidEmailConfig() ? getEmailUser() : null,
+    error: lastEmailError || null,
   });
 });
 
@@ -2284,10 +2303,7 @@ const escapeHtml = (value = '') =>
 app.post('/api/super-admin/broadcast-email', authenticateToken, requireSuperAdmin, async (req, res) => {
   try {
     if (!emailReady || !emailTransporter) {
-      return res.status(503).json({
-        error:
-          'Email is not configured or ready. Set EMAIL_USER and EMAIL_PASSWORD (app password) in backend/.env, then restart the server.',
-      });
+      return res.status(503).json(emailNotReadyResponse());
     }
 
     const {

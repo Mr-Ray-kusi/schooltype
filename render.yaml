@@ -52,6 +52,14 @@ services:
         sync: false
       - key: EMAIL_PASSWORD
         sync: false
+      - key: EMAIL_HOST
+        value: smtp.gmail.com
+      - key: EMAIL_PORT
+        value: "587"
+      - key: EMAIL_SECURE
+        value: "false"
+      - key: EMAIL_SERVICE
+        value: gmail
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: TWILIO_ACCOUNT_SID
