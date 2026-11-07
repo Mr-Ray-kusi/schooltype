@@ -45,7 +45,7 @@ const statusStyles = {
 
 const subscriptionStyles = {
   current: 'border-emerald-500/30 bg-emerald-500/15 text-emerald-300',
-  grace_period: 'border-amber-500/30 bg-amber-500/15 text-amber-200',
+  'read only': 'border-orange-500/30 bg-orange-500/15 text-orange-200',
   overdue: 'border-rose-500/30 bg-rose-500/15 text-rose-300',
   frozen: 'border-rose-500/30 bg-rose-500/15 text-rose-300',
 };
@@ -163,15 +163,10 @@ const SuperAdminSchool = () => {
   const featuresUnlocked = paidAlready && school.subscription_active !== false;
   const subStatus = school.subscription_frozen
     ? 'frozen'
-    : !school.subscription_active && school.plan_approved
-      ? 'overdue'
-      : school.subscription_in_grace
-        ? 'grace_period'
-        : 'current';
-  const subLabel =
-    subStatus === 'grace_period'
-      ? `Grace · ${school.subscription_days_past_due || 0}d overdue`
-      : subStatus.replace('_', ' ');
+    : school.subscription_read_only
+      ? 'read only'
+      : 'current';
+  const subLabel = subStatus;
 
   const usage = [
     { label: 'Students', value: school.stats?.students ?? 0, icon: Users },
@@ -355,7 +350,7 @@ const SuperAdminSchool = () => {
                 <div className="flex flex-wrap items-baseline justify-between gap-3">
                   <p className="text-lg font-semibold text-white">{school.plan_name || 'Paid plan'}</p>
                   {school.plan_price != null ? (
-                    <p className="font-semibold text-emerald-300">{formatMoney(school.plan_price)}/year</p>
+                    <p className="font-semibold text-emerald-300">{formatMoney(school.plan_price)}/term</p>
                   ) : Number(school.total_paid) > 0 ? (
                     <p className="font-semibold text-emerald-300">{formatMoney(school.total_paid)} received</p>
                   ) : null}
@@ -417,7 +412,7 @@ const SuperAdminSchool = () => {
                   <p className="mt-1 text-2xl font-bold text-emerald-300">{formatMoney(school.total_paid)}</p>
                   <p className="mt-1 text-xs text-zinc-400">
                     {school.plan_price
-                      ? `${formatMoney(school.plan_price)} per year · updates when Paystack payment succeeds`
+                      ? `${formatMoney(school.plan_price)} · updates when Paystack payment succeeds`
                       : 'Updates when Paystack payment succeeds'}
                   </p>
                 </div>
@@ -435,8 +430,8 @@ const SuperAdminSchool = () => {
                 </div>
               </div>
               <p className="mt-4 text-sm text-zinc-400">
-                Yearly billing from the subscription date. Successful signup and renewal payments on Paystack add to
-                total revenue and move the due date forward one year. Features lock{' '}
+                Term billing from the subscription date. Successful signup and renewal payments on Paystack add to
+                total revenue and move the due date forward one term. Features lock{' '}
                 {school.subscription_grace_days || 5} days after the period ends if payment is missing.
               </p>
 

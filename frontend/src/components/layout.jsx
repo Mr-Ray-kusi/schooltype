@@ -25,6 +25,7 @@ import {
 import toast from 'react-hot-toast';
 import axios from 'axios';
 import OfflineBanner from './OfflineBanner';
+import SubscriptionBanner from './SubscriptionBanner';
 import useLiteMode from '../hooks/useLiteMode';
 import usePlatformTelemetry from '../hooks/usePlatformTelemetry';
 import { cachedGet } from '../utils/requestCache';
@@ -579,6 +580,7 @@ const Layout = ({ children }) => {
       <div className="min-w-0 lg:ml-52 xl:ml-64">
         <main className="w-full min-w-0 max-w-full overflow-x-clip p-4 pb-[calc(6.5rem+env(safe-area-inset-bottom))] pt-[calc(4.35rem+env(safe-area-inset-top))] sm:p-5 sm:pb-[calc(6.5rem+env(safe-area-inset-bottom))] lg:p-4 lg:pb-4 xl:p-6 xl:pb-6 2xl:p-8">
           <OfflineBanner />
+          {isSuperAdmin ? null : <SubscriptionBanner />}
           <div className={lockPageHeight ? 'h-[min(70dvh,40rem)] min-h-[22rem] sm:min-h-[28rem] lg:h-[calc(100dvh-2rem)] lg:min-h-0' : undefined}>
             {children ?? <Outlet />}
           </div>

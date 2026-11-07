@@ -8,9 +8,11 @@ import AccountantFees from '../components/AccountantFees';
 import SchoolWallet from './school-wallet';
 import Payments from './payments';
 import { AuthContext } from '../contexts/authcontext';
+import { SUBSCRIPTION_READ_ONLY_MESSAGE } from '../utils/subscriptionAccess';
 import useLiteMode from '../hooks/useLiteMode';
 import { readStaffPortalSession, staffPortalSessionForPath } from '../utils/staffPortalSession';
 import { notifySchoolDataChanged, onSchoolDataChanged } from '../utils/requestCache';
+import { readCsrfToken, writeCsrfToken, applyCsrfHeader } from '../utils/csrf';
 
 const ROLES = ['Administrator', 'Teacher', 'Accountant'];
 const ATTITUDES = ['Excellent', 'Good', 'Bad', 'Worse'];
@@ -23,7 +25,9 @@ const normalizeClassKey = (value) =>
 
 const restoredPortalSession = () => {
   if (typeof window === 'undefined') return null;
-  return staffPortalSessionForPath(readStaffPortalSession(sessionStorage), window.location.pathname);
+  const session = staffPortalSessionForPath(readStaffPortalSession(sessionStorage), window.location.pathname);
+  if (session?.csrfToken) writeCsrfToken(session.csrfToken);
+  return session;
 };
 
 const StaffPortal = () => {
@@ -149,6 +153,7 @@ const StaffPortal = () => {
         schoolSlug: schoolSlug || null,
         portalPath: window.location.pathname,
         sessionToken: nextToken,
+        csrfToken: readCsrfToken() || undefined,
         staff: nextStaff,
         schoolName: nextSchool,
         school: nextSchoolRecord || null,
@@ -181,6 +186,7 @@ const StaffPortal = () => {
         /^\/api\/school\/(branding|fees-settings)(\/|$)/.test(path);
       if (staffPortalSchoolApi) {
         config.headers.Authorization = `Bearer ${sessionToken}`;
+        Object.assign(config.headers, applyCsrfHeader(config.headers));
       }
       return config;
     });
@@ -321,6 +327,7 @@ const StaffPortal = () => {
         ? `/api/staff-portal/${token}/login`
         : `/api/public/staff-portal/${encodeURIComponent(schoolSlug)}/login`;
       const { data } = await axios.post(loginUrl, { accessCode, role });
+      if (data.csrfToken) writeCsrfToken(data.csrfToken);
       setSessionToken(data.sessionToken);
       setStaff(data.staff);
       setMomoPhone(data.staff?.momo_phone || '');
@@ -353,6 +360,10 @@ const StaffPortal = () => {
   const allMarksEntered = classStudents.length > 0 && markedCount === classStudents.length;
 
   const saveAllScores = async () => {
+    if (planReadOnly) {
+      toast.error(SUBSCRIPTION_READ_ONLY_MESSAGE);
+      return;
+    }
     if (!allMarksEntered || savingAll || (scoreLock?.published && !scoreLock?.canEdit)) return;
     setSavingAll(true);
     try {
@@ -394,6 +405,10 @@ const StaffPortal = () => {
 
   const savePaymentDetails = async (event) => {
     event.preventDefault();
+    if (schoolRecord?.subscription_read_only || schoolRecord?.subscription_frozen) {
+      toast.error(SUBSCRIPTION_READ_ONLY_MESSAGE);
+      return;
+    }
     if (savingPay) return;
     setSavingPay(true);
     try {
@@ -507,7 +522,10 @@ const StaffPortal = () => {
     'flex shrink-0 items-center rounded-lg px-2 py-1.5 text-left text-[13px] font-medium leading-snug lg:w-full';
   const scoresLocked = Boolean(scoreLock?.published && !scoreLock?.canEdit);
   const viewingSaved = hasSavedScores && !editingSaved && !scoresLocked;
-  const fieldsLocked = savingAll || scoresLocked || viewingSaved;
+  const planReadOnly = Boolean(schoolRecord?.subscription_read_only || schoolRecord?.subscription_frozen);
+  const canWrite = !planReadOnly;
+  const canDownload = canWrite;
+  const fieldsLocked = savingAll || scoresLocked || viewingSaved || planReadOnly;
   const portalAuth = {
     token: sessionToken,
     school: schoolRecord || {
@@ -518,7 +536,11 @@ const StaffPortal = () => {
     },
     isSuperAdmin: false,
     isPlanApproved: true,
-    isSubscriptionActive: true,
+    isSubscriptionActive: schoolRecord?.subscription_active !== false,
+    isSubscriptionReadOnly: planReadOnly,
+    canWrite,
+    canRecordFees: schoolRecord?.subscription_frozen !== true && schoolRecord?.subscription_can_record_fees !== false,
+    canDownload,
     includesPlanFeature: () => true,
     hasFeature: () => true,
     hasMessaging: false,
@@ -630,6 +652,11 @@ const StaffPortal = () => {
           </div>
         </div>
       </header>
+      {planReadOnly ? (
+        <div className="shrink-0 border-b border-orange-500/40 bg-orange-500/10 px-4 py-3 text-sm text-orange-100">
+          This term plan has ended. You can view records and record school fees. Adding results, setup changes, publishing, downloads, wallet moves, and staff payments stay locked until the school renews.
+        </div>
+      ) : null}
 
       <div className="min-h-0 flex-1 overflow-hidden">
         {isAdministrator ? (
@@ -766,7 +793,7 @@ const StaffPortal = () => {
                         </p>
                       ) : null}
                     </div>
-                    {viewingSaved ? (
+                    {planReadOnly ? null : viewingSaved ? (
                       <button
                         type="button"
                         onClick={() => setEditingSaved(true)}
@@ -779,7 +806,7 @@ const StaffPortal = () => {
                       <button
                         type="button"
                         onClick={saveAllScores}
-                        disabled={!allMarksEntered || savingAll || scoresLocked}
+                        disabled={!allMarksEntered || savingAll || scoresLocked || planReadOnly}
                         className="inline-flex items-center justify-center gap-1.5 rounded-full bg-sky-500 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         <Save className="h-3.5 w-3.5" />

@@ -13,6 +13,7 @@ const FULL_FEATURE_KEYS = [
   'fees-paid',
   'bank-settings',
   'school-wallet',
+  'payments',
 ];
 
 /** Shared feature bullets for every plan; only the student-capacity line changes. */
@@ -31,46 +32,71 @@ const SHARED_FEATURE_BULLETS = [
   'Report cards & teacher result uploads',
   'Fees tracking',
   'School wallet with Paystack bank & MoMo',
+  'Staff and non-staff salary payments',
   'In-app notifications with platform admin',
 ];
 
 const withStudentCapacity = (capacityLabel) => [...SHARED_FEATURE_BULLETS, capacityLabel];
 
+/** Three Ghana terms per year, so a billed term lasts four months. */
+export const PLAN_TERM_MONTHS = 4;
+
 export const PAYMENT_PLANS = {
   small: {
     id: 'small',
-    name: 'Small School',
-    sizeLabel: 'Up to 200 students',
-    price: 10,
-    period: 'year',
-    description: 'Full SCHOOLTYPE suite for campuses with up to 200 students.',
-    features: withStudentCapacity('Up to 200 students'),
+    name: 'Starter',
+    sizeLabel: 'Up to 300 students',
+    termPrice: 1500,
+    price: 1500,
+    period: 'term',
+    freeFirstTerm: true,
+    pitch: 'A term subscription for schools with up to 300 students. The full workspace is included, and the first term is free.',
+    description: 'A term subscription for schools with up to 300 students. The full workspace is included, and the first term is free.',
+    features: withStudentCapacity('Up to 300 students'),
     featureKeys: [...FULL_FEATURE_KEYS],
-    limits: { maxStudents: 200, maxStaff: null, maxNonStaff: null },
+    limits: { maxStudents: 300, maxStaff: null, maxNonStaff: null },
   },
   mid: {
     id: 'mid',
-    name: 'Mid-sized School',
-    sizeLabel: '200 – 1,000 students',
-    price: 20,
-    period: 'year',
-    description: 'Full SCHOOLTYPE suite for growing schools with up to 1,000 students.',
-    features: withStudentCapacity('Up to 1,000 students'),
+    name: 'Growth',
+    sizeLabel: '301 to 1,000 students',
+    termPrice: 2500,
+    price: 2500,
+    period: 'term',
+    freeFirstTerm: false,
+    pitch: 'A term subscription for schools with 301 to 1,000 students, including wallet and salary payments.',
+    description: 'A term subscription for schools with 301 to 1,000 students, including wallet and salary payments.',
+    features: withStudentCapacity('301 to 1,000 students'),
     featureKeys: [...FULL_FEATURE_KEYS],
     limits: { maxStudents: 1000, maxStaff: null, maxNonStaff: null },
   },
   large: {
     id: 'large',
-    name: 'Large School',
+    name: 'Unlimited',
     sizeLabel: '1,000+ students',
-    price: 30,
-    period: 'year',
-    description: 'Full SCHOOLTYPE suite for large institutions with 1,000+ students.',
-    features: withStudentCapacity('Unlimited students'),
+    termPrice: 3500,
+    price: 3500,
+    period: 'term',
+    freeFirstTerm: false,
+    pitch: 'A term subscription for schools with 1,000 or more students, with no student cap.',
+    description: 'A term subscription for schools with 1,000 or more students, with no student cap.',
+    features: withStudentCapacity('1,000+ students'),
     featureKeys: [...FULL_FEATURE_KEYS],
     limits: { maxStudents: null, maxStaff: null, maxNonStaff: null },
   },
 };
+
+export function resolveBillingInterval() {
+  return 'term';
+}
+
+export function getPlanCharge(plan) {
+  return {
+    amount: Number(plan?.termPrice || plan?.price || 0),
+    interval: 'term',
+    months: PLAN_TERM_MONTHS,
+  };
+}
 
 export const PLAN_ALIASES = {
   basic: 'small',
@@ -130,4 +156,5 @@ export const FEATURE_LABELS = {
   'fees-unpaid': 'Fees',
   'bank-settings': 'Bank Settings',
   'school-wallet': 'School Wallet',
+  payments: 'Payments',
 };

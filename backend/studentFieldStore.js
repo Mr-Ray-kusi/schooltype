@@ -135,6 +135,31 @@ export async function mergeStudentFields(record, schoolId) {
   );
 }
 
+async function getStudentFieldsMap(ids) {
+  const wanted = [...new Set((ids || []).map(String).filter(Boolean))];
+  const found = new Map();
+  const missing = [];
+  for (const id of wanted) {
+    const cached = cache.get(id);
+    if (cached) found.set(id, cached);
+    else missing.push(id);
+  }
+  if (!missing.length) return found;
+  const db = await getDb();
+  if (!db) return found;
+  const placeholders = missing.map(() => '?').join(',');
+  const rows = await db.all(
+    `SELECT student_id, gender, extra_fees FROM student_fields WHERE student_id IN (${placeholders})`,
+    missing
+  );
+  for (const row of rows || []) {
+    const parsed = { gender: row.gender || null, extra_fees: parseExtraFees(row.extra_fees) };
+    remember(row.student_id, parsed);
+    found.set(String(row.student_id), parsed);
+  }
+  return found;
+}
+
 export async function mergeStudentFieldList(records, schoolId) {
   const list = records || [];
   if (!list.length) return list;
@@ -145,14 +170,13 @@ export async function mergeStudentFieldList(records, schoolId) {
     const { data } = await db.from('students').select('id, gender, extra_fees').in('id', ids);
     for (const row of data || []) remoteById.set(row.id, row);
   }
-  return Promise.all(
-    list.map(async (row) => {
-      const remote = remoteById.get(row.id);
-      const stored = await getStudentFields(row.id);
-      return mergeStudentFieldsSync(
-        { ...row, gender: row.gender || remote?.gender, extra_fees: row.extra_fees ?? remote?.extra_fees },
-        stored
-      );
-    })
-  );
+  const storedById = await getStudentFieldsMap(ids);
+  return list.map((row) => {
+    const remote = remoteById.get(row.id);
+    const stored = storedById.get(String(row.id));
+    return mergeStudentFieldsSync(
+      { ...row, gender: row.gender || remote?.gender, extra_fees: row.extra_fees ?? remote?.extra_fees },
+      stored
+    );
+  });
 }

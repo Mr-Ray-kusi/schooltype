@@ -55,7 +55,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_schools_name_slug
 -- Searches people actually type
 CREATE INDEX IF NOT EXISTS idx_students_school_name ON students (school_id, name);
 CREATE INDEX IF NOT EXISTS idx_students_school_fee_status ON students (school_id, fee_status);
-CREATE INDEX IF NOT EXISTS idx_students_school_barcode ON students (school_id, barcode);
+DROP INDEX IF EXISTS idx_students_school_barcode;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_students_school_barcode_unique
+  ON students (school_id, barcode)
+  WHERE barcode IS NOT NULL AND barcode <> '';
 CREATE INDEX IF NOT EXISTS idx_students_school_class ON students (school_id, class);
 CREATE INDEX IF NOT EXISTS idx_staffs_school_barcode ON staffs (school_id, barcode);
 CREATE INDEX IF NOT EXISTS idx_nonstaffs_school_barcode ON nonstaffs (school_id, barcode);

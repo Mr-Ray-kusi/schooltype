@@ -22,11 +22,11 @@ export const SUPPORT_FAQS = [
   },
   {
     q: 'How does a school create an account?',
-    a: 'Choose a plan, pay the yearly amount, then finish the school email and password from the message we send. The workspace opens after payment succeeds.',
+    a: 'Choose a plan. Starter schools get the first term free. Growth and Unlimited pay per term on Paystack, then the administrator finishes from the verification email.',
   },
   {
     q: 'How much does a plan cost?',
-    a: 'Plans are yearly in Ghana cedis. Small School is ₵10 for up to 200 students. Mid-sized School is ₵20 for 200 to 1,000 students. Large School is ₵30 for 1,000 or more. Every plan includes the full suite. Only the student capacity changes.',
+    a: 'Plans are billed per term. Starter is ₵1,500 a term for up to 300 students, and the first term is free. Growth is ₵2,500 a term for 301 to 1,000 students. Unlimited is ₵3,500 a term for 1,000 or more.',
   },
   {
     q: 'How do report cards work?',

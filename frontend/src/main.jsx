@@ -5,6 +5,7 @@ import App from './app'
 import { Toaster } from 'react-hot-toast'
 import './index.css'
 import { enqueueMutation, isOfflineMutationUrl, mutationLabel } from './utils/offlineQueue'
+import { readCsrfToken, writeCsrfToken } from './utils/csrf'
 
 axios.defaults.timeout = 20000;
 axios.defaults.withCredentials = true;
@@ -33,6 +34,13 @@ if (typeof window !== 'undefined') {
 }
 
 axios.interceptors.request.use(async (config) => {
+  const csrf = readCsrfToken();
+  if (csrf) {
+    config.headers = config.headers || {};
+    if (!config.headers['X-CSRF-Token'] && !config.headers['x-csrf-token']) {
+      config.headers['X-CSRF-Token'] = csrf;
+    }
+  }
   if (config.skipOfflineQueue) return config;
   const method = String(config.method || 'get').toLowerCase();
   const url = config.url || '';
@@ -56,7 +64,11 @@ axios.interceptors.request.use(async (config) => {
 });
 
 axios.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    const next = response?.data?.csrfToken;
+    if (next) writeCsrfToken(next);
+    return response;
+  },
   async (error) => {
     if (error?.offlineQueued) return Promise.reject(error);
     if (error?.config?.skipOfflineQueue) return Promise.reject(error);

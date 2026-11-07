@@ -8,10 +8,10 @@ test('owing fee SMS groups each parent phone with that child pay link', () => {
   const origin = 'https://schooltype.vercel.app';
   const groups = groupOwingParents(
     [
-      { name: 'Kofi Mensah', parent_phone: '0244000001', barcode: 'sch-kofi' },
-      { name: 'Ama Mensah', parent_phone: '0244000001', barcode: 'sch-ama' },
-      { name: 'Yaw Boateng', parent_phone: '0244000002', barcode: 'sch-yaw' },
-      { name: 'No Phone', parent_phone: '', barcode: 'sch-none' },
+      { name: 'Kofi Mensah', parent_phone: '0244000001', barcode: 'sch-kofi', school_id: 'school-1' },
+      { name: 'Ama Mensah', parent_phone: '0244000001', barcode: 'sch-ama', school_id: 'school-1' },
+      { name: 'Yaw Boateng', parent_phone: '0244000002', barcode: 'sch-yaw', school_id: 'school-1' },
+      { name: 'No Phone', parent_phone: '', barcode: 'sch-none', school_id: 'school-1' },
     ],
     origin
   );
@@ -20,15 +20,15 @@ test('owing fee SMS groups each parent phone with that child pay link', () => {
   const kofiPhone = toE164('0244000001');
   const family = groups.find((row) => row.phone === kofiPhone);
   assert.equal(family.links.length, 2);
-  assert.ok(family.links.some((link) => link.url.endsWith('/pay/sch-kofi')));
-  assert.ok(family.links.some((link) => link.url.endsWith('/pay/sch-ama')));
+  assert.ok(family.links.some((link) => link.url.includes('/pay/sch-kofi?school=school-1')));
+  assert.ok(family.links.some((link) => link.url.includes('/pay/sch-ama?school=school-1')));
 
   const bodies = buildOwingFeeSmsBodies(
     'Dear Parent, please settle outstanding school fees. Pay here: {pay_link}',
     groups
   );
-  assert.match(bodies[kofiPhone], /\/pay\/sch-kofi/);
-  assert.match(bodies[kofiPhone], /\/pay\/sch-ama/);
+  assert.match(bodies[kofiPhone], /\/pay\/sch-kofi\?school=school-1/);
+  assert.match(bodies[kofiPhone], /\/pay\/sch-ama\?school=school-1/);
   assert.doesNotMatch(bodies[kofiPhone], /\{pay_link\}/);
 });
 

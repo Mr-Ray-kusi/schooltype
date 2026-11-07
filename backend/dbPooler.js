@@ -171,11 +171,31 @@ export async function ensureSharedRuntimeTables() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`,
     `CREATE INDEX IF NOT EXISTS idx_student_portal_secrets_school ON student_portal_secrets (school_id)`,
+    `CREATE TABLE IF NOT EXISTS job_locks (
+      name TEXT PRIMARY KEY,
+      holder TEXT NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE TABLE IF NOT EXISTS student_score_locks (
+      school_id UUID PRIMARY KEY,
+      locks JSONB NOT NULL DEFAULT '{}'::jsonb,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
   ];
   try {
     await client.connect();
     for (const statement of statements) {
       await client.query(statement);
+    }
+    try {
+      await client.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_students_school_barcode_unique
+        ON students (school_id, barcode)
+        WHERE barcode IS NOT NULL AND barcode <> ''
+      `);
+    } catch (error) {
+      console.warn('Unique student barcode index skipped:', error.message || error);
     }
     try {
       await client.query("NOTIFY pgrst, 'reload schema'");

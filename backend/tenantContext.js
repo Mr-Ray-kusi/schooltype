@@ -15,6 +15,12 @@ export function runWithTenant(store, fn) {
 }
 
 export function disableTenantJwt(reason) {
+  if (process.env.RENDER || process.env.VERCEL || process.env.NODE_ENV === 'production') {
+    console.error(
+      `Tenant JWT failed (${reason || 'clock mismatch'}). School screens will not fall back to the master key.`
+    );
+    return;
+  }
   if (tenantJwtDisabled) return;
   tenantJwtDisabled = true;
   console.warn(

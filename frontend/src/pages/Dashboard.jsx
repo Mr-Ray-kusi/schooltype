@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import PlanPendingBanner from '../components/PlanPendingBanner';
-import SubscriptionBanner from '../components/SubscriptionBanner';
 import axios from 'axios';
 import { useAuth } from '../contexts/authcontext';
 import { DASHBOARD_CACHE_MS, peekCache, staleGet } from '../utils/requestCache';
@@ -202,7 +201,6 @@ const Dashboard = () => {
     <>
       <div className="dashboard-page relative font-dashboard">
         <PlanPendingBanner />
-        <SubscriptionBanner />
 
         <header className="dashboard-hero relative mt-3 mb-6 overflow-hidden rounded-2xl md:mt-4 md:mb-8">
           {school?.logo_url ? (

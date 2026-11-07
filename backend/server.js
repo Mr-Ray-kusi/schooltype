@@ -4,10 +4,18 @@ import dotenv from 'dotenv';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
-import { supabase, platformSupabase, withSchoolDb } from './supabaseClient.js';
+import { supabase, platformSupabase, withSchoolDb, tenantJwtConfigured } from './supabaseClient.js';
 import { createTenantClient, disableTenantJwt, runWithTenant } from './tenantContext.js';
 import { isJwtAuthError, jwtClockOffsetSec, noteJwtClockRejection, syncJwtClock } from './jwtClock.js';
-import { readAccessToken, setSessionCookie, clearSessionCookie } from './cookieAuth.js';
+import {
+  readAccessToken,
+  readStaffAccessToken,
+  setSessionCookie,
+  setStaffSessionCookie,
+  clearAllAuthCookies,
+} from './cookieAuth.js';
+import { issueCsrf, clearCsrfCookie, requireCsrf } from './csrf.js';
+import { withJobLock } from './jobLock.js';
 import {
   createAuthSession,
   getAuthSession,
@@ -34,13 +42,16 @@ import { mergeStudentFieldList, mergeStudentFields, writeStudentProfileFields } 
 import { FEE_CURRENCIES, normalizeFeeCurrency } from './feeCurrency.js';
 import { purgePersonRelated } from './personPurge.js';
 import nodemailer from 'nodemailer';
+import { isTransientSmtpError, smtpLookup } from './smtpLookup.js';
 import { getPlan, getPlanFeatures, getPlansList, VALID_PLAN_IDS, hasPlanFeature, resolvePlanId } from './plans.js';
 import {
   getSubscriptionInfo,
   initializeSubscription,
+  coerceYearlyBillingToTerm,
   toDateString,
   addMonths,
 } from './subscription.js';
+import { isReadOnlyExemptRequest, readOnlyPayload } from './subscriptionAccess.js';
 import {
   initSchoolPlanStore,
   mergeSchoolWithExtras,
@@ -226,6 +237,8 @@ app.use((req, res, next) => {
   next();
 });
 
+app.use(requireCsrf);
+
 app.use((req, res, next) => {
   if (req.method === 'OPTIONS') return next();
   const path = req.path || '';
@@ -308,9 +321,11 @@ const SCHOOL_PLAN_COLUMNS = [
   'subscription_frozen',
   'subscription_started_at',
   'email_verified',
-  'logo_url',
   'fee_currency',
 ];
+
+const STAFF_BILLING_COLUMNS =
+  'id, name, role, payment_plan, plan_status, next_payment_due, last_payment_at, subscription_frozen, subscription_started_at';
 
 const SCHOOL_AUTH_COLUMNS = [
   'id',
@@ -460,6 +475,10 @@ const formatSchool = (school, { includeCredentials = false, light = false } = {}
   const planStatus = planApproved ? 'approved' : paymentPlan ? merged.plan_status || 'pending' : null;
   const plan = paymentPlan ? getPlan(paymentPlan) : null;
   const pendingPlanFeatures = paymentPlan ? getPlanFeatures(paymentPlan) : [];
+  const coercedBilling = coerceYearlyBillingToTerm({ ...merged, plan_status: planStatus });
+  if (coercedBilling) {
+    Object.assign(merged, coercedBilling);
+  }
   const subscription = getSubscriptionInfo({ ...merged, plan_status: planStatus });
   const featuresUnlocked = planApproved && subscription.subscription_active;
 
@@ -473,6 +492,13 @@ const formatSchool = (school, { includeCredentials = false, light = false } = {}
       console.warn('Failed to repair plan_status to approved:', err?.message || err);
     });
     upsertSchoolExtras(school.id, repair).catch(() => {});
+  }
+
+  if (school?.id && coercedBilling) {
+    updateSchoolRecord(school.id, coercedBilling).catch((err) => {
+      console.warn('Failed to rewrite yearly billing to a term:', err?.message || err);
+    });
+    upsertSchoolExtras(school.id, coercedBilling).catch(() => {});
   }
 
   const formatted = {
@@ -502,6 +528,8 @@ const formatSchool = (school, { includeCredentials = false, light = false } = {}
     subscription_days_past_due: subscription.days_past_due,
     subscription_status: subscription.reason,
     subscription_grace_days: subscription.grace_days,
+    subscription_read_only: Boolean(subscription.subscription_read_only),
+    subscription_can_record_fees: Boolean(subscription.can_record_fees),
     plan_price: plan?.price ?? null,
     total_paid: merged.total_paid || 0,
     // Cap payment history in auth payloads — full ledgers slow every verify/login.
@@ -850,7 +878,7 @@ const enforcePlanApproval = async (req, res, next) => {
     }
 
     const subscription = getSubscriptionInfo(merged);
-    if (!subscription.subscription_active) {
+    if (subscription.reason === 'frozen' || !subscription.subscription_active) {
       if (subscription.reason === 'frozen') {
         return res.status(403).json({
           error: 'Your account has been frozen by the administrator. Contact support to restore access.',
@@ -863,6 +891,10 @@ const enforcePlanApproval = async (req, res, next) => {
           subscription,
         });
       }
+    }
+
+    if (subscription.subscription_read_only && !isReadOnlyExemptRequest(req)) {
+      return res.status(403).json(readOnlyPayload(subscription));
     }
 
     next();
@@ -1036,7 +1068,8 @@ async function issueSchoolSession(res, school, { remember = false } = {}) {
     await trimSchoolAdminSessions(school.id, token);
   }
   setSessionCookie(res, token, ttlSec);
-  return { token, expiresIn: ttlSec, school: formatSchool(school, { light: true }) };
+  const csrfToken = issueCsrf(res, ttlSec);
+  return { token: 'session', csrfToken, expiresIn: ttlSec, school: formatSchool(school, { light: true }) };
 }
 
 // Email transporter configuration - uses Gmail SMTP or custom SMTP
@@ -1079,7 +1112,8 @@ const resolveEmailTransportOptions = (emailUser, emailPass) => {
   const auth = { user: emailUser, pass: emailPass };
   const rawHost = String(process.env.EMAIL_HOST || '').trim();
   // Prefer IPv4. Gmail's AAAA records often yield ENETUNREACH (no IPv6 route).
-  const family = 4;
+  // Custom lookup falls back to 8.8.8.8 when Windows DNS cannot find smtp.gmail.com.
+  const network = { family: 4, lookup: smtpLookup };
   // EMAIL_HOST=gmail is a service name, not a DNS host. Using it as `host` makes
   // SMTP verify fail (ENOTFOUND gmail) and signup looks "unconfigured".
   if (!rawHost || GMAIL_HOST_ALIASES.has(rawHost.toLowerCase())) {
@@ -1087,7 +1121,7 @@ const resolveEmailTransportOptions = (emailUser, emailPass) => {
       host: 'smtp.gmail.com',
       port: Number(process.env.EMAIL_PORT || 587),
       secure: String(process.env.EMAIL_SECURE || '').toLowerCase() === 'true',
-      family,
+      ...network,
       auth,
     };
   }
@@ -1095,7 +1129,7 @@ const resolveEmailTransportOptions = (emailUser, emailPass) => {
     host: rawHost,
     port: Number(process.env.EMAIL_PORT || 587),
     secure: String(process.env.EMAIL_SECURE || '').toLowerCase() === 'true',
-    family,
+    ...network,
     auth,
   };
 };
@@ -1145,10 +1179,16 @@ const initEmailTransporter = () => {
     console.log(`Email transporter verifying SMTP for ${emailUser}…`);
     emailTransporter.verify((error) => {
       if (error) {
-        emailReady = false;
         lastEmailError = String(error.message || error).split('\n')[0];
-        console.warn('Email SMTP verify failed:', lastEmailError);
-        console.warn('Signup verification stays off until SMTP login succeeds.');
+        if (isTransientSmtpError(error)) {
+          // Credentials are set. DNS/IPv6 flakes must not block Paystack signup.
+          emailReady = true;
+          console.warn('Email SMTP verify failed (will retry when sending):', lastEmailError);
+        } else {
+          emailReady = false;
+          console.warn('Email SMTP verify failed:', lastEmailError);
+          console.warn('Signup verification stays off until SMTP login succeeds.');
+        }
       } else {
         emailReady = true;
         lastEmailError = '';
@@ -1172,7 +1212,7 @@ async function sendAuthEmail({ to, subject, text, html }) {
     err.code = 'INVALID_RECIPIENT';
     throw err;
   }
-  if (!emailReady || !emailTransporter) {
+  if (!emailTransporter) {
     const payload = emailNotReadyResponse();
     const err = new Error(payload.error);
     err.code = payload.code;
@@ -1249,8 +1289,14 @@ const authenticateToken = (req, res, next) => {
     }
     req.user = user;
     req.accessToken = token;
+    if (IS_PRODUCTION && user.role !== 'super_admin' && !tenantJwtConfigured()) {
+      return res.status(503).json({ error: 'School access is temporarily unavailable' });
+    }
     const tenantDb =
       user.role === 'super_admin' ? null : createTenantClient(user.schoolId, user.role);
+    if (IS_PRODUCTION && user.role !== 'super_admin' && !tenantDb) {
+      return res.status(503).json({ error: 'School access is temporarily unavailable' });
+    }
     runWithTenant({ db: tenantDb, schoolId: user.schoolId }, () => next());
   });
 };
@@ -1279,7 +1325,7 @@ app.get('/api/plans', (req, res) => {
 app.post('/api/auth/signup', async (req, res) => {
   try {
     const email = req.body.email?.trim().toLowerCase();
-    const { schoolName, logo, paymentPlan, method, phone, provider } = req.body;
+    const { schoolName, logo, paymentPlan, method, phone, provider, billingInterval } = req.body;
     const clientIp = getClientIp(req);
 
     if (!schoolName?.trim() || !email) {
@@ -1301,7 +1347,7 @@ app.post('/api/auth/signup', async (req, res) => {
       return res.status(400).json({ error: 'This email is reserved. Please use Login instead.' });
     }
 
-    if (!emailReady || !emailTransporter) {
+    if (!hasValidEmailConfig() || !emailTransporter) {
       return res.status(503).json(emailNotReadyResponse());
     }
 
@@ -1346,12 +1392,15 @@ app.post('/api/auth/signup', async (req, res) => {
       method,
       phone,
       provider,
+      billingInterval,
     });
 
     res.json({
       ...checkout,
       email,
-      message: 'Complete payment to create your school account. Features unlock after a successful charge.',
+      message: checkout.trial
+        ? checkout.message
+        : 'Complete payment to create your school account. Features unlock after a successful charge.',
     });
   } catch (error) {
     const status = error.status || 500;
@@ -1515,7 +1564,7 @@ app.get('/api/auth/google-config', (req, res) => {
 
 app.post('/api/auth/google', async (req, res) => {
   try {
-    const { idToken, accessToken, schoolName, logo, paymentPlan, privacyAccepted, method, phone, provider } =
+    const { idToken, accessToken, schoolName, logo, paymentPlan, privacyAccepted, method, phone, provider, billingInterval } =
       req.body || {};
     const clientIp = getClientIp(req);
     const hitCheck = await checkAuthHitAllowed('google', clientIp);
@@ -1572,11 +1621,14 @@ app.post('/api/auth/google', async (req, res) => {
         method,
         phone,
         provider,
+        billingInterval,
       });
       return res.json({
         ...checkout,
         email,
-        message: 'Complete payment to create your school account. Features unlock after a successful charge.',
+        message: checkout.trial
+          ? checkout.message
+          : 'Complete payment to create your school account. Features unlock after a successful charge.',
       });
     } else {
       const repairs = {};
@@ -1881,7 +1933,7 @@ app.post('/api/auth/resend-verification', async (req, res) => {
     if (!resendCheck.allowed) return sendAuthRateLimited(res, resendCheck);
     await recordResendAttempt(email, clientIp);
 
-    if (!emailReady || !emailTransporter) {
+    if (!hasValidEmailConfig() || !emailTransporter) {
       return res.status(503).json(emailNotReadyResponse());
     }
 
@@ -2015,13 +2067,15 @@ app.post('/api/auth/forgot-password', async (req, res) => {
 
 app.post('/api/auth/logout', authenticateToken, async (req, res) => {
   await revokeAuthSession(req.accessToken || readAccessToken(req));
-  clearSessionCookie(res);
+  clearAllAuthCookies(res);
+  clearCsrfCookie(res);
   res.json({ ok: true });
 });
 
 app.post('/api/auth/logout-all', authenticateToken, async (req, res) => {
   await revokeSchoolSessions(req.user.schoolId);
-  clearSessionCookie(res);
+  clearAllAuthCookies(res);
+  clearCsrfCookie(res);
   res.json({ ok: true });
 });
 
@@ -2045,8 +2099,11 @@ app.get('/api/auth/verify', authenticateToken, async (req, res) => {
       });
     }
 
+    const csrfToken = issueCsrf(res, sessionTtlSeconds(Boolean(req.user.remember)));
     res.json({
       valid: true,
+      token: 'session',
+      csrfToken,
       school: formatSchool(school, { light: true }),
       role: getSchoolRole(school),
     });
@@ -2063,7 +2120,7 @@ app.post('/api/school/select-plan', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Super admin does not require a plan' });
     }
 
-    const { paymentPlan, method, phone, provider } = req.body;
+    const { paymentPlan, method, phone, provider, billingInterval } = req.body;
     if (!paymentPlan || !VALID_PLAN_IDS.includes(paymentPlan)) {
       return res.status(400).json({ error: 'Invalid payment plan' });
     }
@@ -2091,6 +2148,8 @@ app.post('/api/school/select-plan', authenticateToken, async (req, res) => {
       method,
       phone,
       provider,
+      billingInterval,
+      school: merged,
     });
 
     res.json({
@@ -2120,7 +2179,7 @@ app.get('/api/school/branding', authenticateToken, async (req, res) => {
   }
 });
 
-app.put('/api/school/branding', authenticateToken, async (req, res) => {
+app.put('/api/school/branding', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
     if (req.user.role === 'super_admin') {
       return res.status(400).json({ error: 'Super admin does not have a school dashboard image' });
@@ -2171,7 +2230,7 @@ app.get('/api/school/fees-settings', authenticateToken, async (req, res) => {
   }
 });
 
-app.put('/api/school/fees-settings', authenticateToken, async (req, res) => {
+app.put('/api/school/fees-settings', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
     if (req.user.role === 'super_admin') {
       return res.status(400).json({ error: 'Open a school account to set fees currency' });
@@ -3830,7 +3889,7 @@ registerWalletRoutes(app, {
 });
 registerFeeRoutes(app, { authenticateToken, enforcePlanApproval });
 registerPayrollRoutes(app, { authenticateToken, enforcePlanApproval });
-registerStudentPortalRoutes(app, { authenticateToken });
+registerStudentPortalRoutes(app, { authenticateToken, enforcePlanApproval });
 registerAlumniRoutes(app, { authenticateToken, enforcePlanApproval });
 registerSmsBillingRoutes(app, {
   authenticateToken,
@@ -5252,13 +5311,35 @@ const markAttendanceForSchool = async (schoolId, attendanceCode) => {
   };
 };
 
+function signScannerLink(schoolId, scannerToken) {
+  assertJwtSecretReady();
+  return jwt.sign(
+    { purpose: 'scanner', schoolId, tok: scannerToken },
+    JWT_SECRET,
+    { expiresIn: '12h' }
+  );
+}
+
 const resolveScannerSchool = async (token) => {
-  const schoolId = await getSchoolIdByScannerToken(token);
+  const raw = String(token || '').trim();
+  if (!raw) return null;
+  let schoolId = await getSchoolIdByScannerToken(raw);
+  if (!schoolId) {
+    try {
+      const payload = jwt.verify(raw, JWT_SECRET, { algorithms: ['HS256'] });
+      if (payload?.purpose === 'scanner' && payload.schoolId && payload.tok) {
+        const currentId = await getSchoolIdByScannerToken(payload.tok);
+        if (currentId && String(currentId) === String(payload.schoolId)) schoolId = payload.schoolId;
+      }
+    } catch {
+      schoolId = null;
+    }
+  }
   if (!schoolId) return null;
 
   const { data: school, error } = await supabase
     .from('schools')
-    .select('*')
+    .select(STAFF_BILLING_COLUMNS)
     .eq('id', schoolId)
     .maybeSingle();
 
@@ -5268,9 +5349,10 @@ const resolveScannerSchool = async (token) => {
   if (!merged.payment_plan) return null;
   if ((merged.plan_status || 'pending') !== 'approved') return null;
   if (!hasPlanFeature(merged.payment_plan, 'scanner')) return null;
-  if (!getSubscriptionInfo(merged).subscription_active) return null;
+  const subscription = getSubscriptionInfo(merged);
+  if (!subscription.subscription_active) return null;
 
-  return { schoolId, schoolName: merged.name };
+  return { schoolId, schoolName: merged.name, subscription };
 };
 
 // Mobile scanner link (admin dashboard)
@@ -5291,9 +5373,9 @@ app.get('/api/scanner/link', authenticateToken, enforcePlanApproval, async (req,
       return res.status(403).json({ error: 'Scanner is not included in your plan' });
     }
 
-    // Stable: returns existing token; only POST /api/scanner/regenerate creates a new one.
-    const token = await ensureScannerToken(req.user.schoolId);
-    res.json({ token, schoolName: merged.name });
+    const durable = await ensureScannerToken(req.user.schoolId);
+    const token = signScannerLink(req.user.schoolId, durable);
+    res.json({ token, expiresIn: 12 * 60 * 60, schoolName: merged.name });
   } catch (error) {
     console.error('Scanner link error:', error);
     res.status(500).json({ error: 'Failed to load scanner link' });
@@ -5317,8 +5399,9 @@ app.post('/api/scanner/regenerate', authenticateToken, enforcePlanApproval, asyn
       return res.status(403).json({ error: 'Scanner is not included in your plan' });
     }
 
-    const token = await regenerateScannerToken(req.user.schoolId);
-    res.json({ token });
+    const durable = await regenerateScannerToken(req.user.schoolId);
+    const token = signScannerLink(req.user.schoolId, durable);
+    res.json({ token, expiresIn: 12 * 60 * 60 });
   } catch (error) {
     console.error('Scanner regenerate error:', error);
     res.status(500).json({ error: 'Failed to regenerate scanner link' });
@@ -5349,8 +5432,7 @@ const resolveStaffPortalSchool = async (token) => {
 };
 
 const authenticateStaffPortal = (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  const token = readStaffAccessToken(req);
   if (!token) {
     return res.status(401).json({ error: 'Staff portal session required' });
   }
@@ -5367,6 +5449,29 @@ const authenticateStaffPortal = (req, res, next) => {
     req.staffPortal = payload;
     req.user = staffPortalAsSchoolUser(payload);
     req.accessToken = token;
+    try {
+      const { data: school } = await supabase
+        .from('schools')
+        .select(STAFF_BILLING_COLUMNS)
+        .eq('id', payload.schoolId)
+        .maybeSingle();
+      const merged = mergeSchoolWithExtras(school || {});
+      const subscription = getSubscriptionInfo(merged);
+      req.staffPortal.subscription = subscription;
+      if (subscription.reason === 'frozen' || !subscription.subscription_active) {
+        if (subscription.reason === 'frozen') {
+          return res.status(403).json({
+            error: 'Your account has been frozen by the administrator. Contact support to restore access.',
+            subscription,
+          });
+        }
+      }
+      if (subscription.subscription_read_only && !isReadOnlyExemptRequest(req)) {
+        return res.status(403).json(readOnlyPayload(subscription));
+      }
+    } catch (gateErr) {
+      console.warn('Staff portal subscription gate failed:', gateErr.message);
+    }
     const tenantDb = createTenantClient(payload.schoolId, 'school');
     return runWithTenant({ db: tenantDb, schoolId: payload.schoolId }, () => next());
   });
@@ -5444,13 +5549,6 @@ app.get('/api/public/staff-portal/:schoolSlug', async (req, res) => {
       .maybeSingle();
     if (slugError && !isMissingColumnError(slugError, 'name_slug')) throw slugError;
     if (bySlug) match = bySlug;
-    if (!match) {
-      const { data: schools, error } = await supabase
-        .from('schools')
-        .select('id, name, role, payment_plan, plan_status, next_payment_due, last_payment_at, subscription_frozen, subscription_started_at');
-      if (error) throw error;
-      match = (schools || []).find((school) => slugifySchoolName(school.name) === wanted) || null;
-    }
     if (match) {
       if (String(match.role || '') === 'super_admin') match = null;
       else {
@@ -5487,13 +5585,6 @@ async function findStaffPortalSchoolBySlug(schoolSlug) {
     .maybeSingle();
   if (slugError && !isMissingColumnError(slugError, 'name_slug')) throw slugError;
   match = bySlug || null;
-  if (!match) {
-    const { data: schools, error } = await supabase
-      .from('schools')
-      .select('id, name, role, payment_plan, plan_status, next_payment_due, last_payment_at, subscription_frozen, subscription_started_at');
-    if (error) throw error;
-    match = (schools || []).find((school) => slugifySchoolName(school.name) === wanted) || null;
-  }
   if (!match || String(match.role || '') === 'super_admin') return null;
   const merged = mergeSchoolWithExtras(match);
   if (!merged.payment_plan || (merged.plan_status || 'pending') !== 'approved') return null;
@@ -5566,6 +5657,7 @@ async function issueStaffPortalSession(req, res, resolved) {
   }
 
   assertJwtSecretReady();
+  const subscription = getSubscriptionInfo(resolved.school || {});
   const sessionToken = jwt.sign(
     {
       purpose: 'staff_portal',
@@ -5574,11 +5666,17 @@ async function issueStaffPortalSession(req, res, resolved) {
       staffName: staff.name,
       role: staff.role,
       portalToken: resolved.token || req.params.token,
+      payment_plan: resolved.school?.payment_plan || null,
+      plan_status: resolved.school?.plan_status || null,
+      subscription_active: Boolean(subscription.subscription_active),
+      subscription_read_only: Boolean(subscription.subscription_read_only),
     },
     JWT_SECRET,
-    { expiresIn: '12h' }
+    { expiresIn: '4h' }
   );
   await setStaffSession(staff.id, sessionToken);
+  setStaffSessionCookie(res, sessionToken, 4 * 60 * 60);
+  const csrfToken = issueCsrf(res, 4 * 60 * 60);
 
   recordPlatformEvent({
     eventType: 'staff_login',
@@ -5597,6 +5695,7 @@ async function issueStaffPortalSession(req, res, resolved) {
 
   res.json({
     sessionToken,
+    csrfToken,
     schoolName: resolved.schoolName,
     school: {
       name: resolved.schoolName,
@@ -5700,22 +5799,25 @@ app.get('/api/staff-portal/session/me', authenticateStaffPortal, async (req, res
 
     const { data: school } = await supabase
       .from('schools')
-      .select('name, logo_url, payment_plan, plan_status')
+      .select('*')
       .eq('id', req.staffPortal.schoolId)
       .maybeSingle();
 
     const currentTerm = await resolveTeacherScoreTerm(req.staffPortal.schoolId);
+    const schoolCard = school
+      ? formatSchool(school, { light: true })
+      : {
+          name: 'School',
+          plan_status: 'approved',
+          plan_approved: true,
+          role: 'school',
+        };
 
+    const csrfToken = issueCsrf(res, 4 * 60 * 60);
     res.json({
-      schoolName: school?.name || 'School',
-      school: {
-        name: school?.name || 'School',
-        logo_url: school?.logo_url || null,
-        payment_plan: school?.payment_plan || null,
-        plan_status: school?.plan_status || 'approved',
-        plan_approved: true,
-        role: 'school',
-      },
+      csrfToken,
+      schoolName: schoolCard.name || 'School',
+      school: schoolCard,
       currentTerm: currentTerm.name,
       term: currentTerm,
       staff: {
@@ -6183,17 +6285,19 @@ app.get('/api/report-cards/scores', authenticateToken, enforcePlanApproval, asyn
     const cached = cacheGet(cacheKey);
     if (cached && String(req.query.refresh || '') !== '1') return res.json(cached);
 
-    const { data: school } = await supabase.from('schools').select('*').eq('id', schoolId).maybeSingle();
+    const { data: school } = await supabase.from('schools').select(STAFF_BILLING_COLUMNS).eq('id', schoolId).maybeSingle();
     const merged = school ? mergeSchoolWithExtras(school) : null;
     if (merged && !hasPlanFeature(merged.payment_plan, 'report-cards')) {
       return res.status(403).json({ error: 'Report cards are not included in your plan' });
     }
 
     const classSelected = Boolean(classFilter && classFilter !== 'all');
+    const SCORE_COLUMNS =
+      'id, student_id, staff_id, class_name, subject, term, score, max_score, remark, attitude, updated_at, created_at';
     const scoreQueryAt = (fromIdx, toIdx) => {
       let scoreQuery = supabase
         .from('student_scores')
-        .select('*', { count: 'exact' })
+        .select(SCORE_COLUMNS, { count: 'exact' })
         .eq('school_id', schoolId)
         .order('updated_at', { ascending: false })
         .range(fromIdx, toIdx);
@@ -6209,7 +6313,7 @@ app.get('/api/report-cards/scores', authenticateToken, enforcePlanApproval, asyn
       if (wantAll) {
         const chunk = 500;
         let fromIdx = 0;
-        while (fromIdx < 20000) {
+        while (fromIdx < 2000) {
           const { data: scores, error, count: rowCount } = await scoreQueryAt(fromIdx, fromIdx + chunk - 1);
           if (error) {
             if (isMissingColumnError(error, 'student_scores') || error.code === '42P01') break;
@@ -6418,11 +6522,20 @@ app.post('/api/scanner/mark/:token', async (req, res) => {
     if (!resolved) {
       return res.status(404).json({ error: 'Invalid or inactive scanner link' });
     }
+    if (resolved.subscription?.subscription_read_only) {
+      return res.status(403).json(readOnlyPayload(resolved.subscription));
+    }
 
     if (!(await assertScannerDevice(resolved.schoolId, req, res))) return;
     await touchScannerSlot(resolved.schoolId, readScannerDeviceId(req));
 
     const result = await markAttendanceForSchool(resolved.schoolId, attendanceCode);
+    logPlatformAction({
+      actor: { schoolId: resolved.schoolId },
+      action: 'scanner_mark',
+      targetSchoolId: resolved.schoolId,
+      detail: { attendanceCode: String(attendanceCode).slice(0, 40) },
+    }).catch(() => {});
     res.json(result);
   } catch (error) {
     const status = error.status || 500;
@@ -7434,6 +7547,12 @@ async function initializeDatabase() {
       );
       return false;
     }
+    if (IS_PRODUCTION && !tenantJwtConfigured()) {
+      console.error(
+        'Database setup failed: SUPABASE_JWT_SECRET must be set in production so school screens use tenant RLS instead of the master key.'
+      );
+      return false;
+    }
 
     if (!supabase) {
       console.error(
@@ -7572,11 +7691,13 @@ const requireCronSecret = (req, res, next) => {
 
 app.get('/api/cron/subscription-reminders', requireCronSecret, async (req, res) => {
   try {
-    const result = await runSubscriptionDueReminders({
-      sendEmail: async ({ to, subject, text, html }) =>
-        sendAuthEmail({ to, subject, text, html }),
-    });
-    res.json({ ok: true, ...result });
+    const locked = await withJobLock('subscription-reminders', 23 * 60 * 60 * 1000, () =>
+      runSubscriptionDueReminders({
+        sendEmail: async ({ to, subject, text, html }) =>
+          sendAuthEmail({ to, subject, text, html }),
+      })
+    );
+    res.json({ ok: true, ran: locked.ran, ...(locked.result || {}) });
   } catch (error) {
     console.error('Subscription reminder cron error:', error);
     res.status(500).json({ error: 'Reminder job failed' });
@@ -7620,7 +7741,7 @@ app.get('/api/notifications/schools', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/notifications/compose', authenticateToken, async (req, res) => {
+app.post('/api/notifications/compose', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
     if (req.user.role === 'super_admin') {
       return res.status(403).json({ error: 'Use the platform compose endpoint' });
@@ -7712,7 +7833,7 @@ app.post('/api/notifications/read-all', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/notifications/:id/reply', authenticateToken, async (req, res) => {
+app.post('/api/notifications/:id/reply', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
     const body = String(req.body.body || req.body.message || '').trim();
     if (!body) return res.status(400).json({ error: 'Reply message is required' });
@@ -7894,29 +8015,31 @@ if (!isVercel()) {
       }
     });
 
-    // Daily subscription reminders. Render has no separate cron for this.
-    const runReminders = () => {
-      runSubscriptionDueReminders({
-        sendEmail: async ({ to, subject, text, html }) =>
-          sendAuthEmail({ to, subject, text, html }),
-      }).catch((err) => console.warn('Reminder sweep failed:', err.message));
-    };
+    const runReminders = () =>
+      withJobLock('subscription-reminders', 23 * 60 * 60 * 1000, () =>
+        runSubscriptionDueReminders({
+          sendEmail: async ({ to, subject, text, html }) =>
+            sendAuthEmail({ to, subject, text, html }),
+        })
+      ).catch((err) => console.warn('Reminder sweep failed:', err.message));
     setTimeout(runReminders, 15000);
     setInterval(runReminders, 24 * 60 * 60 * 1000);
 
     const sweepAbsences = async () => {
-      const { data: schools, error } = await supabase.from('schools').select('id').limit(400);
-      if (error) {
-        console.warn('Absence sweep school list failed:', error.message);
-        return;
-      }
-      for (const school of schools || []) {
-        try {
-          await backfillMissedAttendance(school.id);
-        } catch (err) {
-          console.warn(`Absence sweep failed for ${school.id}:`, err.message);
+      await withJobLock('absence-sweep', 8 * 60 * 1000, async () => {
+        const { data: schools, error } = await supabase.from('schools').select('id').limit(400);
+        if (error) {
+          console.warn('Absence sweep school list failed:', error.message);
+          return;
         }
-      }
+        for (const school of schools || []) {
+          try {
+            await backfillMissedAttendance(school.id);
+          } catch (err) {
+            console.warn(`Absence sweep failed for ${school.id}:`, err.message);
+          }
+        }
+      });
     };
     setTimeout(() => sweepAbsences().catch(() => {}), 25000);
     setInterval(() => sweepAbsences().catch(() => {}), 10 * 60 * 1000);

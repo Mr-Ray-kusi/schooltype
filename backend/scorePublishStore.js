@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { supabase } from './supabaseClient.js';
 import { getDataDir } from './dataPaths.js';
+import { isProduction, useLocalDiskStore } from './runtime.js';
 
 const FILE_PATH = path.join(getDataDir(), 'score-publish-locks.json');
 const memory = new Map();
@@ -11,6 +12,7 @@ export function scoreLockKey(term, className) {
 }
 
 const emptyState = () => ({ locks: {}, updatedAt: null });
+const allowLocalFallback = () => useLocalDiskStore() && !isProduction();
 
 const readFileAll = () => {
   try {
@@ -49,7 +51,6 @@ export function inspectScoreLock(locks, { term, className, staffId }) {
 
 export async function loadScoreLocks(schoolId) {
   if (!schoolId) return emptyState();
-  if (memory.has(schoolId)) return memory.get(schoolId);
   try {
     const { data, error } = await supabase
       .from('student_score_locks')
@@ -58,12 +59,21 @@ export async function loadScoreLocks(schoolId) {
       .maybeSingle();
     if (!error && data) {
       const state = { locks: data.locks || {}, updatedAt: data.updated_at || null };
-      memory.set(schoolId, state);
+      if (allowLocalFallback()) memory.set(schoolId, state);
       return state;
     }
-  } catch {
-    /* table may not exist yet */
+    if (error && error.code !== '42P01' && isProduction()) {
+      console.warn('Score publish lock read:', error.message);
+      return emptyState();
+    }
+  } catch (error) {
+    if (isProduction()) {
+      console.warn('Score publish lock read:', error.message || error);
+      return emptyState();
+    }
   }
+  if (!allowLocalFallback()) return emptyState();
+  if (memory.has(schoolId)) return memory.get(schoolId);
   const fromFile = readFileAll()[schoolId] || emptyState();
   memory.set(schoolId, fromFile);
   return fromFile;
@@ -74,19 +84,33 @@ export async function saveScoreLocks(schoolId, next) {
     locks: next.locks || {},
     updatedAt: new Date().toISOString(),
   };
+  const payload = { school_id: schoolId, locks: state.locks, updated_at: state.updatedAt };
+  try {
+    const { error } = await supabase.from('student_score_locks').upsert(payload, { onConflict: 'school_id' });
+    if (error) {
+      if (isProduction() || error.code !== '42P01') {
+        console.warn('Score publish lock persist:', error.message);
+      }
+      if (isProduction()) {
+        const fail = new Error('Published results could not be saved');
+        fail.status = 503;
+        throw fail;
+      }
+    }
+  } catch (error) {
+    if (error.status === 503) throw error;
+    if (isProduction()) {
+      const fail = new Error('Published results could not be saved');
+      fail.status = 503;
+      throw fail;
+    }
+    console.warn('Score publish lock persist:', error.message);
+  }
+  if (!allowLocalFallback()) return state;
   memory.set(schoolId, state);
   const all = readFileAll();
   all[schoolId] = state;
   writeFileAll(all);
-  try {
-    const payload = { school_id: schoolId, locks: state.locks, updated_at: state.updatedAt };
-    const { error } = await supabase.from('student_score_locks').upsert(payload, { onConflict: 'school_id' });
-    if (error && error.code !== '42P01') {
-      console.warn('Score publish lock persist:', error.message);
-    }
-  } catch (error) {
-    console.warn('Score publish lock persist:', error.message);
-  }
   return state;
 }
 

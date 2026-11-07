@@ -30,7 +30,7 @@ const PlanPendingBanner = () => {
           <p className="text-sm text-slate-200 mt-1">
             {isRejected
               ? `Your ${school.plan_name || 'selected'} plan was not approved. Contact the platform admin.`
-              : `Complete payment for your ${school.plan_name || 'selected'} plan${planPriceLabel ? ` (${planPriceLabel}/yr)` : ''} to unlock every feature.`}
+              : `Complete payment for your ${school.plan_name || 'selected'} plan${planPriceLabel ? ` (${planPriceLabel}/term)` : ''} to unlock every feature.`}
           </p>
           {!isRejected && (
             <Link

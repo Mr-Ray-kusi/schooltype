@@ -9,14 +9,25 @@ import { applyLiteClass } from '../hooks/useLiteMode';
 import { formatMoney, normalizeFeeCurrency } from '../utils/feeCurrency';
 import { downloadFeeReceiptPdf } from '../utils/feeReceiptPdf';
 import { formatExtraFees } from '../utils/extraFees';
+import { applyCsrfHeader, readCsrfToken, writeCsrfToken } from '../utils/csrf';
 
 const TOKEN_KEY = 'studentPortalSession';
 
-const portal = axios.create();
+const portal = axios.create({ withCredentials: true });
+portal.interceptors.request.use((config) => {
+  config.headers = applyCsrfHeader(config.headers || {});
+  return config;
+});
+portal.interceptors.response.use((response) => {
+  if (response?.data?.csrfToken) writeCsrfToken(response.data.csrfToken);
+  return response;
+});
 
 function readSession() {
   try {
-    return JSON.parse(sessionStorage.getItem(TOKEN_KEY) || 'null');
+    const parsed = JSON.parse(sessionStorage.getItem(TOKEN_KEY) || 'null');
+    if (parsed?.csrfToken) writeCsrfToken(parsed.csrfToken);
+    return parsed;
   } catch {
     return null;
   }
@@ -24,7 +35,12 @@ function readSession() {
 
 function writeSession(value) {
   if (!value) sessionStorage.removeItem(TOKEN_KEY);
-  else sessionStorage.setItem(TOKEN_KEY, JSON.stringify(value));
+  else {
+    sessionStorage.setItem(
+      TOKEN_KEY,
+      JSON.stringify({ ...value, csrfToken: value.csrfToken || readCsrfToken() })
+    );
+  }
 }
 
 function ordinal(value) {
@@ -530,7 +546,8 @@ const StudentPortal = () => {
     return () => applyLiteClass(false);
   }, []);
   const [schools, setSchools] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [schoolQuery, setSchoolQuery] = useState('');
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [studentId, setStudentId] = useState('');
   const [password, setPassword] = useState('');
@@ -540,30 +557,33 @@ const StudentPortal = () => {
   const [tab, setTab] = useState('details');
 
   useEffect(() => {
-    if (session) return undefined;
+    if (session || schoolId) return undefined;
+    const q = schoolQuery.trim();
+    if (q.length < 2) {
+      setSchools([]);
+      setLoading(false);
+      return undefined;
+    }
     let cancelled = false;
-    const applySchools = (rows) => {
-      if (!cancelled) setSchools(Array.isArray(rows) ? rows : []);
-    };
-    const fail = (err) => {
-      if (!cancelled) setError(err.response?.data?.error || 'Could not load schools');
-    };
-    axios
-      .get('/api/student-portal/schools')
-      .then(({ data }) => applySchools(data.schools))
-      .catch(() =>
-        axios
-          .get('/api/public/schools')
-          .then(({ data }) => applySchools(data.schools))
-          .catch(fail)
-      )
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+    setLoading(true);
+    const timer = window.setTimeout(() => {
+      axios
+        .get('/api/student-portal/schools', { params: { q } })
+        .then(({ data }) => {
+          if (!cancelled) setSchools(Array.isArray(data.schools) ? data.schools : []);
+        })
+        .catch((err) => {
+          if (!cancelled) setError(err.response?.data?.error || 'Could not load schools');
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+    }, 250);
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
     };
-  }, [session]);
+  }, [session, schoolId, schoolQuery]);
 
   useEffect(() => {
     if (!session?.sessionToken) return undefined;
@@ -620,14 +640,15 @@ const StudentPortal = () => {
 
   const signIn = async (event) => {
     event.preventDefault();
-    if (password.length !== 4) {
-      setError('Enter the 4-digit password from the school');
+    if (password.length < 4) {
+      setError('Enter the portal password from the school');
       return;
     }
     setSigningIn(true);
     setError('');
     try {
       const { data } = await axios.post('/api/student-portal/login', { schoolId, studentId, password });
+      if (data.csrfToken) writeCsrfToken(data.csrfToken);
       writeSession(data);
       setSession(data);
       setPassword('');
@@ -640,6 +661,7 @@ const StudentPortal = () => {
   };
 
   const signOut = () => {
+    axios.post('/api/student-portal/logout').catch(() => {});
     writeSession(null);
     setSession(null);
     setRecord(null);
@@ -722,6 +744,7 @@ const StudentPortal = () => {
             {tab === 'reports' ? (
               years.length ? (
                 <>
+                  {session.school?.subscription_read_only ? null : (
                   <button
                     type="button"
                     className="portal-download"
@@ -735,6 +758,7 @@ const StudentPortal = () => {
                   >
                     Download results
                   </button>
+                  )}
                   {years.map((year) => (
                   <section key={year.academicYear} className="portal-year">
                     {(year.terms || []).map((term) => (
@@ -850,9 +874,11 @@ const StudentPortal = () => {
                 const statement = termFeeStatement(session, { ...fees, billed, paid, outstanding, payments, charges }, currency);
                 return (
                   <>
+                  {session.school?.subscription_read_only ? null : (
                   <button type="button" className="portal-download" onClick={() => downloadFeeReceiptPdf(statement)}>
                     Download
                   </button>
+                  )}
                   <section className="portal-sheet">
                     <div className="portal-sheet-head">
                       <h2>School fees</h2>
@@ -958,12 +984,11 @@ const StudentPortal = () => {
         <input
           id="portal-password"
           value={password}
-          onChange={(event) => setPassword(event.target.value.replace(/\D/g, '').slice(0, 4))}
-          inputMode="numeric"
+          onChange={(event) => setPassword(event.target.value.slice(0, 16))}
           autoComplete="current-password"
           type="password"
           className="mt-1 w-full rounded-xl border border-[var(--mk-line)] px-3 py-3 text-base"
-          placeholder="Enter Password"
+          placeholder="Enter password"
           required
         />
         {error ? <p className="mt-3 text-sm text-[#a3472a]">{error}</p> : null}
@@ -981,11 +1006,17 @@ const StudentPortal = () => {
     body = (
       <div className="mx-auto max-w-5xl">
         <h1 className="font-serif text-4xl font-bold">Student portal</h1>
-        <p className="mt-2 max-w-2xl text-sm text-[#3d4a45]">Choose the school you attend.</p>
+        <p className="mt-2 max-w-2xl text-sm text-[#3d4a45]">Search for the school you attend.</p>
+        <input
+          className="mt-6 w-full max-w-md rounded-xl border border-[var(--mk-line)] px-3 py-3 text-base"
+          value={schoolQuery}
+          onChange={(event) => setSchoolQuery(event.target.value)}
+          placeholder="Type at least 2 letters of the school name"
+        />
         {error ? <p className="mt-4 text-sm text-[#a3472a]">{error}</p> : null}
-        {loading ? <p className="mt-8 text-sm">Loading schools…</p> : null}
-        {!loading && !error && !schools.length ? (
-          <p className="mt-8 text-sm">No schools are available yet.</p>
+        {loading ? <p className="mt-8 text-sm">Searching schools…</p> : null}
+        {!loading && schoolQuery.trim().length >= 2 && !schools.length ? (
+          <p className="mt-8 text-sm">No matching schools.</p>
         ) : null}
         <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {schools.map((school) => (

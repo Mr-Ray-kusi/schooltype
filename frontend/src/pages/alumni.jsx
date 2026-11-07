@@ -11,7 +11,7 @@ const money = (value) =>
   `GHS ${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const Alumni = () => {
-  const { school } = useAuth();
+  const { school, canDownload } = useAuth();
   const [overview, setOverview] = useState(null);
   const [year, setYear] = useState(null);
   const [batch, setBatch] = useState(null);
@@ -223,8 +223,13 @@ const Alumni = () => {
                     <div className="flex justify-end">
                       <button
                         type="button"
+                        disabled={!canDownload}
                         onClick={(event) => {
                           event.stopPropagation();
+                          if (!canDownload) {
+                            toast.error('Downloads are locked until the term plan is renewed.');
+                            return;
+                          }
                           try {
                             downloadAlumniStudentPdf(student, school?.name || 'School');
                           } catch {

@@ -85,9 +85,11 @@ const Signup = () => {
       const data = await signup(formData.schoolName, formData.email, null, logo, planParam);
       if (openPaystack(data)) return;
       toast.success(
-        data.emailSendFailed
-          ? 'Account started. We could not send email — use Resend on the sign-in page.'
-          : 'Check your email to continue. Open the link to verify and choose a password.'
+        data.trial
+          ? data.message || 'Your first term is free. Check your email to continue.'
+          : data.emailSendFailed
+            ? 'Account started. We could not send email — use Resend on the sign-in page.'
+            : 'Check your email to continue. Open the link to verify and choose a password.'
       );
       navigate('/login', {
         replace: true,
@@ -97,13 +99,20 @@ const Signup = () => {
         },
       });
     } catch (error) {
-      toast.error(error.response?.data?.error || error.response?.data?.message || 'Signup failed');
+      toast.error(
+        error.response?.data?.error ||
+          error.response?.data?.message ||
+          (!error.response
+            ? 'Cannot reach the server. Start the API and try again.'
+            : 'Signup failed')
+      );
     } finally {
       setLoading(false);
     }
   };
 
   const planPrice = formatPlanPriceGhs(selectedPlan);
+  const starterTrial = Boolean(selectedPlan?.freeFirstTerm);
 
   return (
     <MarketingChrome>
@@ -112,7 +121,10 @@ const Signup = () => {
       <p className="mk-kicker">Step 2 of 2</p>
       <h1 className="mt-3 font-serif text-3xl font-bold text-[var(--mk-ink)]">Create account</h1>
       <p className="mt-2 text-sm text-[var(--mk-muted)]">
-        {selectedPlan.name}, {planPrice} per year
+        {selectedPlan.name}, {selectedPlan.sizeLabel}
+        {starterTrial
+          ? ` · first term free, then ${planPrice} / term`
+          : ` · ${planPrice} per term`}
       </p>
 
       <form onSubmit={handleSubmit} className="mt-8 space-y-4">
@@ -180,7 +192,7 @@ const Signup = () => {
           disabled={loading || !privacyAccepted}
           className="mk-btn mk-btn-primary w-full disabled:opacity-50"
         >
-          {loading ? 'Opening Paystack…' : 'Continue to payment'}
+          {loading ? (starterTrial ? 'Starting free term…' : 'Opening Paystack…') : starterTrial ? 'Start free term' : 'Continue to payment'}
         </button>
 
         <GoogleSignInButton
@@ -204,16 +216,18 @@ const Signup = () => {
               privacyAccepted: true,
             });
             if (openPaystack(data)) return;
-            toast.success('Account ready. Welcome to Schooltype.');
+            toast.success(
+              data.trial ? 'Your first term is free. Welcome to Schooltype.' : 'Account ready. Welcome to Schooltype.'
+            );
             navigate(getPostAuthPath(data.school), { replace: true });
           }}
         />
       </form>
 
       <p className="mt-6 text-sm leading-relaxed text-[var(--mk-muted)]">
-        Payment is MoMo, card, or bank on Paystack. The account is created only after payment succeeds.
-        A verification email is sent so the administrator can choose a password. There is no password
-        field on this screen.
+        {starterTrial
+          ? 'Starter schools skip payment for the first term. A verification email is sent so the administrator can choose a password.'
+          : 'Payment is MoMo, card, or bank on Paystack. The account is created only after payment succeeds. A verification email is sent so the administrator can choose a password.'}
       </p>
       <p className="mt-5 text-sm">
         <Link to="/plans" className="font-semibold text-[var(--mk-forest)] underline-offset-2 hover:underline">

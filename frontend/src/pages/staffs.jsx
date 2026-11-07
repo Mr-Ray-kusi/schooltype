@@ -67,7 +67,7 @@ const isProtectedStaffPerson = (person) => {
 };
 
 const Staff = () => {
-  const { includesPlanFeature, school } = useAuth();
+  const { includesPlanFeature, school, canWrite, canDownload } = useAuth();
   const embed = useStaffEmbed();
   const canStaff = includesPlanFeature('staff');
   const canNonStaff = includesPlanFeature('non-staff');
@@ -546,13 +546,13 @@ const Staff = () => {
                   setDownloadingAll(false);
                 }
               }}
-              disabled={downloadingAll || total === 0}
+              disabled={downloadingAll || total === 0 || !canDownload}
               className="inline-flex min-w-0 shrink items-center justify-center gap-1 whitespace-nowrap rounded-lg bg-slate-700 px-2 py-2 text-[11px] text-white hover:bg-slate-600 disabled:opacity-50 md:gap-2 md:px-3 md:text-sm"
             >
               <Download className="h-3.5 w-3.5 shrink-0 md:h-4 md:w-4" />
               {downloadingAll ? 'Preparing…' : 'Download all'}
             </button>
-            {canStaff && (
+            {canStaff && canWrite && (
               <button
                 onClick={() => {
                   resetStaffForm();
@@ -566,7 +566,7 @@ const Staff = () => {
                 <span className="hidden md:inline">Add Staff</span>
               </button>
             )}
-            {canNonStaff && (
+            {canNonStaff && canWrite && (
           <button
             onClick={() => {
                   resetNonStaffForm();

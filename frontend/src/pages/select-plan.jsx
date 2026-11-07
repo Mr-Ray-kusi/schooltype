@@ -45,7 +45,11 @@ const SelectPlan = () => {
     try {
       const data = await selectPlan(selectedPlan);
       if (data.alreadyPaid) {
-        toast.success('Your plan is already paid. Opening the dashboard.');
+        toast.success(
+          data.trial
+            ? 'Your first Starter term is free. Opening the dashboard.'
+            : 'Your plan is already paid. Opening the dashboard.'
+        );
         navigate('/dashboard');
         return;
       }
@@ -75,7 +79,7 @@ const SelectPlan = () => {
         <div className="text-center mb-12">
           <h1 className="text-3xl font-bold text-white">Pay to unlock your school</h1>
           <p className="text-slate-300 mt-2">
-            Welcome, {school?.name}! Complete payment for a plan to create access and unlock every feature.
+            Welcome, {school?.name}! Starter includes a free first term. Other plans unlock after Paystack payment.
           </p>
         </div>
 
@@ -104,8 +108,17 @@ const SelectPlan = () => {
                     <p className="text-xs text-sky-300 mt-1">{plan.sizeLabel}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-primary-400 font-semibold text-sm">{formatPlanPriceGhs(plan)}</p>
-                    <p className="text-xs text-slate-400">GHS / yr</p>
+                    {plan.freeFirstTerm ? (
+                      <>
+                        <p className="text-emerald-300 font-semibold text-sm">First term free</p>
+                        <p className="text-xs text-slate-400">then {formatPlanPriceGhs(plan)} / term</p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-primary-400 font-semibold text-sm">{formatPlanPriceGhs(plan)}</p>
+                        <p className="text-xs text-slate-400">GHS / term</p>
+                      </>
+                    )}
                   </div>
                 </div>
                 <ul className="space-y-2">
@@ -126,7 +139,11 @@ const SelectPlan = () => {
               disabled={loading || !selectedPlan}
               className="px-8 py-3 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white rounded-lg font-medium transition-colors"
             >
-              {loading ? 'Opening Paystack…' : 'Pay & unlock features'}
+              {loading
+                ? 'Working…'
+                : PLAN_LIST.find((plan) => plan.id === selectedPlan)?.freeFirstTerm
+                  ? 'Start free term'
+                  : 'Pay & unlock features'}
             </button>
             <Link to="/" className="text-slate-300 hover:text-slate-200 text-sm">
               Back to home

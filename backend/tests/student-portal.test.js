@@ -12,6 +12,11 @@ import {
 } from '../studentPortalStore.js';
 import { studentPortalDetails } from '../studentPortalRoutes.js';
 
+process.env.JWT_SECRET =
+  process.env.JWT_SECRET && process.env.JWT_SECRET.length >= 32
+    ? process.env.JWT_SECRET
+    : 'test-secret-key-change-this-32chars!!';
+
 test('the student portal shows the same personal details the school keeps on file', () => {
   const details = studentPortalDetails(
     {
@@ -40,11 +45,10 @@ test('the student portal shows the same personal details the school keeps on fil
   assert.deepEqual(details.extra_fees, [{ label: 'School bus', amount: 30 }]);
 });
 
-test('a student portal password is four digits and is not reused in that school', () => {
+test('a student portal password is eight characters and is not reused in that school', () => {
   const password = generatePortalPassword(['1234', '0000', '1111']);
-  assert.match(password, /^\d{4}$/);
+  assert.match(password, /^[A-HJ-NP-Za-hj-np-z2-9]{8}$/);
   assert.notEqual(password, '1234');
-  assert.notEqual(password, '0000');
   const again = generatePortalPassword([password]);
   assert.notEqual(again, password);
 });

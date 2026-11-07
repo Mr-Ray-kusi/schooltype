@@ -1,6 +1,6 @@
 import { randomBytes } from 'crypto';
 import { supabase, platformSupabase } from './supabaseClient.js';
-import { initializeSubscription } from './subscription.js';
+import { coerceYearlyBillingToTerm, initializeSubscription } from './subscription.js';
 import { PAYMENT_PLANS, resolvePlanId } from './plans.js';
 
 function billingDb() {
@@ -18,6 +18,7 @@ const SCHOOL_EXTRA_FIELDS = [
   'staff_portal_token',
   'late_after_time',
   'last_due_reminder_at',
+  'due_reminder_sent',
   'next_payment_due',
   'last_payment_at',
   'subscription_frozen',
@@ -66,6 +67,7 @@ const normalizeExtras = (row = {}) => ({
   staff_portal_token: row.staff_portal_token || null,
   late_after_time: row.late_after_time || '08:00',
   last_due_reminder_at: row.last_due_reminder_at || null,
+  due_reminder_sent: row.due_reminder_sent || null,
   next_payment_due: toDateOnly(row.next_payment_due),
   last_payment_at: toDateOnly(row.last_payment_at),
   subscription_frozen: Boolean(row.subscription_frozen),
@@ -174,50 +176,6 @@ async function loadPaymentRecords(schoolId) {
 
 export async function initSchoolPlanStore() {
   cache.clear();
-
-  // A long-running Render process can keep plan rows in memory.
-  // Skip the full preload only if this file is ever invoked as a short-lived function.
-  if (process.env.VERCEL) {
-    return;
-  }
-
-  const { data: schools, error } = await supabase.from('schools').select('*');
-  if (error) {
-    throw new Error(`School plan store init failed: ${error.message}`);
-  }
-
-  let payResult = await supabase
-    .from('subscription_payments')
-    .select('school_id, amount, plan, plan_name, created_at, status, reference, source')
-    .order('created_at', { ascending: false });
-  if (
-    payResult.error &&
-    (isMissingColumnError(payResult.error, 'reference') || isMissingColumnError(payResult.error, 'source'))
-  ) {
-    payResult = await supabase
-      .from('subscription_payments')
-      .select('school_id, amount, plan, plan_name, created_at, status')
-      .order('created_at', { ascending: false });
-  }
-  const payments = payResult.data;
-  const payError = payResult.error;
-
-  if (payError && !(isMissingColumnError(payError, 'subscription_payments') || payError.code === '42P01')) {
-    console.warn('subscription_payments unavailable:', payError.message);
-  }
-
-  const paymentsBySchool = new Map();
-  for (const row of payments || []) {
-    const list = paymentsBySchool.get(row.school_id) || [];
-    list.push(mapPaymentRow(row));
-    paymentsBySchool.set(row.school_id, list);
-  }
-
-  for (const school of schools || []) {
-    const extras = normalizeExtras(school);
-    extras.payment_records = paymentsBySchool.get(school.id) || [];
-    cache.set(school.id, extras);
-  }
 }
 
 /** Keep cache aligned with a Postgres schools row (source of truth). */
@@ -296,8 +254,16 @@ export async function replaceSchoolSubscriptionPayments(schoolId, records = []) 
 export function inferPlanIdFromAmount(amount) {
   const paid = Number(amount) || 0;
   if (paid <= 0) return null;
-  const exact = Object.values(PAYMENT_PLANS).find((plan) => Number(plan.price) === paid);
+  const exact = Object.values(PAYMENT_PLANS).find((plan) =>
+    [plan.price, plan.termPrice].some((value) => Number(value) === paid)
+  );
   if (exact) return exact.id;
+  if (paid === 4000) return 'small';
+  if (paid === 6500) return 'mid';
+  if (paid === 9000) return 'large';
+  if (paid >= 3500) return 'large';
+  if (paid >= 2500) return 'mid';
+  if (paid >= 1500) return 'small';
   if (paid >= 30) return 'large';
   if (paid >= 20) return 'mid';
   return 'small';
@@ -446,6 +412,15 @@ export function mergeSchoolWithExtras(school) {
     planStatus = 'approved';
   }
 
+  const lastPay = toDateOnly(school.last_payment_at || extras.last_payment_at);
+  const startedAt = toDateOnly(school.subscription_started_at || extras.subscription_started_at);
+  const dueAt = toDateOnly(school.next_payment_due || extras.next_payment_due);
+  const termBilling = coerceYearlyBillingToTerm({
+    last_payment_at: lastPay,
+    subscription_started_at: startedAt,
+    next_payment_due: dueAt,
+  });
+
   return {
     ...school,
     payment_plan: paymentPlan,
@@ -458,8 +433,9 @@ export function mergeSchoolWithExtras(school) {
     staff_portal_token: school.staff_portal_token || extras.staff_portal_token || null,
     late_after_time: school.late_after_time || extras.late_after_time || '08:00',
     last_due_reminder_at: school.last_due_reminder_at || extras.last_due_reminder_at || null,
-    next_payment_due: toDateOnly(school.next_payment_due || extras.next_payment_due),
-    last_payment_at: toDateOnly(school.last_payment_at || extras.last_payment_at),
+    due_reminder_sent: school.due_reminder_sent || extras.due_reminder_sent || null,
+    next_payment_due: termBilling?.next_payment_due || dueAt,
+    last_payment_at: lastPay,
     subscription_frozen: Boolean(
       school.subscription_frozen !== undefined && school.subscription_frozen !== null
         ? school.subscription_frozen
@@ -508,6 +484,10 @@ export async function upsertSchoolExtras(schoolId, extras, { requirePersist } = 
       extras.last_due_reminder_at !== undefined
         ? extras.last_due_reminder_at
         : existing.last_due_reminder_at || null,
+    due_reminder_sent:
+      extras.due_reminder_sent !== undefined
+        ? extras.due_reminder_sent
+        : existing.due_reminder_sent || null,
     next_payment_due:
       extras.next_payment_due !== undefined
         ? toDateOnly(extras.next_payment_due)

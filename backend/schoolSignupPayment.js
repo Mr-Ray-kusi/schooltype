@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { supabase } from './supabaseClient.js';
-import { getPlan, resolvePlanId } from './plans.js';
+import { getPlan, getPlanCharge, PLAN_TERM_MONTHS, resolvePlanId } from './plans.js';
 import { initializeSubscription, renewSubscription } from './subscription.js';
 import { upsertSchoolExtras, deleteSchoolExtras, getSchoolExtrasSync, parsePaymentRecords } from './schoolPlanStore.js';
 import {
@@ -67,7 +67,8 @@ function requirePaystack() {
 function requirePlan(paymentPlan) {
   const resolved = resolvePlanId(paymentPlan);
   const plan = getPlan(resolved);
-  if (!plan || !Number.isFinite(Number(plan.price)) || Number(plan.price) < 1) {
+  const termPrice = Number(plan?.termPrice || plan?.price);
+  if (!plan || !(termPrice >= 1)) {
     const err = new Error('A valid payment plan is required');
     err.status = 400;
     throw err;
@@ -374,6 +375,66 @@ async function startPlanPayment({ email, amountMajor, reference, metadata }) {
   return initializePlanCheckout({ email, amountMajor, reference, metadata });
 }
 
+async function fulfillStarterTrial({ email, schoolName, logo, plan, googleSignup = false, school = null }) {
+  const reference = `trial_${crypto.randomBytes(8).toString('hex')}`;
+  if (school?.id) {
+    const activated = await activateExistingSchool(school, {
+      plan,
+      reference,
+      trial: true,
+      chargeAmount: 0,
+      months: PLAN_TERM_MONTHS,
+    });
+    return {
+      ...formatResult(activated, { googleSignup: true, created: false, emailSendFailed: false }),
+      trial: true,
+      alreadyPaid: true,
+      message: 'Your first Starter term is free. Features are unlocked until the term ends.',
+    };
+  }
+
+  const created = await createPaidSchool({
+    pending: {
+      email,
+      school_name: schoolName,
+      logo_url: logo || null,
+      payment_plan: plan.id,
+      google_signup: googleSignup,
+    },
+    metadata: {
+      kind: SIGNUP_KIND,
+      payment_plan: plan.id,
+      email,
+      school_name: String(schoolName || '').slice(0, 80),
+      billing_interval: 'term',
+    },
+    plan,
+    reference,
+    googleSignup,
+    trial: true,
+    chargeAmount: 0,
+    months: PLAN_TERM_MONTHS,
+  });
+
+  let emailSendFailed = false;
+  if (created.created && !created.googleSignup && created.rawToken) {
+    const mailed = await sendSignupVerification(created.school, created.rawToken);
+    emailSendFailed = mailed.emailSendFailed;
+  }
+
+  return {
+    ...formatResult(created.school, {
+      googleSignup: created.googleSignup,
+      created: created.created,
+      emailSendFailed,
+    }),
+    trial: true,
+    message: emailSendFailed
+      ? 'Your first term is free. We could not send email — use Resend on the sign-in page.'
+      : 'Your first Starter term is free. Check your email to verify and choose a password.',
+  };
+}
+
 export async function startSchoolSignupCheckout({
   email,
   schoolName,
@@ -383,9 +444,15 @@ export async function startSchoolSignupCheckout({
   method,
   phone,
   provider,
+  billingInterval,
 }) {
-  requirePaystack();
   const { resolved, plan } = requirePlan(paymentPlan);
+  if (plan.freeFirstTerm) {
+    return fulfillStarterTrial({ email, schoolName, logo, plan, googleSignup });
+  }
+
+  requirePaystack();
+  const charge = getPlanCharge(plan, billingInterval);
   const reference = makeWalletReference('signup');
   const metadata = {
     kind: SIGNUP_KIND,
@@ -393,6 +460,7 @@ export async function startSchoolSignupCheckout({
     email,
     school_name: String(schoolName || '').slice(0, 80),
     google_signup: googleSignup ? '1' : '0',
+    billing_interval: charge.interval,
   };
 
   const [, checkout] = await Promise.all([
@@ -406,7 +474,7 @@ export async function startSchoolSignupCheckout({
     }),
     startPlanPayment({
       email,
-      amountMajor: plan.price,
+      amountMajor: charge.amount,
       reference,
       metadata,
     }),
@@ -414,20 +482,36 @@ export async function startSchoolSignupCheckout({
   return checkout;
 }
 
-export async function startSchoolPlanCheckout({ schoolId, email, schoolName, paymentPlan, method, phone, provider }) {
-  requirePaystack();
+export async function startSchoolPlanCheckout({
+  schoolId,
+  email,
+  schoolName,
+  paymentPlan,
+  method,
+  phone,
+  provider,
+  billingInterval,
+  school,
+}) {
   const { resolved, plan } = requirePlan(paymentPlan);
+  if (plan.freeFirstTerm && school && !Number(school.total_paid)) {
+    return fulfillStarterTrial({ email, schoolName, logo: null, plan, googleSignup: true, school });
+  }
+
+  requirePaystack();
+  const charge = getPlanCharge(plan, billingInterval);
   const reference = makeWalletReference('splan');
 
   return startPlanPayment({
     email,
-    amountMajor: plan.price,
+    amountMajor: charge.amount,
     reference,
     metadata: {
       kind: PLAN_KIND,
       school_id: schoolId,
       payment_plan: resolved,
       email,
+      billing_interval: charge.interval,
     },
   });
 }
@@ -662,8 +746,8 @@ function checkoutKindFrom(metadata, reference, pending) {
   return null;
 }
 
-async function creditPlatformSubscription({ school, plan, reference }) {
-  const amountMinor = toMinorUnits(plan.price);
+async function creditPlatformSubscription({ school, plan, reference, amountMajor }) {
+  const amountMinor = toMinorUnits(amountMajor ?? plan.termPrice ?? plan.price);
   const platformSchoolId = await findPlatformSchoolId(supabase);
   if (!platformSchoolId || amountMinor <= 0) return;
   try {
@@ -687,23 +771,26 @@ function hasPaymentReference(records, reference) {
   return (records || []).some((row) => String(row?.reference || '').trim() === ref);
 }
 
-async function applySuccessfulPlanPayment(school, { plan, reference }) {
+async function applySuccessfulPlanPayment(school, { plan, reference, trial = false, chargeAmount, months }) {
   const extras = getSchoolExtrasSync(school.id) || {};
   const records = parsePaymentRecords(extras);
+  const amount = trial ? 0 : Number(chargeAmount ?? plan.termPrice ?? plan.price ?? 0);
+  const periodMonths = months || PLAN_TERM_MONTHS;
   if (!hasPaymentReference(records, reference)) {
     records.unshift({
-      amount: plan.price,
+      amount,
       plan_id: plan.id,
       plan_name: plan.name,
       recorded_at: new Date().toISOString(),
-      source: 'paystack',
+      source: trial ? 'starter_trial' : 'paystack',
       reference: reference || null,
     });
     const merged = { ...school, ...extras };
     const alreadyLive = (merged.plan_status || '') === 'approved' && merged.subscription_started_at;
-    const subscription = alreadyLive ? renewSubscription(merged) : initializeSubscription();
-    const nextPaid =
-      (Number(extras.total_paid ?? school.total_paid) || 0) + Number(plan.price || 0);
+    const subscription = alreadyLive
+      ? renewSubscription(merged, { months: periodMonths })
+      : initializeSubscription(new Date(), { months: periodMonths });
+    const nextPaid = (Number(extras.total_paid ?? school.total_paid) || 0) + amount;
     const extrasUpdate = {
       payment_plan: plan.id,
       plan_status: 'approved',
@@ -726,7 +813,7 @@ async function applySuccessfulPlanPayment(school, { plan, reference }) {
     }
     await upsertSchoolExtras(school.id, extrasUpdate);
   }
-  await creditPlatformSubscription({ school, plan, reference });
+  if (!trial) await creditPlatformSubscription({ school, plan, reference, amountMajor: amount });
 }
 
 async function loadSchoolById(schoolId) {
@@ -735,13 +822,22 @@ async function loadSchoolById(schoolId) {
   return data;
 }
 
-async function activateExistingSchool(school, { plan, reference }) {
-  await applySuccessfulPlanPayment(school, { plan, reference });
+async function activateExistingSchool(school, options) {
+  await applySuccessfulPlanPayment(school, options);
   const fresh = (await loadSchoolById(school.id)) || school;
   return fresh;
 }
 
-async function createPaidSchool({ pending, metadata, plan, reference, googleSignup }) {
+async function createPaidSchool({
+  pending,
+  metadata,
+  plan,
+  reference,
+  googleSignup,
+  trial = false,
+  chargeAmount,
+  months,
+}) {
   const email = String(pending?.email || metadata.email || '').trim().toLowerCase();
   const schoolName = String(pending?.school_name || metadata.school_name || '').trim();
   if (!email || !schoolName) {
@@ -752,13 +848,15 @@ async function createPaidSchool({ pending, metadata, plan, reference, googleSign
 
   const existing = deps.findSchoolByEmail ? await deps.findSchoolByEmail(email) : null;
   if (existing) {
-    const activated = await activateExistingSchool(existing, { plan, reference });
+    const activated = await activateExistingSchool(existing, { plan, reference, trial, chargeAmount, months });
     await markPendingFulfilled(reference, activated.id);
     return { school: activated, created: false, googleSignup: Boolean(existing.email_verified) };
   }
 
   const hashedPassword = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 10);
-  const subscription = initializeSubscription();
+  const amount = trial ? 0 : Number(chargeAmount ?? plan.termPrice ?? plan.price ?? 0);
+  const periodMonths = months || PLAN_TERM_MONTHS;
+  const subscription = initializeSubscription(new Date(), { months: periodMonths });
   const schoolRecord = {
     name: schoolName,
     name_slug: String(schoolName)
@@ -780,7 +878,7 @@ async function createPaidSchool({ pending, metadata, plan, reference, googleSign
     email_verified: Boolean(googleSignup),
     ...subscription,
     subscription_frozen: false,
-    total_paid: plan.price,
+    total_paid: amount,
   };
   if (pending?.logo_url) schoolRecord.logo_url = pending.logo_url;
 
@@ -800,7 +898,7 @@ async function createPaidSchool({ pending, metadata, plan, reference, googleSign
       err.status = 409;
       throw err;
     }
-    const activated = await activateExistingSchool(again, { plan, reference });
+    const activated = await activateExistingSchool(again, { plan, reference, trial, chargeAmount, months });
     await markPendingFulfilled(reference, activated.id);
     return { school: activated, created: false, googleSignup: Boolean(again.email_verified), rawToken: null };
   }
@@ -820,14 +918,14 @@ async function createPaidSchool({ pending, metadata, plan, reference, googleSign
       logo_url: pending?.logo_url || null,
       ...subscription,
       subscription_frozen: false,
-      total_paid: plan.price,
+      total_paid: amount,
       payment_records: JSON.stringify([
         {
-          amount: plan.price,
+          amount,
           plan_id: plan.id,
           plan_name: plan.name,
           recorded_at: new Date().toISOString(),
-          source: 'paystack',
+          source: trial ? 'starter_trial' : 'paystack',
           reference: reference || null,
         },
       ]),
@@ -838,7 +936,7 @@ async function createPaidSchool({ pending, metadata, plan, reference, googleSign
     throw persistError;
   }
 
-  await creditPlatformSubscription({ school, plan, reference });
+  if (!trial) await creditPlatformSubscription({ school, plan, reference, amountMajor: amount });
   await markPendingFulfilled(reference, school.id);
 
   if (deps.recordPlatformEvent) {
@@ -916,8 +1014,9 @@ async function fulfillSchoolCheckoutOnce(reference) {
   const kind = checkoutKindFrom(metadata, reference, pending);
   const planId = metadata.payment_plan || pending?.payment_plan;
   const { plan } = requirePlan(planId);
+  const charge = getPlanCharge(plan, metadata.billing_interval);
   const paidMinor = Number(verified.amount);
-  const expectedMinor = toMinorUnits(plan.price);
+  const expectedMinor = toMinorUnits(charge.amount);
   if (Number.isFinite(paidMinor) && paidMinor + 1 < expectedMinor) {
     const err = new Error('Paid amount does not match the selected plan.');
     err.status = 400;
@@ -931,7 +1030,12 @@ async function fulfillSchoolCheckoutOnce(reference) {
       err.status = 404;
       throw err;
     }
-    const activated = await activateExistingSchool(school, { plan, reference });
+    const activated = await activateExistingSchool(school, {
+      plan,
+      reference,
+      chargeAmount: charge.amount,
+      months: charge.months,
+    });
     return formatResult(activated, { googleSignup: true, created: false, emailSendFailed: false });
   }
 
@@ -961,6 +1065,8 @@ async function fulfillSchoolCheckoutOnce(reference) {
     plan,
     reference,
     googleSignup,
+    chargeAmount: charge.amount,
+    months: charge.months,
   });
 
   let emailSendFailed = false;

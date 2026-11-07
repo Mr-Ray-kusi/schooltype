@@ -13,6 +13,8 @@ import AbsentParentSmsModal from './AbsentParentSmsModal';
 import { schoolLocalDate } from '../utils/schoolDate';
 import ClassReportBoard from './ClassReportBoard';
 import { downloadStudentReportCardsPdf, downloadSubjectRankingsPdf, rankClassRoster } from '../utils/reportCardPdf';
+import { useAuth } from '../contexts/authcontext';
+import { SUBSCRIPTION_READ_ONLY_MESSAGE } from '../utils/subscriptionAccess';
 
 const ACADEMIC_NAV = [
   { id: 'students', label: 'Students' },
@@ -25,6 +27,7 @@ const ACADEMIC_NAV = [
 ];
 
 const AdministratorSchool = ({ schoolName, authHeaders, lead = null }) => {
+  const { canWrite, canDownload } = useAuth();
   const [tab, setTab] = useState('students');
   const [reportClass, setReportClass] = useState('');
   const [reportTerm, setReportTerm] = useState('all');
@@ -85,6 +88,10 @@ const AdministratorSchool = ({ schoolName, authHeaders, lead = null }) => {
   );
 
   const printReports = (kind) => {
+    if (!canDownload) {
+      toast.error('Downloads are locked until the term plan is renewed.');
+      return;
+    }
     if (!reportClass) {
       toast.error('Choose a class first');
       return;
@@ -109,6 +116,10 @@ const AdministratorSchool = ({ schoolName, authHeaders, lead = null }) => {
   };
 
   const publishReports = async (unpublish = false) => {
+    if (!canWrite) {
+      toast.error(SUBSCRIPTION_READ_ONLY_MESSAGE);
+      return;
+    }
     try {
       const { data } = await axios.post(
         '/api/staff-portal/session/admin/report-cards/publish',
@@ -268,7 +279,8 @@ const AdministratorSchool = ({ schoolName, authHeaders, lead = null }) => {
                         <button
                           type="button"
                           onClick={() => printReports('rankings')}
-                          className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 hover:text-white"
+                          disabled={!canDownload}
+                          className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 hover:text-white disabled:opacity-50"
                         >
                           <Download className="h-4 w-4" />
                           Rankings
@@ -276,7 +288,8 @@ const AdministratorSchool = ({ schoolName, authHeaders, lead = null }) => {
                         <button
                           type="button"
                           onClick={() => printReports('cards')}
-                          className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-500"
+                          disabled={!canDownload}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-50"
                         >
                           <Printer className="h-4 w-4" />
                           Print

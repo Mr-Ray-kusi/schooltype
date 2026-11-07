@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 import { hasFeature as planHasFeature } from '../constants/plans';
 import { clearPersistedCache } from '../utils/requestCache';
 import { clearStoredSchoolLogo, readStoredSchoolLogo, writeStoredSchoolLogo } from '../utils/schoolLogoStore';
+import { writeCsrfToken } from '../utils/csrf';
 
 export const AuthContext = createContext();
 
@@ -82,20 +83,15 @@ const slimSchoolForStorage = (school) => {
   };
 };
 
-const writeAccessToken = (value) => {
+const writeAccessToken = () => {
   try {
-    if (value && value !== 'session') sessionStorage.setItem(ACCESS_TOKEN_KEY, value);
-    else sessionStorage.removeItem(ACCESS_TOKEN_KEY);
+    sessionStorage.removeItem(ACCESS_TOKEN_KEY);
   } catch {
     // private mode
   }
 };
 
-const applyAccessToken = (value) => {
-  if (value && value !== 'session') {
-    axios.defaults.headers.common.Authorization = `Bearer ${value}`;
-    return;
-  }
+const applyAccessToken = () => {
   delete axios.defaults.headers.common.Authorization;
 };
 
@@ -218,6 +214,7 @@ export const AuthProvider = ({ children }) => {
     schoolRef.current = null;
     writeAccessToken('');
     applyAccessToken('');
+    writeCsrfToken('');
     writeSessionFlag(false);
     clearPersistedCache();
     clearStoredSchoolLogo();
@@ -226,14 +223,16 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem('tokenExpiresAt');
   }, []);
 
-  const storeSession = useCallback((newToken, schoolData, expiresInSec) => {
+  const storeSession = useCallback((newToken, schoolData, expiresInSec, csrfToken) => {
     persistSchool(schoolData);
-    writeAccessToken(newToken);
-    applyAccessToken(newToken);
+    writeAccessToken('');
+    applyAccessToken('');
+    if (csrfToken) writeCsrfToken(csrfToken);
     writeSessionFlag(true);
-    setToken(newToken || 'session');
+    setToken('session');
     localStorage.removeItem('token');
     localStorage.removeItem('tokenExpiresAt');
+    void newToken;
     void expiresInSec;
   }, [persistSchool]);
 
@@ -262,7 +261,8 @@ export const AuthProvider = ({ children }) => {
         const response = await axios.get('/api/auth/verify', { timeout: 8000, withCredentials: true });
         if (response.data?.school) {
           persistSchool(response.data.school, cachedSchool || schoolRef.current);
-          setToken(savedToken || 'session');
+          if (response.data.csrfToken) writeCsrfToken(response.data.csrfToken);
+          setToken('session');
           writeSessionFlag(true);
         } else if (!cachedSchool) {
           clearSession();
@@ -327,6 +327,12 @@ export const AuthProvider = ({ children }) => {
         ) {
           clearSession();
         }
+        if (status === 403 && error.response?.data?.code === 'SUBSCRIPTION_READ_ONLY') {
+          toast.error(
+            error.response?.data?.error ||
+              'Your term plan has ended. You can view records and record fees until you renew.'
+          );
+        }
         return Promise.reject(error);
       }
     );
@@ -346,31 +352,33 @@ export const AuthProvider = ({ children }) => {
         method: payment.method,
         phone: payment.phone,
         provider: payment.provider,
+        billingInterval: payment.billingInterval,
       },
       { timeout: 20000 }
     );
     const { token: newToken, school: schoolData, expiresIn, requiresEmailVerification } = response.data;
     // Email-first signup never returns a session until password is set after verify.
-    if (!requiresEmailVerification && newToken && schoolData) {
-      storeSession(newToken, schoolData, expiresIn);
+    if (!requiresEmailVerification && schoolData && (newToken || response.data?.csrfToken)) {
+      storeSession(newToken, schoolData, expiresIn, response.data?.csrfToken);
     }
     return response.data;
   };
 
   const storeSessionFromAuth = (data) => {
-    if (!data?.token || !data?.school) return;
-    storeSession(data.token, data.school, data.expiresIn);
+    if (!data?.school) return;
+    if (!data.token && !data.csrfToken) return;
+    storeSession(data.token, data.school, data.expiresIn, data.csrfToken);
   };
 
   const login = async (email, password, { remember = false } = {}) => {
     const response = await axios.post('/api/auth/login', { email, password, remember }, { timeout: 12000 });
-    const { token: newToken, school: schoolData, expiresIn } = response.data || {};
-    if (!newToken || !schoolData) {
+    const { token: newToken, school: schoolData, expiresIn, csrfToken } = response.data || {};
+    if (!schoolData) {
       const err = new Error('Login response was invalid. The API may still be starting or misconfigured.');
       err.response = { data: { error: err.message } };
       throw err;
     }
-    storeSession(newToken, schoolData, expiresIn);
+    storeSession(newToken, schoolData, expiresIn, csrfToken);
     return response.data;
   };
 
@@ -385,6 +393,7 @@ export const AuthProvider = ({ children }) => {
     phone,
     provider,
     remember,
+    billingInterval,
   } = {}) => {
     const response = await axios.post(
       '/api/auth/google',
@@ -399,6 +408,7 @@ export const AuthProvider = ({ children }) => {
         phone,
         provider,
         remember: Boolean(remember),
+        billingInterval,
       },
       { timeout: 20000 }
     );
@@ -406,13 +416,16 @@ export const AuthProvider = ({ children }) => {
     if (data.requiresPayment || data.authorization_url || data.mode === 'checkout' || data.mode === 'momo') {
       return data;
     }
-    const { token: newToken, school: schoolData, expiresIn } = data;
-    if (!newToken || !schoolData) {
+    if (data.trial && (!data.token || !data.school)) {
+      return data;
+    }
+    const { token: newToken, school: schoolData, expiresIn, csrfToken } = data;
+    if (!schoolData) {
       const err = new Error('Google sign-in did not return a session.');
       err.response = { data: { error: err.message } };
       throw err;
     }
-    storeSession(newToken, schoolData, expiresIn);
+    storeSession(newToken, schoolData, expiresIn, csrfToken);
     return data;
   };
 
@@ -424,6 +437,7 @@ export const AuthProvider = ({ children }) => {
         method: payment.method,
         phone: payment.phone,
         provider: payment.provider,
+        billingInterval: payment.billingInterval,
       },
       { timeout: 20000 }
     );
@@ -434,7 +448,9 @@ export const AuthProvider = ({ children }) => {
   const completePaidSignup = async (reference) => {
     const response = await axios.post('/api/auth/complete-signup', { reference }, { timeout: 45000 });
     const data = response.data || {};
-    if (data.token && data.school) storeSession(data.token, data.school, data.expiresIn);
+    if (data.school && (data.token || data.csrfToken)) {
+      storeSession(data.token, data.school, data.expiresIn, data.csrfToken);
+    }
     return data;
   };
 
@@ -512,6 +528,13 @@ export const AuthProvider = ({ children }) => {
   const isPlanApproved =
     isSuperAdmin || school?.plan_approved === true || school?.plan_status === 'approved';
   const isSubscriptionActive = isSuperAdmin || school?.subscription_active !== false;
+  const isSubscriptionReadOnly =
+    !isSuperAdmin && Boolean(school?.subscription_read_only || school?.subscription_frozen);
+  const canWrite = isSuperAdmin || (isSubscriptionActive && !isSubscriptionReadOnly);
+  const canRecordFees =
+    isSuperAdmin ||
+    (isPlanApproved && school?.subscription_frozen !== true && school?.subscription_can_record_fees !== false);
+  const canDownload = canWrite;
 
   const includesPlanFeature = (featureKey) => {
     if (isSuperAdmin) return true;
@@ -541,6 +564,10 @@ export const AuthProvider = ({ children }) => {
         isSuperAdmin,
         isPlanApproved,
         isSubscriptionActive,
+        isSubscriptionReadOnly,
+        canWrite,
+        canRecordFees,
+        canDownload,
         includesPlanFeature,
         hasFeature,
         hasMessaging,

@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
 import { disableTenantJwt, getTenantStore } from './tenantContext.js';
 import { isJwtAuthError, noteJwtClockRejection } from './jwtClock.js';
+import { isProduction } from './runtime.js';
 
 try {
   // Node 17+ prefers IPv6. Many local ISPs have no route, which shows up as
@@ -67,8 +68,16 @@ export async function withSchoolDb(run) {
   return run(platform);
 }
 
+export function tenantJwtConfigured() {
+  return Boolean(process.env.SUPABASE_JWT_SECRET);
+}
+
 if (platform && serviceKey && !process.env.SUPABASE_JWT_SECRET) {
-  console.warn(
-    'SUPABASE_JWT_SECRET is not set. School screens still use the master key. Set it to the Supabase JWT secret so RLS can isolate tenants.'
-  );
+  const message =
+    'SUPABASE_JWT_SECRET is not set. School screens still use the master key. Set it to the Supabase JWT secret so RLS can isolate tenants.';
+  if (isProduction()) {
+    console.error(message);
+  } else {
+    console.warn(message);
+  }
 }

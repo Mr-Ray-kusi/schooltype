@@ -3,6 +3,7 @@ import { useCallback, useLayoutEffect, useState } from 'react';
 const KEYS = {
   admin: 'schootype-lite-admin',
   staff: 'schootype-lite-staff',
+  super: 'schootype-lite-super',
 };
 const LEGACY_KEY = 'schootype-lite-mode';
 
@@ -11,10 +12,13 @@ export function readLiteMode(scope = 'admin') {
   try {
     const scoped = localStorage.getItem(key);
     if (scoped === '1' || scoped === '0') return scoped === '1';
-    if (scope === 'admin') return localStorage.getItem(LEGACY_KEY) === '1';
-    return false;
+    if (scope === 'admin' || scope === 'super') {
+      const legacy = localStorage.getItem(LEGACY_KEY);
+      if (legacy === '1' || legacy === '0') return legacy === '1';
+    }
+    return true;
   } catch {
-    return false;
+    return true;
   }
 }
 

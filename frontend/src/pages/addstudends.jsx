@@ -15,11 +15,14 @@ import {
 import toast from 'react-hot-toast';
 import { notifySchoolDataChanged } from '../utils/requestCache';
 import { emptyExtraFee, extraFeesPayload } from '../utils/extraFees';
+import { useAuth } from '../contexts/authcontext';
+import { SUBSCRIPTION_READ_ONLY_MESSAGE } from '../utils/subscriptionAccess';
 
 const fieldClass =
   'w-full rounded-xl border border-slate-600/80 bg-slate-950/60 px-4 py-3 text-base text-white placeholder:text-slate-500 outline-none transition focus:border-sky-500/60 focus:ring-2 focus:ring-sky-500/30';
 
 const AddStudent = ({ onClose } = {}) => {
+  const { canWrite } = useAuth();
   const navigate = useNavigate();
   const finish = () => {
     if (onClose) onClose();
@@ -43,6 +46,10 @@ const AddStudent = ({ onClose } = {}) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!canWrite) {
+      toast.error(SUBSCRIPTION_READ_ONLY_MESSAGE);
+      return;
+    }
     if (!formData.parentName.trim()) {
       toast.error('Parent / guardian name is required');
       return;

@@ -18,7 +18,7 @@ import { buildTermAttendancePdfBytes } from '../utils/attendanceTermPdf';
 import { emptyExtraFee, extraFeesPayload, formatExtraFees, formatExtraFeesAmount, parseExtraFees } from '../utils/extraFees';
 
 const Students = () => {
-  const { school } = useAuth();
+  const { school, canWrite, canDownload } = useAuth();
   const embed = useStaffEmbed();
   const [showAdd, setShowAdd] = useState(false);
   const [students, setStudents] = useState([]);
@@ -112,7 +112,7 @@ const Students = () => {
     if (!editingStudent?.id) return;
     try {
       await axios.post(`/api/students/${editingStudent.id}/portal-password/sms`);
-      toast.success('Password sent to the parent phone');
+      toast.success('Portal sign-in details sent to the parent phone');
     } catch (error) {
       toast.error(error.response?.data?.error || 'Could not send the password');
     }
@@ -162,6 +162,10 @@ const Students = () => {
   }, []);
 
   const downloadStudentDetails = async (student) => {
+    if (!canDownload) {
+      toast.error('Downloads are locked until the term plan is renewed.');
+      return;
+    }
     const full = await fetchRecord(axios, `/api/students/${student.id}`, student);
     const pack = studentPack(full, buildStudentIdUrl(full.barcode));
     try {
@@ -312,24 +316,26 @@ const Students = () => {
             <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
             Refresh
           </button>
-          {embed.embedded ? (
-            <button
-              type="button"
-              onClick={() => setShowAdd(true)}
-              className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-600 px-3 py-2 text-sm font-medium text-white hover:bg-primary-700"
-            >
-              <UserPlus className="h-4 w-4" />
-              Add student
-            </button>
-          ) : (
-            <Link
-              to="/add-student"
-              className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-600 px-3 py-2 text-sm font-medium text-white hover:bg-primary-700"
-            >
-              <UserPlus className="h-4 w-4" />
-              Add student
-            </Link>
-          )}
+          {canWrite ? (
+            embed.embedded ? (
+              <button
+                type="button"
+                onClick={() => setShowAdd(true)}
+                className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-600 px-3 py-2 text-sm font-medium text-white hover:bg-primary-700"
+              >
+                <UserPlus className="h-4 w-4" />
+                Add student
+              </button>
+            ) : (
+              <Link
+                to="/add-student"
+                className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-600 px-3 py-2 text-sm font-medium text-white hover:bg-primary-700"
+              >
+                <UserPlus className="h-4 w-4" />
+                Add student
+              </Link>
+            )
+          ) : null}
           <select
             value={selectedClass}
             onChange={(e) => setSelectedClass(e.target.value)}
@@ -343,7 +349,7 @@ const Students = () => {
           <button
             type="button"
             onClick={handleDownloadAll}
-            disabled={downloadingAll || total === 0}
+            disabled={downloadingAll || total === 0 || !canDownload}
             className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg bg-slate-700 px-3 py-2 text-sm text-white hover:bg-slate-600 disabled:opacity-50"
           >
             <Download className="h-4 w-4" />

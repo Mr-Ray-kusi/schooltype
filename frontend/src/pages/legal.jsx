@@ -15,7 +15,7 @@ const PAGES = {
       },
       {
         heading: 'Plans and payment',
-        body: 'Plans are priced yearly in Ghana cedis by student capacity. The school account is created only after payment succeeds. Paystack handles MoMo, card, and bank checkout. Schooltype does not ask for a MoMo PIN.',
+        body: 'Plans are priced per term in Ghana cedis, by student capacity. Starter schools receive one free term. After that, Paystack handles MoMo, card, and bank checkout. Schooltype does not ask for a MoMo PIN.',
       },
     ],
   },
@@ -24,7 +24,7 @@ const PAGES = {
     sections: [
       {
         heading: 'Plan payments',
-        body: 'Yearly plan payments are collected by Paystack when you create a school account. If a charge fails or is duplicated, contact Schooltype from the email used on the account so the payment can be reviewed.',
+        body: 'Plan payments after a free Starter term, and Growth or Unlimited signup, are collected by Paystack. If a charge fails or is duplicated, contact Schooltype from the email used on the account so the payment can be reviewed.',
       },
       {
         heading: 'Parent fee payments',

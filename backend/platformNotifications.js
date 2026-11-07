@@ -1,9 +1,13 @@
 import { supabase } from './supabaseClient.js';
 import { mergeSchoolWithExtras, upsertSchoolExtras } from './schoolPlanStore.js';
-import { getSubscriptionInfo, toDateString } from './subscription.js';
-
-const REMINDER_WINDOW_DAYS = 10;
-const REMINDER_INTERVAL_DAYS = 2;
+import {
+  getSubscriptionInfo,
+  toDateString,
+  reminderMilestoneDue,
+  parseDueReminderSent,
+  formatDueReminderSent,
+  coerceYearlyBillingToTerm,
+} from './subscription.js';
 
 const isMissingTableError = (error) => {
   const msg = String(error?.message || error?.details || error?.hint || '');
@@ -296,15 +300,9 @@ export async function listSuperAdminNotificationThreads({ limit = 100 } = {}) {
 }
 
 /**
- * Create in-app (and optionally email) reminders for schools due within 10 days,
- * at most once every 2 days per school.
+ * Email the school admin 14, 7, and 1 days before the term plan ends.
  */
 export async function runSubscriptionDueReminders({ sendEmail } = {}) {
-  const today = toDateString(new Date());
-  const windowEnd = new Date();
-  windowEnd.setDate(windowEnd.getDate() + REMINDER_WINDOW_DAYS);
-  const windowEndStr = toDateString(windowEnd);
-
   const { data: schools, error } = await supabase
     .from('schools')
     .select('*')
@@ -319,6 +317,12 @@ export async function runSubscriptionDueReminders({ sendEmail } = {}) {
     results.checked += 1;
 
     const merged = mergeSchoolWithExtras(school);
+    const coerced = coerceYearlyBillingToTerm(merged);
+    if (coerced) {
+      Object.assign(merged, coerced);
+      upsertSchoolExtras(school.id, coerced).catch(() => {});
+    }
+
     if ((merged.plan_status || 'pending') !== 'approved') {
       results.skipped += 1;
       continue;
@@ -331,30 +335,26 @@ export async function runSubscriptionDueReminders({ sendEmail } = {}) {
     }
 
     const due = sub.next_payment_due;
-    if (due < today || due > windowEndStr) {
+    const sent = parseDueReminderSent(merged.due_reminder_sent, due);
+    const milestone = reminderMilestoneDue(sub.days_until_due, sent);
+    if (!milestone) {
       results.skipped += 1;
       continue;
     }
 
-    const lastReminder = merged.last_due_reminder_at
-      ? new Date(merged.last_due_reminder_at)
-      : null;
-    if (lastReminder) {
-      const daysSince = (Date.now() - lastReminder.getTime()) / (1000 * 60 * 60 * 24);
-      if (daysSince < REMINDER_INTERVAL_DAYS) {
-        results.skipped += 1;
-        continue;
-      }
-    }
-
-    const daysLeft = Math.max(0, sub.days_until_due ?? 0);
-    const subject = 'Yearly subscription renewal reminder';
-    const body =
-      daysLeft === 0
-        ? `Your SCHOOLTYPE yearly subscription for ${merged.name} is due today (${due}). Please renew to keep all features active.`
-        : `Your SCHOOLTYPE yearly subscription for ${merged.name} is due in ${daysLeft} day${
-            daysLeft === 1 ? '' : 's'
-          } (on ${due}). Please renew before the due date to avoid interruption.`;
+    const started = sub.last_payment_at || sub.subscription_started_at || '—';
+    const subject =
+      milestone === 1
+        ? 'Term plan ends tomorrow'
+        : `Term plan ends in ${milestone} days`;
+    const body = [
+      `Your SCHOOLTYPE term plan for ${merged.name} ends in ${milestone} day${milestone === 1 ? '' : 's'}.`,
+      '',
+      `Term started: ${started}`,
+      `Term ends: ${due}`,
+      '',
+      'Renew before the end date to keep adding results, changing setup, downloading records, paying staff, and moving wallet money. After the term ends, the school can still view records and record fees.',
+    ].join('\n');
 
     try {
       await createPlatformNotification({
@@ -365,15 +365,23 @@ export async function runSubscriptionDueReminders({ sendEmail } = {}) {
         kind: 'subscription_reminder',
       });
 
+      const reminderStamp = formatDueReminderSent(due, [...sent, milestone]);
       await upsertSchoolExtras(school.id, {
         last_due_reminder_at: new Date().toISOString(),
+        due_reminder_sent: reminderStamp,
       });
 
-      // Persist reminder timestamp even if extras helper strips unknown columns.
-      await supabase
-        .from('schools')
-        .update({ last_due_reminder_at: new Date().toISOString() })
-        .eq('id', school.id);
+      const stamp = {
+        last_due_reminder_at: new Date().toISOString(),
+        due_reminder_sent: reminderStamp,
+      };
+      const { error: stampError } = await supabase.from('schools').update(stamp).eq('id', school.id);
+      if (stampError && isMissingColumnError(stampError, 'due_reminder_sent')) {
+        await supabase
+          .from('schools')
+          .update({ last_due_reminder_at: stamp.last_due_reminder_at })
+          .eq('id', school.id);
+      }
 
       if (typeof sendEmail === 'function' && school.email) {
         try {
@@ -381,7 +389,7 @@ export async function runSubscriptionDueReminders({ sendEmail } = {}) {
             to: school.email,
             subject: `[SCHOOLTYPE] ${subject}`,
             text: body,
-            html: `<p>${body}</p><p style="color:#64748b;font-size:12px">SCHOOLTYPE · Subscription reminder</p>`,
+            html: `<p>${body.replace(/\n/g, '<br/>')}</p><p style="color:#64748b;font-size:12px">SCHOOLTYPE · Term plan reminder</p>`,
           });
         } catch (mailErr) {
           console.warn('Due reminder email failed:', mailErr.message);

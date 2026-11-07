@@ -60,8 +60,9 @@ const FeesPay = () => {
   const querySchool = String(searchParams.get('school') || '').trim();
   const queryStudent = String(searchParams.get('student') || '').trim();
   const queryTerm = String(searchParams.get('term') || searchParams.get('month') || '').trim();
-  const [step, setStep] = useState(barcode || (querySchool && queryStudent) ? 2 : 1);
+  const [step, setStep] = useState((barcode && querySchool) || (querySchool && queryStudent) ? 2 : 1);
   const [schools, setSchools] = useState([]);
+  const [schoolQuery, setSchoolQuery] = useState('');
   const [schoolId, setSchoolId] = useState(querySchool);
   const [studentId, setStudentId] = useState(queryStudent);
   const [amount, setAmount] = useState('');
@@ -73,8 +74,8 @@ const FeesPay = () => {
   const [cardCvv, setCardCvv] = useState('');
   const [info, setInfo] = useState(null);
   const [error, setError] = useState('');
-  const [loadingSchools, setLoadingSchools] = useState(!barcode);
-  const [lookingUp, setLookingUp] = useState(Boolean(barcode || (querySchool && queryStudent)));
+  const [loadingSchools, setLoadingSchools] = useState(false);
+  const [lookingUp, setLookingUp] = useState(Boolean((barcode && querySchool) || (querySchool && queryStudent)));
   const [paying, setPaying] = useState(false);
   const [momoPrompt, setMomoPrompt] = useState(null);
   const [otpCode, setOtpCode] = useState('');
@@ -97,36 +98,49 @@ const FeesPay = () => {
   }, []);
 
   useEffect(() => {
-    if (barcode) return undefined;
+    const q = schoolQuery.trim();
+    if (q.length < 2) {
+      setSchools([]);
+      setLoadingSchools(false);
+      return undefined;
+    }
     let cancelled = false;
-    const load = async () => {
-      setLoadingSchools(true);
+    setLoadingSchools(true);
+    const timer = window.setTimeout(async () => {
       try {
-        const { data } = await axios.get('/api/public/schools');
+        const { data } = await axios.get('/api/public/schools', { params: { q } });
         if (!cancelled) setSchools(data.schools || []);
       } catch (err) {
         if (!cancelled) setError(err.response?.data?.error || 'Could not load schools.');
       } finally {
         if (!cancelled) setLoadingSchools(false);
       }
-    };
-    load();
+    }, 250);
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
     };
-  }, [barcode]);
+  }, [schoolQuery]);
 
   useEffect(() => {
     if (!barcode) return undefined;
+    const school = querySchool || schoolId;
+    if (!school) {
+      setStep(1);
+      setLookingUp(false);
+      return undefined;
+    }
     let cancelled = false;
     const load = async () => {
       setLookingUp(true);
       setError('');
       try {
-        const { data } = await axios.get(`/api/public/fees/${encodeURIComponent(barcode)}`);
+        const { data } = await axios.get(`/api/public/fees/${encodeURIComponent(barcode)}`, {
+          params: { school },
+        });
         if (cancelled) return;
         setInfo(data);
-        setSchoolId(data.school_id || '');
+        setSchoolId(data.school_id || school);
         setStudentId(displayStudentId(data));
         setAmount(data.outstanding > 0 ? String(data.outstanding) : data.amount > 0 ? String(data.amount) : '');
         setStep(2);
@@ -143,7 +157,7 @@ const FeesPay = () => {
     return () => {
       cancelled = true;
     };
-  }, [barcode]);
+  }, [barcode, querySchool, schoolId]);
 
   useEffect(() => {
     if (barcode || !querySchool || !queryStudent) return undefined;
@@ -313,6 +327,7 @@ const FeesPay = () => {
       const path = barcode
         ? `/api/public/fees/${encodeURIComponent(barcode)}/checkout`
         : '/api/public/fees/pay';
+      if (barcode) payload.schoolId = payload.schoolId || schoolId;
       const { data } = await axios.post(path, payload, { timeout: 45000 });
       if (method === 'momo' || method === 'bank' || data.mode === 'momo' || data.mode === 'bank') {
         if (data.authorization_url) {
@@ -469,24 +484,43 @@ const FeesPay = () => {
               <>
                 <label className="block text-sm font-semibold">
                   School
-                  <select
+                  <input
                     className={fieldClass}
-                    value={schoolId}
+                    value={schoolQuery}
                     onChange={(e) => {
-                      setSchoolId(e.target.value);
+                      setSchoolQuery(e.target.value);
+                      setSchoolId('');
                       setInfo(null);
                     }}
-                    disabled={loadingSchools}
-                    required
-                  >
-                    <option value="">{loadingSchools ? 'Loading schools…' : 'Select school'}</option>
-                    {schools.map((school) => (
-                      <option key={school.id} value={school.id}>
-                        {school.name}
-                      </option>
-                    ))}
-                  </select>
+                    placeholder="Type the school name"
+                    autoComplete="off"
+                    required={!schoolId}
+                  />
                 </label>
+                {loadingSchools ? <p className="text-sm text-[var(--mk-muted)]">Searching schools…</p> : null}
+                {schools.length ? (
+                  <ul className="max-h-48 overflow-auto border border-[var(--mk-line)] bg-[var(--mk-card)]">
+                    {schools.map((school) => (
+                      <li key={school.id}>
+                        <button
+                          type="button"
+                          className={`w-full px-3 py-2 text-left text-sm ${
+                            schoolId === school.id ? 'bg-[var(--mk-forest)] text-[#fffaf2]' : ''
+                          }`}
+                          onClick={() => {
+                            setSchoolId(school.id);
+                            setSchoolQuery(school.name);
+                            setSchools([]);
+                            setInfo(null);
+                          }}
+                        >
+                          {school.name}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                {schoolId ? <p className="text-xs text-[var(--mk-muted)]">School selected.</p> : null}
                 <label className="block text-sm font-semibold">
                   Student ID
                   <input

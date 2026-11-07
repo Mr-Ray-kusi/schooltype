@@ -4,6 +4,8 @@ import toast from 'react-hot-toast';
 import { RefreshCw, Wallet } from 'lucide-react';
 import PaginationBar from '../components/PaginationBar';
 import { notifySchoolDataChanged, onSchoolDataChanged } from '../utils/requestCache';
+import { useAuth } from '../contexts/authcontext';
+import { SUBSCRIPTION_READ_ONLY_MESSAGE } from '../utils/subscriptionAccess';
 
 const PAYMENT_ROW_HEIGHT = 48;
 const PAYMENT_HEAD_HEIGHT = 36;
@@ -15,6 +17,7 @@ const formatGhs = (value) =>
   })}`;
 
 const Payments = () => {
+  const { canWrite } = useAuth();
   const [people, setPeople] = useState([]);
   const [wallet, setWallet] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -92,6 +95,10 @@ const Payments = () => {
   const readyCount = visible.filter((person) => person.salary >= 1 && (phones[`${person.kind}:${person.id}`] || person.momo_phone)).length;
 
   const saveNonStaffPhone = async (person) => {
+    if (!canWrite) {
+      toast.error(SUBSCRIPTION_READ_ONLY_MESSAGE);
+      return;
+    }
     if (person.kind !== 'non-staff') return;
     const key = `${person.kind}:${person.id}`;
     const next = String(phones[key] ?? person.momo_phone ?? '').trim();
@@ -116,6 +123,10 @@ const Payments = () => {
   };
 
   const startPay = async (person) => {
+    if (!canWrite) {
+      toast.error(SUBSCRIPTION_READ_ONLY_MESSAGE);
+      return;
+    }
     const key = `${person.kind}:${person.id}`;
     const momo_phone = phones[key] || person.momo_phone;
     setBusyId(key);
@@ -137,6 +148,10 @@ const Payments = () => {
   };
 
   const startPayAll = async () => {
+    if (!canWrite) {
+      toast.error(SUBSCRIPTION_READ_ONLY_MESSAGE);
+      return;
+    }
     setBusyId('all');
     setAlert('');
     try {
@@ -260,7 +275,7 @@ const Payments = () => {
             ))}
             <button
               type="button"
-              disabled={Boolean(busyId) || !readyCount}
+              disabled={Boolean(busyId) || !readyCount || !canWrite}
               onClick={startPayAll}
               className="rounded-full bg-primary-600 px-3 py-1 text-xs font-semibold text-white hover:bg-primary-500 disabled:opacity-50"
             >
@@ -355,7 +370,7 @@ const Payments = () => {
                         <td className="px-3 text-right md:px-4">
                           <button
                             type="button"
-                            disabled={Boolean(busyId) || person.salary < 1}
+                            disabled={Boolean(busyId) || person.salary < 1 || !canWrite}
                             onClick={() => startPay(person)}
                             className="rounded-lg bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
                           >

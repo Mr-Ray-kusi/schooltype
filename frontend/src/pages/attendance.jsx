@@ -133,6 +133,7 @@ const TermRecords = ({
   seed,
   selectedDate,
 }) => {
+  const { canDownload } = useAuth();
   const fallback = seed ? fallbackTermAttendance(seed, selectedDate) : null;
   const pack = Array.isArray(data?.records) && data.records.length ? data : fallback;
   const records = pack?.records || [];
@@ -157,8 +158,13 @@ const TermRecords = ({
         <div className="flex shrink-0 gap-2">
           <button
             type="button"
+            disabled={!canDownload}
             onClick={(event) => {
               event.stopPropagation();
+              if (!canDownload) {
+                toast.error('Downloads are locked until the term plan is renewed.');
+                return;
+              }
               try {
                 downloadTermAttendancePdf({
                   schoolName,
@@ -244,7 +250,7 @@ const TermRecords = ({
 };
 
 const Attendance = () => {
-  const { school } = useAuth();
+  const { school, canDownload } = useAuth();
   const [attendanceRecords, setAttendanceRecords] = useState([]);
   const [openKey, setOpenKey] = useState(null);
   const [termCache, setTermCache] = useState({});
@@ -481,6 +487,10 @@ const Attendance = () => {
   };
 
   const downloadAllStudentPdfs = async () => {
+    if (!canDownload) {
+      toast.error('Downloads are locked until the term plan is renewed.');
+      return;
+    }
     const exportType =
       selectedType === 'staff' || selectedType === 'non-staff' || selectedType === 'all'
         ? selectedType
@@ -631,7 +641,7 @@ const Attendance = () => {
           </button>
           <button
             type="button"
-            disabled={Boolean(bulkBusy)}
+            disabled={Boolean(bulkBusy) || !canDownload}
             onClick={downloadAllStudentPdfs}
             className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-600 px-3 text-sm font-medium text-slate-100 hover:bg-slate-800 disabled:opacity-50"
           >

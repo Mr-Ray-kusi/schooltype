@@ -67,7 +67,12 @@ const CoreCheck = ({ checked, onChange, id }) => (
   </label>
 );
 const Setup = () => {
-  const { school, persistSchool } = useAuth();
+  const { school, persistSchool, canWrite } = useAuth();
+  const rejectIfReadOnly = () => {
+    if (canWrite) return false;
+    toast.error('Your term plan has ended. Setup stays view-only until you renew.');
+    return true;
+  };
   const [classes, setClasses] = useState([]);
   const [logoPreview, setLogoPreview] = useState(school?.logo_url || '');
   const [logoDraft, setLogoDraft] = useState(null);
@@ -164,6 +169,7 @@ const Setup = () => {
   };
 
   const saveFeeCurrency = async () => {
+    if (rejectIfReadOnly()) return;
     setSavingCurrency(true);
     try {
       const { data } = await axios.put('/api/school/fees-settings', { fee_currency: feeCurrency });
@@ -179,6 +185,7 @@ const Setup = () => {
   };
 
   const saveDashboardImage = async () => {
+    if (rejectIfReadOnly()) return;
     if (!logoDraft) {
       toast.error('Choose an image first');
       return;
@@ -217,6 +224,7 @@ const Setup = () => {
   };
 
   const persistTerms = async (rows, successMessage) => {
+    if (rejectIfReadOnly()) return false;
     const toSave = (rows || []).filter((row) => String(row.name || '').trim());
     setSavingTerms(true);
     try {
@@ -269,6 +277,7 @@ const Setup = () => {
 
   const saveTermModal = async (e) => {
     e.preventDefault();
+    if (rejectIfReadOnly()) return;
     if (!termModal) return;
     const name = String(termModal.name || '').trim();
     if (!name) {
@@ -318,6 +327,7 @@ const Setup = () => {
 
   const saveClassModal = async (e) => {
     e.preventDefault();
+    if (rejectIfReadOnly()) return;
     if (!classModal) return;
     const name = String(classModal.name || '').trim();
     if (!name) {
@@ -364,6 +374,7 @@ const Setup = () => {
 
   const saveSubjects = async (e) => {
     e.preventDefault();
+    if (rejectIfReadOnly()) return;
     const toSave = subjectRows.filter((row) => row.name.trim());
     if (!toSave.length) {
       toast.error('Enter at least one subject name');
@@ -403,6 +414,7 @@ const Setup = () => {
   };
 
   const saveSubjectEdits = async () => {
+    if (rejectIfReadOnly()) return;
     if (!subjects.length) {
       toast.error('Add a subject first, then edit it.');
       return;

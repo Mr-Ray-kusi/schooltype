@@ -27,6 +27,7 @@ import { supabase } from './supabaseClient.js';
 import { displayStudentId, needsSchoolStudentId, syncStudentIds } from './studentId.js';
 import { mergeStudentFieldList } from './studentFieldStore.js';
 import { isSchoolHeadRole } from './staffAdminRoutes.js';
+import { sanitizeSearchTerm } from './httpSecurity.js';
 import {
   getClassFeeAmount,
   resolveStudentFeeAmount,
@@ -322,28 +323,15 @@ async function ensureSchoolStudentId(student, school) {
   return student;
 }
 
-async function loadStudentFeeContext(barcode) {
+function publicFeeSchoolId(req) {
+  return String(req.query?.school || req.query?.schoolId || req.body?.schoolId || req.body?.school_id || '').trim();
+}
+
+async function loadStudentFeeContext(barcode, schoolId) {
+  const school = String(schoolId || '').trim();
   const code = String(barcode || '').trim();
-  if (!code) return null;
-  const byBarcode = await supabase.from('students').select('*').eq('barcode', code).maybeSingle();
-  if (byBarcode.error) return null;
-  let student = byBarcode.data;
-  if (!student) {
-    const byRoll = await supabase.from('students').select('*').eq('roll_number', code).limit(2);
-    if (byRoll.error || !byRoll.data || byRoll.data.length !== 1) return null;
-    student = byRoll.data[0];
-  }
-  if (!student) return null;
-  const [{ data: school }, classFee] = await Promise.all([
-    supabase.from('schools').select('id, name, logo_url, email').eq('id', student.school_id).maybeSingle(),
-    getClassFeeAmount(student.school_id, student.class),
-  ]);
-  const studentWithId = await ensureSchoolStudentId(student, school);
-  const period = await resolveFeePeriod(studentWithId.school_id);
-  const month = period.key;
-  const amount = resolveStudentFeeAmount(studentWithId, classFee);
-  const balance = await loadFeeBalance(studentWithId, amount, month);
-  return { student: studentWithId, school, amount, month, balance, period };
+  if (!school || !code) return null;
+  return loadStudentFeeBySchool(school, code);
 }
 
 async function findStudentInSchool(schoolId, studentId) {
@@ -739,7 +727,10 @@ export async function getFeeOverviewPayload(schoolId, query = {}) {
       payment: studentPayments[0] || null,
       payments: studentPayments,
       recorded_by: studentRecordedByLabel(studentPayments),
-      pay_path: student.barcode ? `/pay/${encodeURIComponent(student.barcode)}` : null,
+      school_id: schoolId,
+      pay_path: student.barcode
+        ? `/pay/${encodeURIComponent(student.barcode)}?school=${encodeURIComponent(schoolId)}`
+        : null,
     };
   });
 
@@ -1467,17 +1458,33 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
     }
   });
 
-  app.get('/api/public/schools', async (_req, res) => {
+  app.get('/api/public/schools', async (req, res) => {
     try {
+      const q = sanitizeSearchTerm(String(req.query.q || ''), 80);
+      if (q.length < 2) {
+        return res.json({ schools: [] });
+      }
       let rows;
       const first = await supabase
         .from('schools')
         .select('id, name, role, logo_url')
-        .order('name', { ascending: true });
+        .ilike('name', `%${q}%`)
+        .order('name', { ascending: true })
+        .limit(20);
       if (first.error) {
-        const retry = await supabase.from('schools').select('id, name, role').order('name', { ascending: true });
+        const retry = await supabase
+          .from('schools')
+          .select('id, name, role')
+          .ilike('name', `%${q}%`)
+          .order('name', { ascending: true })
+          .limit(20);
         if (retry.error) {
-          const plain = await supabase.from('schools').select('id, name').order('name', { ascending: true });
+          const plain = await supabase
+            .from('schools')
+            .select('id, name')
+            .ilike('name', `%${q}%`)
+            .order('name', { ascending: true })
+            .limit(20);
           if (plain.error) throw plain.error;
           rows = plain.data || [];
         } else {
@@ -1734,9 +1741,13 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
   app.get('/api/public/fees/:barcode', async (req, res) => {
     try {
       if (await rejectPublicFeeFlood(req, res)) return;
-      const ctx = await loadStudentFeeContext(req.params.barcode);
+      const schoolId = publicFeeSchoolId(req);
+      if (!schoolId) {
+        return res.status(400).json({ error: 'Select a school to look up this student.' });
+      }
+      const ctx = await loadStudentFeeContext(req.params.barcode, schoolId);
       if (!ctx) {
-        noteUnknownStudentId({ studentCode: req.params.barcode });
+        noteUnknownStudentId({ schoolId, studentCode: req.params.barcode });
         return res.status(404).json({ error: 'Student not found' });
       }
       const { student, school, amount, month, balance, period } = ctx;
@@ -1750,9 +1761,13 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
   app.post('/api/public/fees/:barcode/checkout', async (req, res) => {
     try {
       if (await rejectPublicFeeFlood(req, res)) return;
-      const ctx = await loadStudentFeeContext(req.params.barcode);
+      const schoolId = publicFeeSchoolId(req);
+      if (!schoolId) {
+        return res.status(400).json({ error: 'Select a school to look up this student.' });
+      }
+      const ctx = await loadStudentFeeContext(req.params.barcode, schoolId);
       if (!ctx) {
-        noteUnknownStudentId({ studentCode: req.params.barcode });
+        noteUnknownStudentId({ schoolId, studentCode: req.params.barcode });
         return res.status(404).json({ error: 'Student not found' });
       }
       const { student, school, amount, month, period } = ctx;
@@ -1954,7 +1969,7 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
         });
         return res.json({
           ...checkout,
-          pay_url: `${getFrontendBaseUrl()}/pay/${encodeURIComponent(student.barcode)}`,
+          pay_url: `${getFrontendBaseUrl()}/pay/${encodeURIComponent(student.barcode)}?school=${encodeURIComponent(req.user.schoolId)}`,
         });
       }
       const checkout = await startFeePayment({
@@ -1970,7 +1985,7 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
       });
       res.json({
         ...checkout,
-        pay_url: `${getFrontendBaseUrl()}/pay/${encodeURIComponent(student.barcode)}`,
+        pay_url: `${getFrontendBaseUrl()}/pay/${encodeURIComponent(student.barcode)}?school=${encodeURIComponent(req.user.schoolId)}`,
       });
     } catch (err) {
       if (err.code?.startsWith('PAYSTACK') || err.status) return handlePaystackError(res, err);

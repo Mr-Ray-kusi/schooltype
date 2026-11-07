@@ -6,6 +6,7 @@ import RecordFeePaymentModal from './RecordFeePaymentModal';
 import FeePaymentReceiptModal from './FeePaymentReceiptModal';
 import { formatGhs } from '../utils/feeReceiptPdf';
 import { downloadTableXlsx } from '../utils/tableXlsx';
+import { useAuth } from '../contexts/authcontext';
 
 const formatWhen = (value) => {
   if (!value) return '';
@@ -312,6 +313,7 @@ const AccountantFees = ({
   section = 'overview',
   onOpenList,
 }) => {
+  const { canDownload } = useAuth();
   const requestConfig = useMemo(() => ({ headers: authHeaders }), [authHeaders]);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -425,6 +427,10 @@ const AccountantFees = ({
   const termRange = formatTermRange(data?.term_starts_on, data?.term_ends_on);
 
   const exportTerm = async () => {
+    if (!canDownload) {
+      toast.error('Downloads are locked until the term plan is renewed.');
+      return;
+    }
     const students = (data?.students || []).filter((row) => matchesClass(row) && (row.fee_amount > 0 || row.paid_amount > 0));
     if (!students.length) {
       toast.error('No fee records to export for this term.');
@@ -455,6 +461,10 @@ const AccountantFees = ({
   };
 
   const exportYear = async () => {
+    if (!canDownload) {
+      toast.error('Downloads are locked until the term plan is renewed.');
+      return;
+    }
     const ledger = (data?.year_ledger || []).filter((row) => matchesClass(row));
     if (!ledger.length) {
       toast.error('No payments recorded this year yet.');
@@ -570,7 +580,7 @@ const AccountantFees = ({
           <button
             type="button"
             onClick={exportTerm}
-            disabled={Boolean(exporting)}
+            disabled={Boolean(exporting) || !canDownload}
             className="inline-flex items-center gap-2 rounded-lg border border-slate-600 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-50"
           >
             <FileSpreadsheet className="h-4 w-4" />
@@ -579,7 +589,7 @@ const AccountantFees = ({
           <button
             type="button"
             onClick={exportYear}
-            disabled={Boolean(exporting)}
+            disabled={Boolean(exporting) || !canDownload}
             className="inline-flex items-center gap-2 rounded-lg border border-slate-600 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-50"
           >
             <FileSpreadsheet className="h-4 w-4" />

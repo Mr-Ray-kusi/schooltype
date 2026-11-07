@@ -1,5 +1,10 @@
 import jwt from 'jsonwebtoken';
 import { platformSupabase, supabase } from './supabaseClient.js';
+import { getFrontendBaseUrl } from './emailVerification.js';
+import { getClientIp, checkStudentPortalAllowed, recordStudentPortalAuthFailure, clearStudentPortalAuthFailures } from './authSecurity.js';
+import { readStudentAccessToken, setStudentSessionCookie, clearStudentSessionCookie } from './cookieAuth.js';
+import { issueCsrf, clearCsrfCookie } from './csrf.js';
+import { sanitizeSearchTerm } from './httpSecurity.js';
 import { mergeSchoolWithExtras, schoolHasPaidPlan } from './schoolPlanStore.js';
 import { getSubscriptionInfo } from './subscription.js';
 import {
@@ -35,9 +40,10 @@ import {
 } from './studentPortalStore.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
+const STUDENT_SESSION_TTL_SEC = 4 * 60 * 60;
 
 function authenticateStudentPortal(req, res, next) {
-  const token = String(req.headers['x-student-portal-token'] || '').trim();
+  const token = readStudentAccessToken(req);
   if (!token) return res.status(401).json({ error: 'Sign in with your student ID and password' });
   jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] }, (err, payload) => {
     if (err || payload?.purpose !== 'student_portal' || !payload.schoolId || !payload.studentId) {
@@ -52,17 +58,25 @@ function portalSchoolCard(row) {
   if (!row || String(row.role || '') === 'super_admin') return null;
   const merged = mergeSchoolWithExtras(row);
   if (!schoolHasPaidPlan(merged)) return null;
-  if (!getSubscriptionInfo(merged).subscription_active) return null;
+  const subscription = getSubscriptionInfo(merged);
+  if (!subscription.subscription_active) return null;
   return {
     id: merged.id,
     name: merged.name,
     logo_url: merged.logo_url || null,
     fee_currency: String(merged.fee_currency || 'GHS').toUpperCase(),
+    subscription_read_only: Boolean(subscription.subscription_read_only),
+    subscription_can_record_fees: Boolean(subscription.can_record_fees),
+    next_payment_due: subscription.next_payment_due,
+    last_payment_at: subscription.last_payment_at,
   };
 }
 
+const PORTAL_SCHOOL_COLUMNS =
+  'id, name, role, logo_url, payment_plan, plan_status, plan_selected_at, next_payment_due, last_payment_at, subscription_frozen, subscription_started_at, total_paid';
+
 async function publicSchoolCard(schoolId) {
-  const { data, error } = await supabase.from('schools').select('*').eq('id', schoolId).maybeSingle();
+  const { data, error } = await supabase.from('schools').select(PORTAL_SCHOOL_COLUMNS).eq('id', schoolId).maybeSingle();
   if (error || !data) return null;
   return portalSchoolCard(data);
 }
@@ -321,16 +335,20 @@ async function classStanding(schoolId, student, termName) {
   return { classSize: classIds.size, position };
 }
 
-export function registerStudentPortalRoutes(app, { authenticateToken }) {
-  app.get('/api/student-portal/schools', async (_req, res) => {
+export function registerStudentPortalRoutes(app, { authenticateToken, enforcePlanApproval }) {
+  const requireWritablePlan = typeof enforcePlanApproval === 'function' ? enforcePlanApproval : (_req, _res, next) => next();
+  app.get('/api/student-portal/schools', async (req, res) => {
     try {
+      const q = sanitizeSearchTerm(String(req.query.q || ''), 80);
+      if (q.length < 2) {
+        return res.json({ schools: [] });
+      }
       const client = platformSupabase || supabase;
-      const columns =
-        'id, name, role, logo_url, payment_plan, plan_status, plan_selected_at, next_payment_due, last_payment_at, subscription_frozen, subscription_started_at, total_paid';
+      const columns = PORTAL_SCHOOL_COLUMNS;
       let rows;
-      const first = await client.from('schools').select(columns);
+      const first = await client.from('schools').select(columns).ilike('name', `%${q}%`).limit(20);
       if (first.error) {
-        const retry = await client.from('schools').select('id, name, role, logo_url');
+        const retry = await client.from('schools').select('id, name, role, logo_url').ilike('name', `%${q}%`).limit(20);
         if (retry.error) throw retry.error;
         rows = retry.data || [];
       } else {
@@ -365,6 +383,11 @@ export function registerStudentPortalRoutes(app, { authenticateToken }) {
       if (!card) return res.status(404).json({ error: 'School not found' });
 
       const lockKey = `${schoolId}:${studentCode.toUpperCase()}`;
+      const clientIp = getClientIp(req);
+      const hitCheck = await checkStudentPortalAllowed(lockKey, clientIp);
+      if (!hitCheck.allowed) {
+        return res.status(429).json({ error: hitCheck.message || 'Too many tries. Wait 15 minutes and try again.' });
+      }
       if (studentPortalLocked(lockKey)) {
         return res.status(429).json({ error: 'Too many tries. Wait 15 minutes and try again.' });
       }
@@ -373,9 +396,11 @@ export function registerStudentPortalRoutes(app, { authenticateToken }) {
       const matches = student ? await verifyStudentPortalPassword(schoolId, student.id, password) : false;
       if (!student || !matches) {
         recordStudentPortalFailure(lockKey);
+        await recordStudentPortalAuthFailure(lockKey, clientIp);
         return res.status(401).json({ error: 'Student ID or password is wrong' });
       }
       clearStudentPortalFailures(lockKey);
+      await clearStudentPortalAuthFailures(lockKey);
 
       const sessionToken = jwt.sign(
         {
@@ -385,17 +410,26 @@ export function registerStudentPortalRoutes(app, { authenticateToken }) {
           rollNumber: student.roll_number,
         },
         JWT_SECRET,
-        { expiresIn: '12h', algorithm: 'HS256' }
+        { expiresIn: STUDENT_SESSION_TTL_SEC, algorithm: 'HS256' }
       );
+      setStudentSessionCookie(res, sessionToken, STUDENT_SESSION_TTL_SEC);
+      const csrfToken = issueCsrf(res, STUDENT_SESSION_TTL_SEC);
 
       res.json({
         sessionToken,
+        csrfToken,
         school: card,
         student: await withPortalPassword(student, { password, schoolId }),
       });
     } catch (error) {
       res.status(500).json({ error: error.message || 'Failed to sign in' });
     }
+  });
+
+  app.post('/api/student-portal/logout', (_req, res) => {
+    clearStudentSessionCookie(res);
+    clearCsrfCookie(res);
+    res.json({ ok: true });
   });
 
   app.get('/api/student-portal/me', authenticateStudentPortal, async (req, res) => {
@@ -405,6 +439,7 @@ export function registerStudentPortalRoutes(app, { authenticateToken }) {
       const card = await publicSchoolCard(req.studentPortal.schoolId);
       const terms = await termCatalog(req.studentPortal.schoolId);
       res.json({
+        csrfToken: issueCsrf(res, STUDENT_SESSION_TTL_SEC),
         school: card,
         student: await withPortalPassword(student, { schoolId: req.studentPortal.schoolId }),
         terms,
@@ -572,7 +607,7 @@ export function registerStudentPortalRoutes(app, { authenticateToken }) {
     }
   });
 
-  app.post('/api/students/:id/portal-password', authenticateToken, async (req, res) => {
+  app.post('/api/students/:id/portal-password', authenticateToken, requireWritablePlan, async (req, res) => {
     try {
       if (req.user.role === 'super_admin') return res.status(400).json({ error: 'Open a school account' });
       const student = await schoolStudent(req.user.schoolId, req.params.id, 'id');
@@ -584,7 +619,7 @@ export function registerStudentPortalRoutes(app, { authenticateToken }) {
     }
   });
 
-  app.post('/api/students/:id/portal-password/sms', authenticateToken, async (req, res) => {
+  app.post('/api/students/:id/portal-password/sms', authenticateToken, requireWritablePlan, async (req, res) => {
     try {
       if (req.user.role === 'super_admin') return res.status(400).json({ error: 'Open a school account' });
       const schoolId = req.user.schoolId;
@@ -597,7 +632,8 @@ export function registerStudentPortalRoutes(app, { authenticateToken }) {
 
       const { data: school } = await supabase.from('schools').select('name').eq('id', schoolId).maybeSingle();
       const schoolName = school?.name || 'School';
-      const body = `${schoolName}: ${student.name}'s portal ID is ${student.roll_number}. Password is ${password}.`;
+      const portalUrl = `${getFrontendBaseUrl()}/portal/${encodeURIComponent(schoolId)}`;
+      const body = `${schoolName}: ${student.name}'s portal ID is ${student.roll_number}. Sign in at ${portalUrl}. Ask the school office for the password.`;
       let settlement;
       try {
         settlement = await consumeSchoolAndPlatformUnits({

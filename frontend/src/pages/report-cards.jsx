@@ -16,7 +16,7 @@ const studentKey = (row) => row.student_id || `${row.student_name}-${row.class_n
 const CLEAR_SCORES_PHRASE = 'CLEAR ALL SCORES NOW';
 
 const ReportCards = () => {
-  const { school } = useAuth();
+  const { school, canWrite, canDownload } = useAuth();
   const [scores, setScores] = useState([]);
   const [roster, setRoster] = useState([]);
   const [classCounts, setClassCounts] = useState({});
@@ -46,7 +46,7 @@ const ReportCards = () => {
         const fetcher = async () => {
           const res = await axios.get('/api/report-cards/scores', {
             params: {
-              all: 1,
+              all: selectedClass ? '1' : undefined,
               class: selectedClass || undefined,
               term: selectedTerm !== 'all' ? selectedTerm : undefined,
               refresh: force ? '1' : undefined,
@@ -123,6 +123,10 @@ const ReportCards = () => {
   };
 
   const confirmClearAllScores = async () => {
+    if (!canWrite) {
+      toast.error('Your term plan has ended. Scores stay view-only until you renew.');
+      return;
+    }
     if (clearConfirmText !== CLEAR_SCORES_PHRASE) {
       toast.error(`Type ${CLEAR_SCORES_PHRASE} to confirm`);
       return;
@@ -145,6 +149,10 @@ const ReportCards = () => {
   };
 
   const handleRankingsPdf = () => {
+    if (!canDownload) {
+      toast.error('Downloads are locked until the term plan is renewed.');
+      return;
+    }
     if (!selectedClass) {
       toast.error('Choose a class first');
       return;
@@ -164,6 +172,10 @@ const ReportCards = () => {
   };
 
   const handleStudentCardsPdf = (studentIds) => {
+    if (!canDownload) {
+      toast.error('Downloads are locked until the term plan is renewed.');
+      return;
+    }
     const ids = studentIds || selectedStudentKeys;
     if (!ids.length) {
       toast.error('Select at least one student to print a personal report');
@@ -243,7 +255,8 @@ const ReportCards = () => {
               <button
                 type="button"
                 onClick={handleRankingsPdf}
-                className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 hover:text-white"
+                disabled={!canDownload}
+                className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 hover:text-white disabled:opacity-50"
               >
                 <Download className="h-4 w-4" />
                 Rankings
@@ -251,7 +264,8 @@ const ReportCards = () => {
               <button
                 type="button"
                 onClick={() => handleStudentCardsPdf()}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-500"
+                disabled={!canDownload}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-50"
               >
                 <Printer className="h-4 w-4" />
                 Print selected

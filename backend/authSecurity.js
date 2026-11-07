@@ -20,9 +20,11 @@ const HIT_LIMITS = {
   login: { max: 25, windowMs: LOCKOUT_WINDOW_MS },
   google: { max: 20, windowMs: LOCKOUT_WINDOW_MS },
   staff_login: { max: 15, windowMs: LOCKOUT_WINDOW_MS },
+  student_portal: { max: 20, windowMs: LOCKOUT_WINDOW_MS },
   resend: { max: 5, windowMs: SIGNUP_WINDOW_MS },
   fee_public: { max: 30, windowMs: LOCKOUT_WINDOW_MS },
 };
+const MAX_STUDENT_PORTAL_FAILS = 5;
 
 const MAX_RESEND_PER_EMAIL = 3;
 
@@ -415,6 +417,49 @@ export async function checkResendAllowed(email, ip) {
 
 export async function recordResendAttempt(email, ip) {
   await insertEvent({ kind: 'resend', email, ip });
+}
+
+export async function checkStudentPortalAllowed(lockKey, ip) {
+  const key = String(lockKey || '').trim().toLowerCase();
+  if (key) {
+    const fails = await countEvents({
+      kind: 'student_portal_fail',
+      email: key,
+      windowMs: LOCKOUT_WINDOW_MS,
+    });
+    if (fails >= MAX_STUDENT_PORTAL_FAILS) {
+      return deny('Too many tries. Wait 15 minutes and try again.', Math.ceil(LOCKOUT_WINDOW_MS / 1000));
+    }
+  }
+  return checkAuthHitAllowed('student_portal', ip);
+}
+
+export async function recordStudentPortalAuthFailure(lockKey, ip) {
+  await insertEvent({
+    kind: 'student_portal_fail',
+    email: String(lockKey || '').trim().toLowerCase() || null,
+    ip,
+  });
+  await recordAuthHit('student_portal', ip);
+}
+
+export async function clearStudentPortalAuthFailures(lockKey) {
+  const key = String(lockKey || '').trim().toLowerCase();
+  if (!key) return;
+  if (cloudReady) {
+    await supabase.from('auth_rate_events').delete().eq('kind', 'student_portal_fail').eq('email', key);
+    return;
+  }
+  const db = await getDb();
+  if (!db) {
+    for (let i = memoryEvents.length - 1; i >= 0; i -= 1) {
+      if (memoryEvents[i].kind === 'student_portal_fail' && memoryEvents[i].email === key) {
+        memoryEvents.splice(i, 1);
+      }
+    }
+    return;
+  }
+  await db.run(`DELETE FROM auth_rate_events WHERE kind = 'student_portal_fail' AND email = ?`, [key]);
 }
 
 export function parseJwtExpiresInSeconds(value) {

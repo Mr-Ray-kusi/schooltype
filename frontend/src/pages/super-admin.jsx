@@ -17,7 +17,7 @@ const statusStyles = {
 const subscriptionBadge = (school) => {
   if (!school.plan_approved) return null;
   if (school.subscription_frozen) return { label: 'Frozen', className: 'bg-red-500/20 text-red-300' };
-  if (school.subscription_in_grace) return { label: 'Payment due', className: 'bg-amber-500/20 text-amber-300' };
+  if (school.subscription_read_only) return { label: 'Read only', className: 'bg-orange-500/20 text-orange-300' };
   if (school.subscription_active === false) return { label: 'Overdue', className: 'bg-red-500/20 text-red-300' };
   return null;
 };
@@ -194,7 +194,7 @@ const SuperAdmin = () => {
                       </span>
                       <span className="text-sm text-slate-200">
                         {item.plan_name || 'No plan'}
-                        {item.plan_price ? ` · ₵${Number(item.plan_price).toLocaleString()}/yr` : ''}
+                        {item.plan_price ? ` · ₵${Number(item.plan_price).toLocaleString()}/term` : ''}
                       </span>
                       <span className={`px-2 py-0.5 text-xs rounded-full capitalize ${statusStyles[status] || statusStyles.none}`}>
                         {status === 'none' ? 'awaiting plan' : status}

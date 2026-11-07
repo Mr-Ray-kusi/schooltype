@@ -1,4 +1,6 @@
 export const SESSION_COOKIE = 'st_session';
+export const STAFF_COOKIE = 'st_staff';
+export const STUDENT_COOKIE = 'st_student';
 
 export function parseCookies(req) {
   const header = String(req.headers?.cookie || '');
@@ -24,7 +26,23 @@ export function readAccessToken(req) {
     const bearer = header.slice(7).trim();
     if (bearer) return bearer;
   }
-  return parseCookies(req)[SESSION_COOKIE] || '';
+  const cookies = parseCookies(req);
+  return cookies[SESSION_COOKIE] || cookies[STAFF_COOKIE] || cookies[STUDENT_COOKIE] || '';
+}
+
+export function readStaffAccessToken(req) {
+  const header = String(req.headers?.authorization || '');
+  if (header.startsWith('Bearer ')) {
+    const bearer = header.slice(7).trim();
+    if (bearer) return bearer;
+  }
+  return parseCookies(req)[STAFF_COOKIE] || '';
+}
+
+export function readStudentAccessToken(req) {
+  const header = String(req.headers['x-student-portal-token'] || '').trim();
+  if (header) return header;
+  return parseCookies(req)[STUDENT_COOKIE] || '';
 }
 
 function sessionCookieFlags(maxAgeSec) {
@@ -44,15 +62,44 @@ function sessionCookieFlags(maxAgeSec) {
   return parts;
 }
 
-export function setSessionCookie(res, token, maxAgeSec) {
+function setNamedCookie(res, name, token, maxAgeSec) {
   const parts = [
-    `${SESSION_COOKIE}=${encodeURIComponent(token)}`,
+    `${name}=${encodeURIComponent(token)}`,
     ...sessionCookieFlags(Math.max(60, Number(maxAgeSec) || 60 * 60 * 12)),
   ];
   res.append('Set-Cookie', parts.join('; '));
 }
 
+function clearNamedCookie(res, name) {
+  res.append('Set-Cookie', [`${name}=`, ...sessionCookieFlags(0)].join('; '));
+}
+
+export function setSessionCookie(res, token, maxAgeSec) {
+  setNamedCookie(res, SESSION_COOKIE, token, maxAgeSec);
+}
+
 export function clearSessionCookie(res) {
-  const parts = [`${SESSION_COOKIE}=`, ...sessionCookieFlags(0)];
-  res.append('Set-Cookie', parts.join('; '));
+  clearNamedCookie(res, SESSION_COOKIE);
+}
+
+export function setStaffSessionCookie(res, token, maxAgeSec) {
+  setNamedCookie(res, STAFF_COOKIE, token, Math.min(Number(maxAgeSec) || 4 * 60 * 60, 4 * 60 * 60));
+}
+
+export function clearStaffSessionCookie(res) {
+  clearNamedCookie(res, STAFF_COOKIE);
+}
+
+export function setStudentSessionCookie(res, token, maxAgeSec) {
+  setNamedCookie(res, STUDENT_COOKIE, token, Math.min(Number(maxAgeSec) || 4 * 60 * 60, 4 * 60 * 60));
+}
+
+export function clearStudentSessionCookie(res) {
+  clearNamedCookie(res, STUDENT_COOKIE);
+}
+
+export function clearAllAuthCookies(res) {
+  clearSessionCookie(res);
+  clearStaffSessionCookie(res);
+  clearStudentSessionCookie(res);
 }
