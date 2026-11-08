@@ -164,7 +164,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 import { cacheGet, cacheSet, cacheInvalidate, startSharedCacheSync } from './ttlCache.js';
-import { fetchAllRows } from './pagedQuery.js';
+import { fetchAllRows, selectByIds } from './pagedQuery.js';
 import { enableSharedRuntime } from './sharedRuntime.js';
 import { isProduction, isVercel } from './runtime.js';
 import {
@@ -5868,24 +5868,30 @@ app.get('/api/staff-portal/session/students', authenticateStaffPortal, async (re
       return res.json([]);
     }
 
-    let students = null;
-    let error = null;
+    const loadTeacherStudents = (columns) =>
+      fetchAllQueryRows(() =>
+        supabase
+          .from('students')
+          .select(columns)
+          .eq('school_id', req.staffPortal.schoolId)
+          .order('name', { ascending: true })
+          .order('id', { ascending: true })
+      );
 
-    ({ data: students, error } = await supabase
-      .from('students')
-      .select('id, name, class, roll_number, photo_url, parent_name, parent_phone, parent_relationship, parent_email')
-      .eq('school_id', req.staffPortal.schoolId)
-      .order('name', { ascending: true }));
-
-    if (error && (isMissingColumnError(error, 'parent_phone') || isMissingColumnError(error, 'parent_name') || isMissingColumnError(error, 'parent_email') || isMissingColumnError(error, 'parent_relationship'))) {
-      ({ data: students, error } = await supabase
-        .from('students')
-        .select('id, name, class, roll_number, photo_url')
-        .eq('school_id', req.staffPortal.schoolId)
-        .order('name', { ascending: true }));
+    let students;
+    try {
+      students = await loadTeacherStudents(
+        'id, name, class, roll_number, photo_url, parent_name, parent_phone, parent_relationship, parent_email'
+      );
+    } catch (loadError) {
+      const missingParent =
+        isMissingColumnError(loadError, 'parent_phone') ||
+        isMissingColumnError(loadError, 'parent_name') ||
+        isMissingColumnError(loadError, 'parent_email') ||
+        isMissingColumnError(loadError, 'parent_relationship');
+      if (!missingParent) throw loadError;
+      students = await loadTeacherStudents('id, name, class, roll_number, photo_url');
     }
-
-    if (error) throw error;
 
     const classSet = new Set(classNames.map((c) => normalizeClassKey(c)));
     const filtered = (students || []).filter((student) =>
@@ -6282,7 +6288,7 @@ app.get('/api/report-cards/scores', authenticateToken, enforcePlanApproval, asyn
       if (wantAll) {
         const chunk = 500;
         let fromIdx = 0;
-        while (fromIdx < 2000) {
+        while (fromIdx < 8000) {
           const { data: scores, error, count: rowCount } = await scoreQueryAt(fromIdx, fromIdx + chunk - 1);
           if (error) {
             if (isMissingColumnError(error, 'student_scores') || error.code === '42P01') break;
@@ -6307,21 +6313,21 @@ app.get('/api/report-cards/scores', authenticateToken, enforcePlanApproval, asyn
     const studentIds = [...new Set(rows.map((r) => r.student_id).filter(Boolean))];
     const staffIds = [...new Set(rows.map((r) => r.staff_id).filter(Boolean))];
 
-    const [studentsRes, staffRes, catalog, roster, filterRows, academicTerms] = await Promise.all([
+    const [studentRows, staffRows, catalog, roster, filterRows, academicTerms] = await Promise.all([
       studentIds.length
-        ? supabase.from('students').select('id, name, class, roll_number').in('id', studentIds)
-        : Promise.resolve({ data: [] }),
+        ? selectByIds(() => supabase.from('students').select('id, name, class, roll_number'), studentIds)
+        : Promise.resolve([]),
       staffIds.length
-        ? supabase.from('staffs').select('id, name, role').in('id', staffIds)
-        : Promise.resolve({ data: [] }),
+        ? selectByIds(() => supabase.from('staffs').select('id, name, role'), staffIds)
+        : Promise.resolve([]),
       listReportClasses(schoolId),
       classSelected ? listClassRoster(schoolId, classFilter) : Promise.resolve([]),
       supabase.from('student_scores').select('class_name, subject, term').eq('school_id', schoolId).limit(400),
       listAcademicTerms(schoolId).catch(() => []),
     ]);
 
-    const studentsById = new Map((studentsRes.data || []).map((s) => [s.id, s]));
-    const staffById = new Map((staffRes.data || []).map((s) => [s.id, s]));
+    const studentsById = new Map((studentRows || []).map((s) => [s.id, s]));
+    const staffById = new Map((staffRows || []).map((s) => [s.id, s]));
 
     const enriched = rows.map((row) => {
       const student = studentsById.get(row.student_id);

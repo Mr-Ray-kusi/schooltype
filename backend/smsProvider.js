@@ -11,6 +11,7 @@
  */
 
 import twilio from 'twilio';
+import { fetchAllRows } from './pagedQuery.js';
 
 const DEFAULT_COUNTRY = String(process.env.SMS_DEFAULT_COUNTRY_CODE || '233').replace(/\D/g, '');
 const CONCURRENCY = Math.min(10, Math.max(1, Number(process.env.SMS_SEND_CONCURRENCY) || 5));
@@ -178,15 +179,16 @@ export async function resolveSmsRecipients(supabase, schoolId, { sendMode, recip
   const wantsNonStaff = group === 'Non-Staff' || group === 'NonStaff' || group.includes('Non-Staff');
 
   if (wantsParents) {
-    const { data, error } = await supabase
-      .from('students')
-      .select('parent_phone')
-      .eq('school_id', schoolId)
-      .not('parent_phone', 'is', null)
-      .neq('parent_phone', '');
-
-    if (error) throw error;
-    for (const row of data || []) {
+    const data = await fetchAllRows(() =>
+      supabase
+        .from('students')
+        .select('id, parent_phone')
+        .eq('school_id', schoolId)
+        .not('parent_phone', 'is', null)
+        .neq('parent_phone', '')
+        .order('id', { ascending: true })
+    );
+    for (const row of data) {
       phones.push(row.parent_phone);
     }
   }

@@ -23,3 +23,22 @@ export async function fetchAllRows(buildQuery, { pageSize = 1000, maxRows = 2000
   }
   return rows;
 }
+
+/** `.in(column, ids)` is sent in the URL. A few hundred UUIDs is enough to break the request. */
+export async function selectByIds(buildQuery, ids, column = 'id', { chunkSize = 100 } = {}) {
+  const wanted = [...new Set((ids || []).map((id) => String(id || '').trim()).filter(Boolean))];
+  const size = Math.min(200, Math.max(1, Number(chunkSize) || 100));
+  const rows = [];
+  for (let index = 0; index < wanted.length; index += size) {
+    const slice = wanted.slice(index, index + size);
+    const { data, error } = await buildQuery().in(column, slice);
+    if (error) {
+      if (error instanceof Error) throw error;
+      const failure = new Error(error.message || error.details || 'Query failed');
+      if (error.code) failure.code = error.code;
+      throw failure;
+    }
+    rows.push(...(data || []));
+  }
+  return rows;
+}
