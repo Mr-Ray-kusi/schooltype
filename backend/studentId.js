@@ -174,7 +174,16 @@ async function selectStudentIdRows(supabase, schoolId, apply) {
 }
 
 async function loadSchoolStudents(supabase, schoolId) {
-  return selectStudentIdRows(supabase, schoolId, (query) => query);
+  const pageSize = 1000;
+  const rows = [];
+  for (let from = 0; from < 20000; from += pageSize) {
+    const chunk = await selectStudentIdRows(supabase, schoolId, (query) =>
+      query.order('id', { ascending: true }).range(from, from + pageSize - 1)
+    );
+    rows.push(...chunk);
+    if (chunk.length < pageSize) break;
+  }
+  return rows;
 }
 
 async function loadMissingStudents(supabase, schoolId, limit = 80) {

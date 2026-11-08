@@ -135,6 +135,8 @@ export async function mergeStudentFields(record, schoolId) {
   );
 }
 
+const FIELD_LOOKUP_CHUNK = 100;
+
 async function getStudentFieldsMap(ids) {
   const wanted = [...new Set((ids || []).map(String).filter(Boolean))];
   const found = new Map();
@@ -147,15 +149,18 @@ async function getStudentFieldsMap(ids) {
   if (!missing.length) return found;
   const db = await getDb();
   if (!db) return found;
-  const placeholders = missing.map(() => '?').join(',');
-  const rows = await db.all(
-    `SELECT student_id, gender, extra_fees FROM student_fields WHERE student_id IN (${placeholders})`,
-    missing
-  );
-  for (const row of rows || []) {
-    const parsed = { gender: row.gender || null, extra_fees: parseExtraFees(row.extra_fees) };
-    remember(row.student_id, parsed);
-    found.set(String(row.student_id), parsed);
+  for (let i = 0; i < missing.length; i += FIELD_LOOKUP_CHUNK) {
+    const slice = missing.slice(i, i + FIELD_LOOKUP_CHUNK);
+    const placeholders = slice.map(() => '?').join(',');
+    const rows = await db.all(
+      `SELECT student_id, gender, extra_fees FROM student_fields WHERE student_id IN (${placeholders})`,
+      slice
+    );
+    for (const row of rows || []) {
+      const parsed = { gender: row.gender || null, extra_fees: parseExtraFees(row.extra_fees) };
+      remember(row.student_id, parsed);
+      found.set(String(row.student_id), parsed);
+    }
   }
   return found;
 }
@@ -167,8 +172,11 @@ export async function mergeStudentFieldList(records, schoolId) {
   const remoteById = new Map();
   const db = profileDb();
   if (db && ids.length) {
-    const { data } = await db.from('students').select('id, gender, extra_fees').in('id', ids);
-    for (const row of data || []) remoteById.set(row.id, row);
+    for (let i = 0; i < ids.length; i += FIELD_LOOKUP_CHUNK) {
+      const slice = ids.slice(i, i + FIELD_LOOKUP_CHUNK);
+      const { data } = await db.from('students').select('id, gender, extra_fees').in('id', slice);
+      for (const row of data || []) remoteById.set(row.id, row);
+    }
   }
   const storedById = await getStudentFieldsMap(ids);
   return list.map((row) => {

@@ -2,7 +2,9 @@ import { platformSupabase } from './supabaseClient.js';
 import { isSharedRuntimeEnabled } from './sharedRuntime.js';
 
 const store = new Map();
-const MAX_ENTRIES = 80;
+// One school keeps a handful of hot keys (dashboard, roster, fees, analytics).
+// 20 schools at once need room so a morning of scans does not evict them all.
+const MAX_ENTRIES = 800;
 let seenGeneration = null;
 let bumpTimer = null;
 let syncTimer = null;

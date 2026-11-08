@@ -1,4 +1,5 @@
 import { supabase } from './supabaseClient.js';
+import { fetchAllRows } from './pagedQuery.js';
 import { resolveFeePeriod } from './academicTerms.js';
 import { isSuccessfulFeeStatus, resolveStudentFeeAmount, roundMoney } from './feePayments.js';
 import {
@@ -169,32 +170,49 @@ export async function getSchoolAnalytics(schoolId, options = {}) {
   const [attendanceRes, paymentsRes, messagesRes, studentsRes, classesRes, eventsRes] = await Promise.all([
     safeQuery(
       async () => {
-        const first = await supabase
-          .from('attendance')
-          .select('id, date, timestamp, user_name, user_type, user_label, status')
-          .eq('school_id', schoolId)
-          .gte('date', sinceIso.slice(0, 10))
-          .order('timestamp', { ascending: false })
-          .limit(2500);
-        if (!first.error) return first;
-        return supabase
-          .from('attendance')
-          .select('id, date, timestamp, user_name, user_type')
-          .eq('school_id', schoolId)
-          .gte('date', sinceIso.slice(0, 10))
-          .order('timestamp', { ascending: false })
-          .limit(2500);
+        const since = sinceIso.slice(0, 10);
+        const load = (columns) =>
+          fetchAllRows(
+            () =>
+              supabase
+                .from('attendance')
+                .select(columns)
+                .eq('school_id', schoolId)
+                .gte('date', since)
+                .order('timestamp', { ascending: false })
+                .order('id', { ascending: true }),
+            { maxRows: 12000 }
+          );
+        try {
+          return { data: await load('id, date, timestamp, user_name, user_type, user_label, status') };
+        } catch (error) {
+          if (
+            !String(error.message || '').includes('user_name') &&
+            !String(error.message || '').includes('user_label') &&
+            !String(error.message || '').includes('status')
+          ) {
+            throw error;
+          }
+          return { data: await load('id, date, timestamp, user_name, user_type') };
+        }
       },
       { data: [] }
     ),
     safeQuery(
-      () =>
-        supabase
-          .from('fee_payments')
-          .select('id, amount, status, payer_id, payer_name, payment_method, channel, payment_month, payment_reference, created_at')
-          .eq('school_id', schoolId)
-          .order('created_at', { ascending: false })
-          .limit(2500),
+      async () => ({
+        data: await fetchAllRows(
+          () =>
+            supabase
+              .from('fee_payments')
+              .select(
+                'id, amount, status, payer_id, payer_name, payment_method, channel, payment_month, payment_reference, created_at'
+              )
+              .eq('school_id', schoolId)
+              .order('created_at', { ascending: false })
+              .order('id', { ascending: true }),
+          { maxRows: 8000 }
+        ),
+      }),
       { data: [] }
     ),
     safeQuery(
@@ -208,17 +226,18 @@ export async function getSchoolAnalytics(schoolId, options = {}) {
           .limit(1500),
       { data: [] }
     ),
-    safeQuery(
-      async () => {
-        const first = await supabase
-          .from('students')
-          .select('id, name, class, monthly_fee, extra_fees')
-          .eq('school_id', schoolId);
-        if (!first.error) return first;
-        return supabase.from('students').select('id, name, class, monthly_fee').eq('school_id', schoolId);
-      },
-      { data: [] }
-    ),
+    safeQuery(async () => {
+      const load = (columns) =>
+        fetchAllRows(() =>
+          supabase.from('students').select(columns).eq('school_id', schoolId).order('id', { ascending: true })
+        );
+      try {
+        return { data: await load('id, name, class, monthly_fee, extra_fees') };
+      } catch (error) {
+        if (!String(error.message || '').toLowerCase().includes('extra_fees')) throw error;
+        return { data: await load('id, name, class, monthly_fee') };
+      }
+    }, { data: [] }),
     safeQuery(
       () => supabase.from('classes').select('name, fee_amount').eq('school_id', schoolId),
       { data: [] }

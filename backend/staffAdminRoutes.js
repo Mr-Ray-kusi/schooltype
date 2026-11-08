@@ -1,4 +1,5 @@
 import { supabase } from './supabaseClient.js';
+import { fetchAllRows } from './pagedQuery.js';
 import { sanitizeSearchTerm } from './httpSecurity.js';
 import { createStudent, createStaff, createNonStaff } from './peopleCreate.js';
 import { sendAbsentParentSms } from './absentNotify.js';
@@ -418,29 +419,35 @@ export function registerStaffAdminRoutes(app, { authenticateStaffPortal }) {
         const date = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || ''))
           ? String(req.query.date)
           : today;
-        const [attendanceRes, studentsRes, staffRes, nonStaffRes] = await Promise.all([
-          supabase
-            .from('attendance')
-            .select('user_id, user_type, date, timestamp, status')
-            .eq('school_id', schoolId)
-            .eq('date', date)
-            .order('timestamp', { ascending: false })
-            .limit(5000),
-          supabase.from('students').select('id, name, class, roll_number').eq('school_id', schoolId),
+        const [attendanceRows, studentRows, staffRes, nonStaffRes] = await Promise.all([
+          fetchAllRows(() =>
+            supabase
+              .from('attendance')
+              .select('user_id, user_type, date, timestamp, status')
+              .eq('school_id', schoolId)
+              .eq('date', date)
+              .order('id', { ascending: true })
+          ),
+          fetchAllRows(() =>
+            supabase
+              .from('students')
+              .select('id, name, class, roll_number')
+              .eq('school_id', schoolId)
+              .order('id', { ascending: true })
+          ),
           supabase.from('staffs').select('id, name, role').eq('school_id', schoolId),
           supabase.from('nonstaffs').select('id, name, role').eq('school_id', schoolId),
         ]);
-        if (attendanceRes.error) throw attendanceRes.error;
         const nonStaffRows = nonStaffRes.error ? [] : nonStaffRes.data || [];
         const people = new Map([
-          ...(studentsRes.data || []).map((row) => [row.id, { ...row, user_type: 'student' }]),
+          ...(studentRows || []).map((row) => [row.id, { ...row, user_type: 'student' }]),
           ...(staffRes.data || []).map((row) => [row.id, { id: row.id, name: row.name, role: row.role, user_type: 'staff' }]),
           ...nonStaffRows.map((row) => [
             row.id,
             { id: row.id, name: row.name, role: row.role, user_type: 'non-staff' },
           ]),
         ]);
-        const records = (attendanceRes.data || []).map((row) => {
+        const records = (attendanceRows || []).map((row) => {
           const type = normalizeType(row.user_type);
           const person = people.get(row.user_id) || {};
           const label = type === 'student' ? person.class : person.role;
