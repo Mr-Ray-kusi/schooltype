@@ -5534,7 +5534,7 @@ async function issueStaffPortalSession(req, res, resolved) {
 
   let { data: staffRows, error } = await supabase
     .from('staffs')
-    .select('id, name, role, subjects, class_names, school_id, secret_code, momo_phone')
+    .select('id, name, role, subjects, class_names, school_id, secret_code, momo_phone, salary')
     .eq('school_id', resolved.schoolId)
     .eq('secret_code', accessCode);
 
@@ -5624,6 +5624,7 @@ async function issueStaffPortalSession(req, res, resolved) {
       subjects: parseCsvList(staff.subjects),
       classNames: parseCsvList(staff.class_names),
       momo_phone: staff.momo_phone ? normalizeGhanaPhone(staff.momo_phone) : '',
+      salary: staff.salary != null && staff.salary !== '' ? Number(staff.salary) : null,
     },
   });
 }
@@ -5739,6 +5740,7 @@ app.get('/api/staff-portal/session/me', authenticateStaffPortal, async (req, res
         subjects: parseCsvList(staff.subjects),
         classNames: parseCsvList(staff.class_names),
         momo_phone: staff.momo_phone ? normalizeGhanaPhone(staff.momo_phone) : '',
+        salary: staff.salary != null && staff.salary !== '' ? Number(staff.salary) : null,
       },
     });
   } catch (error) {
@@ -5783,6 +5785,7 @@ app.patch('/api/staff-portal/session/me', authenticateStaffPortal, async (req, r
         subjects: parseCsvList(staff.subjects),
         classNames: parseCsvList(staff.class_names),
         momo_phone: momoPhone,
+        salary: staff.salary != null && staff.salary !== '' ? Number(staff.salary) : null,
       },
     });
   } catch (error) {

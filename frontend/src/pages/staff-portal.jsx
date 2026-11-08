@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import toast from 'react-hot-toast';
-import { BookOpen, GraduationCap, LogOut, MessageSquare, Moon, Pencil, Save, Smartphone, Sun, Users } from 'lucide-react';
+import { BookOpen, GraduationCap, LogOut, MessageSquare, Moon, Pencil, Save, Smartphone, Sun, User, Users } from 'lucide-react';
 import AdministratorSchool from '../components/AdministratorSchool';
 import AccountantFees from '../components/AccountantFees';
 import SchoolWallet from './school-wallet';
@@ -55,6 +55,7 @@ const StaffPortal = () => {
   const [editingSaved, setEditingSaved] = useState(false);
   const [schoolRecord, setSchoolRecord] = useState(restored?.school || null);
   const [financeTab, setFinanceTab] = useState('payments');
+  const [teacherTab, setTeacherTab] = useState('scores');
   const [owingSmsOpen, setOwingSmsOpen] = useState(false);
   const [momoPhone, setMomoPhone] = useState(restored?.staff?.momo_phone || '');
   const [savingPay, setSavingPay] = useState(false);
@@ -549,41 +550,69 @@ const StaffPortal = () => {
     loading: false,
   };
 
-  const paymentDetails = (
-    <section
-      className={`rounded-2xl border px-4 py-4 ${
-        liteMode ? 'border-slate-200 bg-white' : 'border-slate-700 bg-slate-900/60'
-      }`}
-    >
-      <form onSubmit={savePaymentDetails} className="flex flex-col gap-3 sm:flex-row sm:items-end">
-        <div className="min-w-0 flex-1">
-          <p className="flex items-center gap-2 text-xs uppercase tracking-wide text-slate-300">
-            <Smartphone className="h-3.5 w-3.5" />
-            Payment details
-          </p>
-          <p className={`mt-1 text-xs ${liteMode ? 'text-slate-800' : 'text-slate-200'}`}>
-            Enter the MoMo number the school should pay you on, then Update.
-          </p>
+  const cardClass = liteMode ? 'border-slate-200 bg-white' : 'border-slate-700 bg-slate-900/60';
+  const mutedClass = liteMode ? 'text-slate-600' : 'text-slate-300';
+  const aboutMePanel = (
+    <section className={`space-y-4 rounded-2xl border px-4 py-5 sm:px-5 ${cardClass}`}>
+      <div>
+        <p className={`flex items-center gap-2 text-xs uppercase tracking-wide ${mutedClass}`}>
+          <User className="h-3.5 w-3.5" />
+          About Me
+        </p>
+        <h2 className="mt-1 text-xl font-bold">{staff.name}</h2>
+        <p className="text-sm text-sky-300">{staff.role}</p>
+      </div>
+      <dl className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <dt className={`text-xs uppercase tracking-wide ${mutedClass}`}>School</dt>
+          <dd className="mt-1 text-sm">{schoolName || '—'}</dd>
+        </div>
+        {staff.salary != null && Number.isFinite(Number(staff.salary)) ? (
+          <div>
+            <dt className={`text-xs uppercase tracking-wide ${mutedClass}`}>Salary</dt>
+            <dd className="mt-1 text-sm">
+              GHS {Number(staff.salary).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </dd>
+          </div>
+        ) : null}
+        <div>
+          <dt className={`text-xs uppercase tracking-wide ${mutedClass}`}>Subjects</dt>
+          <dd className="mt-1 text-sm">{staff.subjects?.length ? staff.subjects.join(', ') : 'None assigned'}</dd>
+        </div>
+        <div>
+          <dt className={`text-xs uppercase tracking-wide ${mutedClass}`}>Classes</dt>
+          <dd className="mt-1 text-sm">{staff.classNames?.length ? staff.classNames.join(', ') : 'None assigned'}</dd>
+        </div>
+      </dl>
+      <form onSubmit={savePaymentDetails} className={`border-t pt-4 ${liteMode ? 'border-slate-200' : 'border-slate-700'}`}>
+        <p className={`flex items-center gap-2 text-xs uppercase tracking-wide ${mutedClass}`}>
+          <Smartphone className="h-3.5 w-3.5" />
+          Payment contact
+        </p>
+        <p className={`mt-1 text-xs ${liteMode ? 'text-slate-800' : 'text-slate-200'}`}>
+          Enter the MoMo number the school should pay you on, then save.
+        </p>
+        <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
           <input
             value={momoPhone}
             onChange={(e) => setMomoPhone(e.target.value)}
             inputMode="tel"
             autoComplete="tel"
             placeholder="024xxxxxxx"
-            className={`mt-3 w-full rounded-xl border px-4 py-3 text-sm ${
+            className={`min-w-0 flex-1 rounded-xl border px-4 py-3 text-sm ${
               liteMode
                 ? 'border-slate-300 bg-white text-slate-900'
                 : 'border-slate-600 bg-slate-950/70 text-white'
             }`}
           />
+          <button
+            type="submit"
+            disabled={savingPay}
+            className="inline-flex shrink-0 items-center justify-center rounded-full bg-sky-500 px-5 py-3 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-50"
+          >
+            {savingPay ? 'Saving…' : 'Save number'}
+          </button>
         </div>
-        <button
-          type="submit"
-          disabled={savingPay}
-          className="inline-flex shrink-0 items-center justify-center rounded-full bg-sky-500 px-5 py-3 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-50"
-        >
-          {savingPay ? 'Updating…' : 'Update'}
-        </button>
       </form>
     </section>
   );
@@ -592,6 +621,18 @@ const StaffPortal = () => {
     <aside className="min-w-0 shrink-0 lg:w-36">
       <div className="flex gap-2 overflow-x-auto pb-1 lg:block lg:max-h-full lg:space-y-1 lg:overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900/70 p-2">
         <p className="hidden px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-300 lg:block">
+          You
+        </p>
+        <button
+          type="button"
+          onClick={() => setFinanceTab('about')}
+          className={`${navBtn} ${
+            financeTab === 'about' ? 'bg-emerald-600 text-white' : 'text-slate-200 hover:bg-slate-800'
+          }`}
+        >
+          About Me
+        </button>
+        <p className="hidden px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-300 lg:block">
           Finance
         </p>
         {[
@@ -662,16 +703,16 @@ const StaffPortal = () => {
         {isAdministrator ? (
           <div className={`flex h-full min-h-0 w-full min-w-0 ${shellPadL} flex-col py-3 lg:py-4`}>
             <AuthContext.Provider value={portalAuth}>
-              <AdministratorSchool schoolName={schoolName} authHeaders={authHeaders} lead={paymentDetails} />
+              <AdministratorSchool schoolName={schoolName} authHeaders={authHeaders} aboutPanel={aboutMePanel} />
             </AuthContext.Provider>
           </div>
         ) : isAccountant ? (
           <div className={`flex h-full min-h-0 w-full min-w-0 ${shellPadL} flex-col lg:flex-row lg:gap-4`}>
             <div className="shrink-0 py-4 lg:py-6">{accountantNav}</div>
             <div className={`min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto py-3 lg:py-4 ${shellPadR}`}>
-              {paymentDetails}
+              {financeTab === 'about' ? aboutMePanel : null}
               <AuthContext.Provider value={portalAuth}>
-                {financeTab === 'wallet' ? (
+                {financeTab === 'about' ? null : financeTab === 'wallet' ? (
                   <SchoolWallet viewOnly />
                 ) : financeTab === 'payments' ? (
                   <div className="flex min-h-[28rem] min-w-0 flex-1 flex-col">
@@ -692,17 +733,36 @@ const StaffPortal = () => {
             </div>
           </div>
         ) : (
-          <main className={`h-full w-full min-w-0 space-y-4 overflow-y-auto py-5 ${shellPadL} ${shellPadR}`}>
-            {paymentDetails}
-            {!isTeacher ? (
-          <div className="rounded-3xl border border-slate-700 bg-slate-900/60 p-8 text-center">
-            <p className="text-lg font-semibold">Signed in as {staff.role}</p>
-            <p className="mt-2 text-sm text-slate-200">
-              Teacher score entry is available when you sign in with the Teacher role. Ask your admin to assign
-              subjects and classes on your staff profile.
-            </p>
-          </div>
-        ) : (
+          <div className={`flex h-full min-h-0 w-full min-w-0 ${shellPadL} flex-col lg:flex-row lg:gap-4`}>
+            <aside className="min-w-0 shrink-0 py-4 lg:w-36 lg:py-6">
+              <div className="flex gap-2 overflow-x-auto pb-1 lg:block lg:space-y-1 rounded-2xl border border-slate-700 bg-slate-900/70 p-2">
+                <p className="hidden px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-sky-300 lg:block">
+                  You
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setTeacherTab('about')}
+                  className={`${navBtn} ${
+                    teacherTab === 'about' ? 'bg-sky-500 text-white' : 'text-slate-200 hover:bg-slate-800'
+                  }`}
+                >
+                  About Me
+                </button>
+                {isTeacher ? (
+                  <button
+                    type="button"
+                    onClick={() => setTeacherTab('scores')}
+                    className={`${navBtn} ${
+                      teacherTab === 'scores' ? 'bg-sky-500 text-white' : 'text-slate-200 hover:bg-slate-800'
+                    }`}
+                  >
+                    Scores
+                  </button>
+                ) : null}
+              </div>
+            </aside>
+            <main className={`h-full w-full min-w-0 space-y-4 overflow-y-auto py-5 ${shellPadR}`}>
+            {!isTeacher || teacherTab === 'about' ? aboutMePanel : (
           <>
             <section className="grid gap-2.5 sm:grid-cols-3">
               <div className="rounded-xl border border-slate-700 bg-slate-900/60 p-3">
@@ -924,6 +984,7 @@ const StaffPortal = () => {
             </>
             )}
           </main>
+          </div>
         )}
       </div>
     </div>

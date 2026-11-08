@@ -26,7 +26,7 @@ const ACADEMIC_NAV = [
   { id: 'reports', label: 'Report cards' },
 ];
 
-const AdministratorSchool = ({ schoolName, authHeaders, lead = null }) => {
+const AdministratorSchool = ({ schoolName, authHeaders, aboutPanel = null }) => {
   const { canWrite, canDownload } = useAuth();
   const [tab, setTab] = useState('students');
   const [reportClass, setReportClass] = useState('');
@@ -193,7 +193,23 @@ const AdministratorSchool = ({ schoolName, authHeaders, lead = null }) => {
       <div className="flex h-full min-h-0 flex-1 flex-col lg:flex-row lg:gap-3">
         <aside className="min-w-0 shrink-0 lg:w-32">
           <div className="flex gap-2 overflow-x-auto pb-1 lg:block lg:max-h-full lg:space-y-1 lg:overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900/70 p-2">
-            <p className="hidden px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-sky-300 lg:block">
+            {aboutPanel ? (
+              <>
+                <p className="hidden px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-sky-300 lg:block">
+                  You
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setTab('about')}
+                  className={`flex shrink-0 items-center rounded-lg px-2 py-1.5 text-left text-[13px] font-medium leading-snug lg:w-full ${
+                    tab === 'about' ? 'bg-sky-500 text-white' : 'text-slate-200 hover:bg-slate-800'
+                  }`}
+                >
+                  About Me
+                </button>
+              </>
+            ) : null}
+            <p className="hidden px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-sky-300 lg:block">
               Academic
             </p>
             {ACADEMIC_NAV.map((item) => (
@@ -222,14 +238,18 @@ const AdministratorSchool = ({ schoolName, authHeaders, lead = null }) => {
           </div>
         </aside>
 
-        <div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto pr-4 sm:pr-5 lg:pr-6">
-          {lead}
+        <div
+          className={`min-h-0 min-w-0 flex-1 pr-4 sm:pr-5 lg:pr-6 ${
+            tab === 'attendance' ? 'flex flex-col overflow-hidden' : 'space-y-4 overflow-y-auto'
+          }`}
+        >
+          {tab === 'about' ? aboutPanel : null}
           {tab === 'students' ? <Students /> : null}
           {tab === 'alumni' ? <Alumni /> : null}
           {tab === 'staff' ? <Staff /> : null}
           {tab === 'setup' ? <Setup /> : null}
           {tab === 'attendance' ? (
-            <div className="h-[min(70dvh,40rem)] min-h-[22rem] sm:min-h-[28rem]">
+            <div className="flex min-h-0 flex-1 flex-col">
               <Attendance />
             </div>
           ) : null}
