@@ -2920,10 +2920,9 @@ const lateCutoffReached = (ymd, lateAfterTime, now = schoolNow()) => {
   return getAttendancePunctuality(now, lateAfterTime) === 'late';
 };
 
-const autoAttendanceStatus = (ymd, lateAfterTime, userType, now = schoolNow()) => {
+const autoAttendanceStatus = (ymd, lateAfterTime, _userType, now = schoolNow()) => {
   if (!lateCutoffReached(ymd, lateAfterTime, now)) return null;
-  if (normalizeAttendanceUserType(userType) === 'student') return 'absent';
-  return 'late';
+  return 'absent';
 };
 
 const isAutoAttendanceStamp = (timestamp, ymd, lateAfterTime) => {
@@ -3175,12 +3174,11 @@ const ensureUnscannedStudentsMarkedLate = async (schoolId, ymd, { people: givenP
     }
 
     if (
-      person.user_type === 'student' &&
       String(existing.status || '').toLowerCase() === 'late' &&
       isAutoAttendanceStamp(existing.timestamp, date, lateAfterTime)
     ) {
       convertIds.push(existing.id);
-      convertStudentIds.push(person.id);
+      if (person.user_type === 'student') convertStudentIds.push(person.id);
     }
   }
 
@@ -3245,7 +3243,7 @@ const synthesizePersonTermRecords = (userId, userType, from, to, lateAfterTime, 
   const walk = days.length ? days : /^\d{4}-\d{2}-\d{2}$/.test(String(to || '')) ? [to] : [];
   for (const day of walk) {
     const existing = byDate.get(day);
-    if (existing) {
+    if (existing && !isAutoAttendanceStamp(existing.timestamp, day, lateAfterTime)) {
       records.push(existing);
       continue;
     }
@@ -3313,7 +3311,7 @@ const fillPersonTermLateDays = async (schoolId, userId, userType, from, to) => {
       user_id: userId,
       date: day,
       timestamp: `${day}T${lateAfterTime}:00.000Z`,
-      status: autoAttendanceStatus(day, lateAfterTime, userType) || 'late',
+      status: autoAttendanceStatus(day, lateAfterTime, userType) || 'absent',
       user_name: person?.name || null,
       user_label: person?.label || null,
     }));
@@ -3379,7 +3377,7 @@ const fillSchoolTermAttendance = async (schoolId, from, to, people) => {
         user_id: person.id,
         date: day,
         timestamp: `${day}T${lateAfterTime}:00.000Z`,
-        status: autoAttendanceStatus(day, lateAfterTime, userType) || 'late',
+        status: autoAttendanceStatus(day, lateAfterTime, userType) || 'absent',
         user_name: person.name || null,
         user_label: person.label || null,
       });

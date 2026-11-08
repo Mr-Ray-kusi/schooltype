@@ -89,11 +89,7 @@ const fallbackTermAttendance = (record, selectedDate) => {
   const walk = days.length ? days : /^\d{4}-\d{2}-\d{2}$/.test(to) ? [to] : [];
   const records = walk.map((day) => {
     const isSelected = day === to;
-    const status = isSelected
-      ? getPunctuality(record)
-      : userType === 'student'
-        ? 'absent'
-        : 'late';
+    const status = isSelected ? getPunctuality(record) : 'absent';
     return {
       id: `unmarked:${userType}:${record.user_id}:${day}`,
       user_id: record.user_id,
