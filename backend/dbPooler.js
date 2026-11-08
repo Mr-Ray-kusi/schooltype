@@ -198,6 +198,14 @@ export async function ensureSharedRuntimeTables() {
       console.warn('Unique student barcode index skipped:', error.message || error);
     }
     try {
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_attendance_school_person_day
+        ON attendance (school_id, date, user_type, user_id)
+      `);
+    } catch (error) {
+      console.warn('Attendance person-day index skipped:', error.message || error);
+    }
+    try {
       await client.query("NOTIFY pgrst, 'reload schema'");
     } catch {
       // schema reload is best-effort

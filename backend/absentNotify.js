@@ -1,6 +1,7 @@
 import { quoteSmsForPhones, settleSmsPayment, refundSchoolAndPlatformUnits } from './smsBilling.js';
 import { sendSmsBatch, toE164 } from './smsProvider.js';
 import { supabase } from './supabaseClient.js';
+import { fetchAllRows } from './pagedQuery.js';
 
 export const ABSENT_SMS_TEMPLATE =
   '{student_name} did not come to school today. Please contact the school if this is unexpected.';
@@ -56,16 +57,23 @@ export function buildAbsentSmsBodies(groups, schoolName) {
 export async function listAbsentStudentsForDay({ schoolId, date } = {}) {
   const ymd = /^\d{4}-\d{2}-\d{2}$/.test(String(date || '')) ? String(date) : accraDate();
   const today = accraDate();
-  const [{ data: students, error: studentError }, { data: rows, error: attError }] = await Promise.all([
-    supabase.from('students').select('id, name, class, parent_phone').eq('school_id', schoolId),
-    supabase
-      .from('attendance')
-      .select('user_id, user_type, status')
-      .eq('school_id', schoolId)
-      .eq('date', ymd),
+  const [students, rows] = await Promise.all([
+    fetchAllRows(() =>
+      supabase
+        .from('students')
+        .select('id, name, class, parent_phone')
+        .eq('school_id', schoolId)
+        .order('id', { ascending: true })
+    ),
+    fetchAllRows(() =>
+      supabase
+        .from('attendance')
+        .select('user_id, user_type, status')
+        .eq('school_id', schoolId)
+        .eq('date', ymd)
+        .order('id', { ascending: true })
+    ),
   ]);
-  if (studentError) throw studentError;
-  if (attError) throw attError;
 
   const marked = new Map();
   for (const row of rows || []) {

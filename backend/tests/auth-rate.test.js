@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { blockedByLimit, getClientIp, takeMemoryLimit, takeScannerLimit } from '../authSecurity.js';
+import {
+  SCANNER_MARKS_PER_MINUTE,
+  blockedByLimit,
+  getClientIp,
+  takeMemoryLimit,
+  takeScannerLimit,
+} from '../authSecurity.js';
 
 test('client IP ignores a caller-supplied forwarded header', () => {
   const req = {
@@ -25,7 +31,7 @@ test('memory limit blocks the request after the cap', () => {
 test('scanner limit follows the link, not a spoofed address', () => {
   const token = `scanner-${Date.now()}`;
   let last = { allowed: true };
-  for (let i = 0; i < 300; i += 1) last = takeScannerLimit(token);
+  for (let i = 0; i < SCANNER_MARKS_PER_MINUTE; i += 1) last = takeScannerLimit(token);
   assert.equal(last.allowed, true);
   assert.equal(takeScannerLimit(token).allowed, false);
   assert.equal(takeScannerLimit(`${token}-other`).allowed, true);

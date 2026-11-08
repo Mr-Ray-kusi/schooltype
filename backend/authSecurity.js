@@ -249,9 +249,12 @@ export function takeMemoryLimit(key, { max, windowMs }) {
   return { allowed: true };
 }
 
+/** Two gates on one scanner link can mark a 1,000-student school without sharing a 300/min ceiling. */
+export const SCANNER_MARKS_PER_MINUTE = 1200;
+
 export function takeScannerLimit(token) {
   const hash = crypto.createHash('sha256').update(String(token || '')).digest('hex').slice(0, 24);
-  return takeMemoryLimit(`scan:${hash}`, { max: 300, windowMs: 60 * 1000 });
+  return takeMemoryLimit(`scan:${hash}`, { max: SCANNER_MARKS_PER_MINUTE, windowMs: 60 * 1000 });
 }
 
 export async function takeDurableLimit(kind, scope, { max, windowMs, message } = {}) {

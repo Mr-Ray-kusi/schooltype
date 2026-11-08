@@ -24,6 +24,7 @@ import { settleSmsPayment, refundSchoolAndPlatformUnits, quoteSmsForPhones } fro
 import { buildOwingFeeSmsBodies, groupOwingParents } from './feeReminderSms.js';
 import { makeWalletReference } from './schoolWalletStore.js';
 import { supabase } from './supabaseClient.js';
+import { fetchAllRows } from './pagedQuery.js';
 import { displayStudentId, needsSchoolStudentId, syncStudentIds } from './studentId.js';
 import { mergeStudentFieldList } from './studentFieldStore.js';
 import { isSchoolHeadRole } from './staffAdminRoutes.js';
@@ -652,6 +653,36 @@ function annotatePayments(payments) {
   }));
 }
 
+async function loadFeeRows(buildQuery) {
+  try {
+    return await fetchAllRows(buildQuery);
+  } catch (error) {
+    console.warn('Fee payment list skipped:', error.message || error);
+    return [];
+  }
+}
+
+async function loadSchoolFeeStudents(schoolId) {
+  const withExtras =
+    'id, name, class, roll_number, barcode, parent_phone, monthly_fee, extra_fees, fee_status';
+  const withoutExtras = 'id, name, class, roll_number, barcode, parent_phone, monthly_fee, fee_status';
+  const load = (columns) =>
+    fetchAllRows(() =>
+      supabase
+        .from('students')
+        .select(columns)
+        .eq('school_id', schoolId)
+        .order('name', { ascending: true })
+        .order('id', { ascending: true })
+    );
+  try {
+    return await load(withExtras);
+  } catch (error) {
+    if (!String(error.message || '').toLowerCase().includes('extra_fees')) throw error;
+    return load(withoutExtras);
+  }
+}
+
 export async function getFeeOverviewPayload(schoolId, query = {}) {
   const scope = String(query.scope || '').toLowerCase() === 'year' ? 'year' : 'term';
   const period = query.month
@@ -668,41 +699,28 @@ export async function getFeeOverviewPayload(schoolId, query = {}) {
   const TERM_PAY_COLUMNS =
     'id, payer_id, payer_name, payer_class, amount, status, channel, payment_method, recorded_by, payment_reference, payment_month, created_at';
 
-  let [{ data: students, error: studentError }, { data: classes }, termPayRes, yearPayRes] = await Promise.all([
-    supabase
-      .from('students')
-      .select('id, name, class, roll_number, barcode, parent_phone, monthly_fee, extra_fees, fee_status')
-      .eq('school_id', schoolId)
-      .order('name', { ascending: true }),
+  let [students, { data: classes }, payments, yearPayments] = await Promise.all([
+    loadSchoolFeeStudents(schoolId),
     supabase.from('classes').select('id, name, fee_amount').eq('school_id', schoolId),
-    supabase
-      .from('fee_payments')
-      .select(TERM_PAY_COLUMNS)
-      .eq('school_id', schoolId)
-      .eq('payment_month', month)
-      .order('created_at', { ascending: false })
-      .limit(500),
-    supabase
-      .from('fee_payments')
-      .select('amount, status')
-      .eq('school_id', schoolId)
-      .gte('created_at', `${year}-01-01`)
-      .limit(2000),
+    loadFeeRows(() =>
+      supabase
+        .from('fee_payments')
+        .select(TERM_PAY_COLUMNS)
+        .eq('school_id', schoolId)
+        .eq('payment_month', month)
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: true })
+    ),
+    loadFeeRows(() =>
+      supabase
+        .from('fee_payments')
+        .select('id, amount, status')
+        .eq('school_id', schoolId)
+        .gte('created_at', `${year}-01-01`)
+        .order('id', { ascending: true })
+    ),
   ]);
-  if (studentError && String(studentError.message || '').toLowerCase().includes('extra_fees')) {
-    const retry = await supabase
-      .from('students')
-      .select('id, name, class, roll_number, barcode, parent_phone, monthly_fee, fee_status')
-      .eq('school_id', schoolId)
-      .order('name', { ascending: true });
-    students = retry.data;
-    studentError = retry.error;
-  }
-  if (studentError) throw studentError;
   students = await mergeStudentFieldList(students || [], schoolId);
-
-  const payments = termPayRes.data || [];
-  const yearPayments = yearPayRes.data || [];
   const classFeeByName = new Map((classes || []).map((row) => [row.name, Number(row.fee_amount) || 0]));
   const paymentsByStudent = new Map();
   for (const payment of payments) {
