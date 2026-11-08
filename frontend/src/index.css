@@ -1557,24 +1557,6 @@ body:has(.portal-shell),
   }
 }
 
-.mk-google-btn {
-  display: inline-flex;
-  width: 100%;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  min-height: 2.6rem;
-  border: 1px solid var(--mk-line);
-  background: var(--mk-card);
-  color: var(--mk-ink);
-  font-size: 0.875rem;
-  font-weight: 700;
-}
-
-.mk-google-btn:hover {
-  background: var(--mk-paper);
-}
-
 .mk-hero-actions .mk-btn,
 .mk-hero-actions a {
   min-width: 7.5rem;

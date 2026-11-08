@@ -7,7 +7,7 @@ export const CSRF_HEADER = 'x-csrf-token';
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 const PUBLIC_MUTATIONS = [
-  /^\/api\/auth\/(login|signup|google|forgot-password|set-password|verify-email|resend-verification|complete-signup|signup-charge)/,
+  /^\/api\/auth\/(login|signup|forgot-password|set-password|verify-email|resend-verification|complete-signup|signup-charge)/,
   /^\/api\/public\//,
   /^\/api\/webhooks\//,
   /^\/api\/cron\//,

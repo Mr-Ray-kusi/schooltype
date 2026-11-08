@@ -16,7 +16,7 @@ const SECTIONS = [
   },
   {
     title: 'Processors',
-    body: 'Hosting and database providers including Vercel and Supabase, email delivery, Google sign-in, Paystack for payments, and SMS providers such as Twilio. Payment details are handled by Paystack. Schooltype does not store a MoMo PIN.',
+    body: 'Hosting and database providers including Vercel and Supabase, email delivery, Paystack for payments, and SMS providers such as Twilio. Payment details are handled by Paystack. Schooltype does not store a MoMo PIN.',
   },
   {
     title: 'Your rights',
@@ -29,7 +29,7 @@ const Privacy = () => (
     <div className="mk-page">
       <article className="mx-auto max-w-3xl">
         <h1 className="font-serif text-4xl font-bold text-[var(--mk-ink)]">Privacy notice</h1>
-        <p className="mt-3 text-sm text-[var(--mk-muted)]">Last updated: 21 October 2026</p>
+        <p className="mt-3 text-sm text-[var(--mk-muted)]">Last updated: 7 November 2026</p>
         <div className="mt-10 space-y-8">
           {SECTIONS.map((section) => (
             <section key={section.title}>

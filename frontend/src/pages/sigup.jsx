@@ -1,15 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link, useSearchParams, Navigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { useAuth, getPostAuthPath } from '../contexts/authcontext';
+import { useAuth } from '../contexts/authcontext';
 import { getPlan, formatPlanPriceGhs } from '../constants/plans';
 import MarketingChrome from '../components/MarketingChrome';
-import GoogleSignInButton from '../components/GoogleSignInButton';
 import { openPaystackCheckout } from '../utils/paystackCheckout';
 
 const Signup = () => {
   const navigate = useNavigate();
-  const { signup, loginWithGoogle } = useAuth();
+  const { signup } = useAuth();
   const [searchParams] = useSearchParams();
   const planParam = searchParams.get('plan');
   const selectedPlan = planParam ? getPlan(planParam) : null;
@@ -194,34 +193,6 @@ const Signup = () => {
         >
           {loading ? (starterTrial ? 'Starting free term…' : 'Opening Paystack…') : starterTrial ? 'Start free term' : 'Continue to payment'}
         </button>
-
-        <GoogleSignInButton
-          label="Sign up with Google"
-          disabled={loading || !privacyAccepted}
-          className="mk-google-btn"
-          onCredential={async ({ accessToken }) => {
-            if (!formData.schoolName.trim()) {
-              toast.error('Enter your school name first, then continue with Google.');
-              return;
-            }
-            if (!privacyAccepted) {
-              toast.error('Please accept the Privacy notice to create an account.');
-              return;
-            }
-            const data = await loginWithGoogle({
-              accessToken,
-              schoolName: formData.schoolName.trim(),
-              logo,
-              paymentPlan: planParam,
-              privacyAccepted: true,
-            });
-            if (openPaystack(data)) return;
-            toast.success(
-              data.trial ? 'Your first term is free. Welcome to Schooltype.' : 'Account ready. Welcome to Schooltype.'
-            );
-            navigate(getPostAuthPath(data.school), { replace: true });
-          }}
-        />
       </form>
 
       <p className="mt-6 text-sm leading-relaxed text-[var(--mk-muted)]">

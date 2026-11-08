@@ -5,13 +5,13 @@ import axios from 'axios';
 import toast from 'react-hot-toast';
 import { Mail, Lock, Eye, EyeOff, Loader2 } from 'lucide-react';
 import AuthSplitLayout, { AuthBrandMark, AuthField, AUTH_ORANGE } from '../components/AuthSplitLayout';
-import GoogleSignInButton from '../components/GoogleSignInButton';
-import { openPaystackCheckout } from '../utils/paystackCheckout';
 
 const REMEMBER_KEY = 'schootype_remember_email';
 
 function isTransientNetworkError(error) {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
+  const status = error?.response?.status;
+  if (status === 502 || status === 503 || status === 504) return true;
   if (error?.response) return false;
   const code = String(error?.code || error?.cause?.code || '');
   if (code === 'ECONNABORTED' || code === 'ERR_NETWORK' || code === 'ETIMEDOUT' || code === 'ECONNRESET') {
@@ -25,6 +25,18 @@ function isTransientNetworkError(error) {
     message.includes('failed to fetch') ||
     message.includes('load failed')
   );
+}
+
+function loginErrorMessage(error) {
+  const status = error?.response?.status;
+  const data = error?.response?.data;
+  const apiError = typeof data?.error === 'string' ? data.error.trim() : '';
+  if (apiError) return apiError;
+  if (!error?.response || status === 502 || status === 503 || status === 504) {
+    return 'Cannot reach the sign-in server. Make sure the API is running and try again.';
+  }
+  if (status === 401) return 'Check your email and password.';
+  return 'Could not sign in. Please try again.';
 }
 
 function wait(ms) {
@@ -60,6 +72,7 @@ async function waitForConnection(signal) {
 
 async function runUntilConnected(action, signal) {
   let delayMs = 1500;
+  let attempts = 0;
   for (;;) {
     try {
       return await action();
@@ -68,7 +81,8 @@ async function runUntilConnected(action, signal) {
         error.aborted = true;
         throw error;
       }
-      if (!isTransientNetworkError(error)) throw error;
+      if (!isTransientNetworkError(error) || attempts >= 3) throw error;
+      attempts += 1;
       await Promise.race([wait(delayMs), waitForOnline()]);
       await waitForConnection(signal);
       delayMs = Math.min(Math.round(delayMs * 1.4), 8000);
@@ -87,7 +101,7 @@ const Login = () => {
   const [resending, setResending] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [needsVerification, setNeedsVerification] = useState(Boolean(pendingFromSignup));
-  const { login, loginWithGoogle } = useAuth();
+  const { login } = useAuth();
   const navigate = useNavigate();
   const loginAttemptRef = useRef(0);
 
@@ -177,9 +191,9 @@ const Login = () => {
         if (data.email) setEmail(data.email);
         toast.error(data.error || 'Finish setup from your email link first.');
       } else if (isTransientNetworkError(error)) {
-        return;
+        toast.error(loginErrorMessage(error));
       } else {
-        const message = data?.error || 'Check your email and password.';
+        const message = loginErrorMessage(error);
         if (error.response?.status === 429 && data?.retryAfter) {
           toast.error(`${message} (${data.retryAfter}s)`);
         } else {
@@ -212,48 +226,7 @@ const Login = () => {
         </div>
       )}
 
-      <div className="mt-4">
-        <GoogleSignInButton
-          label="Sign in with Google"
-          disabled={loading}
-          className="mk-google-btn"
-          onCredential={async ({ accessToken }) => {
-            const attempt = ++loginAttemptRef.current;
-            const signal = { get aborted() { return loginAttemptRef.current !== attempt; } };
-            setLoading(true);
-            try {
-              const data = await runUntilConnected(
-                () => loginWithGoogle({ accessToken, remember: rememberMe }),
-                signal
-              );
-              if (data.authorization_url) {
-                openPaystackCheckout(data);
-                return;
-              }
-              toast.success('Login successful!');
-              navigate(getPostAuthPath(data.school));
-            } catch (error) {
-              if (error?.aborted || signal.aborted) return;
-              if (error.response?.data?.code === 'ACCOUNT_NOT_FOUND') {
-                toast.error('No school account for this Google email. Create an account first.');
-                navigate('/plans');
-                return;
-              }
-              if (isTransientNetworkError(error)) return;
-              throw error;
-            } finally {
-              if (loginAttemptRef.current === attempt) setLoading(false);
-            }
-          }}
-        />
-      </div>
-
-      <div className="relative my-3 text-center text-[11px] uppercase tracking-[0.14em] text-[#5c564c]">
-        <span className="absolute inset-x-0 top-1/2 h-px bg-[#d8cfc0]" />
-        <span className="relative bg-[#fffaf2] px-3">or continue with email</span>
-      </div>
-
-      <form onSubmit={handleSubmit} className="space-y-3">
+      <form onSubmit={handleSubmit} className="mt-6 space-y-3">
         <AuthField
           label="Email"
           icon={Mail}

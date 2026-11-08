@@ -18,7 +18,6 @@ const MIN_PASSWORD_LENGTH = 8;
 
 const HIT_LIMITS = {
   login: { max: 25, windowMs: LOCKOUT_WINDOW_MS },
-  google: { max: 20, windowMs: LOCKOUT_WINDOW_MS },
   staff_login: { max: 15, windowMs: LOCKOUT_WINDOW_MS },
   student_portal: { max: 20, windowMs: LOCKOUT_WINDOW_MS },
   resend: { max: 5, windowMs: SIGNUP_WINDOW_MS },

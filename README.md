@@ -35,7 +35,7 @@ cards and receipts, `@zxing` for QR scanning.
 - A Paystack account — new schools are only created after a successful payment, so
   signup cannot be tested without at least test keys
 - Optional for full functionality: Twilio (SMS), a Gmail or SMTP account (verification
-  email and broadcasts), a Google Cloud OAuth web client (Google sign-in)
+  email and broadcasts)
 
 ## Setup
 

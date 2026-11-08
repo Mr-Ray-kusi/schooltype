@@ -32,7 +32,6 @@ export const getPostAuthPath = (school) => {
 const isAuthRoute = (url = '') =>
   url.includes('/api/auth/login') ||
   url.includes('/api/auth/signup') ||
-  url.includes('/api/auth/google') ||
   url.includes('/api/auth/verify-email') ||
   url.includes('/api/auth/resend-verification') ||
   url.includes('/api/auth/forgot-password') ||
@@ -382,53 +381,6 @@ export const AuthProvider = ({ children }) => {
     return response.data;
   };
 
-  const loginWithGoogle = async ({
-    accessToken,
-    idToken,
-    schoolName,
-    logo,
-    paymentPlan,
-    privacyAccepted,
-    method,
-    phone,
-    provider,
-    remember,
-    billingInterval,
-  } = {}) => {
-    const response = await axios.post(
-      '/api/auth/google',
-      {
-        accessToken,
-        idToken,
-        schoolName,
-        logo,
-        paymentPlan,
-        privacyAccepted: Boolean(privacyAccepted),
-        method,
-        phone,
-        provider,
-        remember: Boolean(remember),
-        billingInterval,
-      },
-      { timeout: 20000 }
-    );
-    const data = response.data || {};
-    if (data.requiresPayment || data.authorization_url || data.mode === 'checkout' || data.mode === 'momo') {
-      return data;
-    }
-    if (data.trial && (!data.token || !data.school)) {
-      return data;
-    }
-    const { token: newToken, school: schoolData, expiresIn, csrfToken } = data;
-    if (!schoolData) {
-      const err = new Error('Google sign-in did not return a session.');
-      err.response = { data: { error: err.message } };
-      throw err;
-    }
-    storeSession(newToken, schoolData, expiresIn, csrfToken);
-    return data;
-  };
-
   const selectPlan = async (paymentPlan, payment = {}) => {
     const response = await axios.post(
       '/api/school/select-plan',
@@ -574,7 +526,6 @@ export const AuthProvider = ({ children }) => {
         signup,
         storeSessionFromAuth,
         login,
-        loginWithGoogle,
         selectPlan,
         completePaidSignup,
         refreshSchool,

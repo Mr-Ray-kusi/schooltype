@@ -159,7 +159,6 @@ import {
   getPlatformAnalytics,
 } from './platformTelemetry.js';
 import { getSchoolAnalytics } from './schoolAnalytics.js';
-import { getGoogleAuthConfig, verifyGoogleIdentity } from './googleAuth.js';
 import { fromMinorUnits, normalizeGhanaPhone } from './paystack.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -1388,7 +1387,6 @@ app.post('/api/auth/signup', async (req, res) => {
       schoolName: schoolName.trim(),
       logo,
       paymentPlan,
-      googleSignup: false,
       method,
       phone,
       provider,
@@ -1494,6 +1492,22 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     if (!school || !isValidPassword) {
+      if (school && getSchoolRole(school) !== 'super_admin' && !isSchoolEmailVerified(school)) {
+        await clearLoginFailures(email);
+        return res.status(403).json({
+          error: 'Please verify your email before signing in. Check your inbox or resend the link.',
+          code: 'EMAIL_NOT_VERIFIED',
+          email: school.email,
+        });
+      }
+      if (school && needsPasswordSetup(school)) {
+        await clearLoginFailures(email);
+        return res.status(403).json({
+          error: 'Finish creating your account from the email link, then choose a password.',
+          code: 'PASSWORD_NOT_SET',
+          email: school.email,
+        });
+      }
       await recordLoginFailure(email, clientIp);
       recordPlatformEvent({
         eventType: 'login_failed',
@@ -1507,7 +1521,9 @@ app.post('/api/auth/login', async (req, res) => {
           message: school ? 'Wrong password' : 'Email not found',
         },
       }).catch(() => {});
-      return res.status(401).json({ error: 'Invalid credentials' });
+      return res.status(401).json({
+        error: 'Check your email and password. If you have not set a password yet, use Forgot password.',
+      });
     }
 
     if (getSchoolRole(school) !== 'super_admin' && !isSchoolEmailVerified(school)) {
@@ -1555,110 +1571,6 @@ app.post('/api/auth/login', async (req, res) => {
       meta: { reason: 'system_failure', message: 'System failure during login' },
     }).catch(() => {});
     res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-app.get('/api/auth/google-config', (req, res) => {
-  res.json(getGoogleAuthConfig());
-});
-
-app.post('/api/auth/google', async (req, res) => {
-  try {
-    const { idToken, accessToken, schoolName, logo, paymentPlan, privacyAccepted, method, phone, provider, billingInterval } =
-      req.body || {};
-    const clientIp = getClientIp(req);
-    const hitCheck = await checkAuthHitAllowed('google', clientIp);
-    if (!hitCheck.allowed) return sendAuthRateLimited(res, hitCheck);
-    await recordAuthHit('google', clientIp);
-
-    const profile = await verifyGoogleIdentity({ idToken, accessToken });
-    const email = profile.email;
-
-    if (isSuperAdminEmail(email)) {
-      return res.status(400).json({
-        error: 'This email is reserved. Please use the email sign-in form instead.',
-      });
-    }
-
-    const logoError = validateLogo(logo);
-    if (logoError) {
-      return res.status(400).json({ error: logoError });
-    }
-
-    let school = await findSchoolByEmail(email);
-
-    if (!school) {
-      if (!paymentPlan || !VALID_PLAN_IDS.includes(paymentPlan)) {
-        return res.status(404).json({
-          error: 'No school account exists for this Google email. Choose a plan to create one.',
-          code: 'ACCOUNT_NOT_FOUND',
-        });
-      }
-
-      if (privacyAccepted !== true) {
-        return res.status(400).json({
-          error: 'Please review and accept the privacy notice to create an account.',
-        });
-      }
-
-      const signupCheck = await checkSignupAllowed(clientIp);
-      if (!signupCheck.allowed) {
-        return res.status(429).json({ error: signupCheck.message });
-      }
-
-      const name = String(schoolName || profile.name || '').trim();
-      if (!name) {
-        return res.status(400).json({ error: 'School name is required to create an account with Google.' });
-      }
-
-      await recordSignupAttempt(clientIp);
-      const checkout = await startSchoolSignupCheckout({
-        email,
-        schoolName: name,
-        logo,
-        paymentPlan,
-        googleSignup: true,
-        method,
-        phone,
-        provider,
-        billingInterval,
-      });
-      return res.json({
-        ...checkout,
-        email,
-        message: checkout.trial
-          ? checkout.message
-          : 'Complete payment to create your school account. Features unlock after a successful charge.',
-      });
-    } else {
-      const repairs = {};
-      if (school.email_verified !== true) repairs.email_verified = true;
-      if (needsPasswordSetup(school)) repairs.initial_password = null;
-      if (Object.keys(repairs).length) {
-        const { data: updated } = await schoolMaster().from('schools').update(repairs).eq('id', school.id).select().single();
-        if (updated) school = updated;
-      }
-    }
-
-    await clearLoginFailures(email);
-    school = await syncPaidPlanFromLedger(school);
-    const session = await issueSchoolSession(res, school, { remember: Boolean(req.body?.remember) });
-    if (getSchoolRole(school) !== 'super_admin') {
-      recordPlatformEvent({
-        eventType: 'login',
-        schoolId: school.id,
-        schoolName: school.name,
-        email: school.email,
-        role: getSchoolRole(school),
-        path: '/login',
-      }).catch(() => {});
-    }
-
-    res.json(session);
-  } catch (error) {
-    const status = error.status || 500;
-    if (status >= 500) console.error('Google auth error:', error);
-    res.status(status).json({ error: error.message || 'Google sign-in failed', code: error.code });
   }
 });
 
@@ -8008,51 +7920,65 @@ if (!isVercel()) {
     }
 
     const host = process.env.HOST || '0.0.0.0';
-    const server = app.listen(PORT, host, () => {
-      console.log(`Schooltype API listening on ${host}:${PORT}`);
-      if (isProduction() && !String(process.env.FRONTEND_URL || '').trim()) {
-        console.warn('FRONTEND_URL is not set. Email links will point at localhost. Set it to https://schootype.vercel.app');
-      }
-    });
+    let jobsStarted = false;
+    const startBackgroundJobs = () => {
+      if (jobsStarted) return;
+      jobsStarted = true;
+      const runReminders = () =>
+        withJobLock('subscription-reminders', 23 * 60 * 60 * 1000, () =>
+          runSubscriptionDueReminders({
+            sendEmail: async ({ to, subject, text, html }) =>
+              sendAuthEmail({ to, subject, text, html }),
+          })
+        ).catch((err) => console.warn('Reminder sweep failed:', err.message));
+      setTimeout(runReminders, 15000);
+      setInterval(runReminders, 24 * 60 * 60 * 1000);
 
-    const runReminders = () =>
-      withJobLock('subscription-reminders', 23 * 60 * 60 * 1000, () =>
-        runSubscriptionDueReminders({
-          sendEmail: async ({ to, subject, text, html }) =>
-            sendAuthEmail({ to, subject, text, html }),
-        })
-      ).catch((err) => console.warn('Reminder sweep failed:', err.message));
-    setTimeout(runReminders, 15000);
-    setInterval(runReminders, 24 * 60 * 60 * 1000);
+      const sweepAbsences = async () => {
+        await withJobLock('absence-sweep', 8 * 60 * 1000, async () => {
+          const { data: schools, error } = await supabase.from('schools').select('id').limit(400);
+          if (error) {
+            console.warn('Absence sweep school list failed:', error.message);
+            return;
+          }
+          for (const school of schools || []) {
+            try {
+              await backfillMissedAttendance(school.id);
+            } catch (err) {
+              console.warn(`Absence sweep failed for ${school.id}:`, err.message);
+            }
+          }
+        });
+      };
+      setTimeout(() => sweepAbsences().catch(() => {}), 25000);
+      setInterval(() => sweepAbsences().catch(() => {}), 10 * 60 * 1000);
+    };
 
-    const sweepAbsences = async () => {
-      await withJobLock('absence-sweep', 8 * 60 * 1000, async () => {
-        const { data: schools, error } = await supabase.from('schools').select('id').limit(400);
-        if (error) {
-          console.warn('Absence sweep school list failed:', error.message);
+    const listen = (attempt = 1) => {
+      const server = app.listen(PORT, host, () => {
+        console.log(`Schooltype API listening on ${host}:${PORT}`);
+        if (isProduction() && !String(process.env.FRONTEND_URL || '').trim()) {
+          console.warn('FRONTEND_URL is not set. Email links will point at localhost. Set it to https://schootype.vercel.app');
+        }
+        startBackgroundJobs();
+      });
+      server.on('error', (err) => {
+        if (err.code === 'EADDRINUSE' && attempt < 8) {
+          const waitMs = 400 * attempt;
+          console.warn(`Port ${PORT} is busy, retrying in ${waitMs}ms (${attempt}/7)...`);
+          setTimeout(() => listen(attempt + 1), waitMs);
           return;
         }
-        for (const school of schools || []) {
-          try {
-            await backfillMissedAttendance(school.id);
-          } catch (err) {
-            console.warn(`Absence sweep failed for ${school.id}:`, err.message);
-          }
+        if (err.code === 'EADDRINUSE') {
+          console.error(`\nPort ${PORT} is already in use — another backend instance may still be running.`);
+          console.error('Stop it first, then run npm run dev again in the backend folder.');
+          console.error(`Windows: netstat -ano | findstr :${PORT}  then  taskkill /PID <pid> /F\n`);
+        } else {
+          console.error('Failed to start server:', err.message);
         }
+        process.exit(1);
       });
     };
-    setTimeout(() => sweepAbsences().catch(() => {}), 25000);
-    setInterval(() => sweepAbsences().catch(() => {}), 10 * 60 * 1000);
-
-    server.on('error', (err) => {
-      if (err.code === 'EADDRINUSE') {
-        console.error(`\nPort ${PORT} is already in use — another backend instance may still be running.`);
-        console.error('Stop it first, then run npm run dev again in the backend folder.');
-        console.error(`Windows: netstat -ano | findstr :${PORT}  then  taskkill /PID <pid> /F\n`);
-      } else {
-        console.error('Failed to start server:', err.message);
-      }
-      process.exit(1);
-    });
+    listen();
   });
 }
