@@ -303,7 +303,7 @@ const Payments = () => {
           </p>
         ) : (
           <>
-            <div className="min-h-0 min-w-0 flex-1 overflow-auto">
+            <div className="min-h-[28rem] min-w-0 flex-1 overflow-auto">
               <table className="min-w-full text-left text-sm">
                 <thead className="bg-slate-950/50 text-[11px] uppercase tracking-wide text-slate-500">
                   <tr>
