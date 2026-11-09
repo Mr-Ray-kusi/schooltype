@@ -7,6 +7,7 @@ import RecordFeePaymentModal from '../components/RecordFeePaymentModal';
 import FeePaymentReceiptModal from '../components/FeePaymentReceiptModal';
 import PaginationBar from '../components/PaginationBar';
 import { LIST_PAGE_SIZE } from '../utils/listApi.js';
+import { OWING_SMS_TEMPLATE } from '../constants/smsTemplates';
 
 const formatGhs = (value) =>
   `GHS ${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -18,9 +19,7 @@ const Fees = () => {
   const [tab, setTab] = useState('paid');
   const [showManual, setShowManual] = useState(false);
   const [showReminderModal, setShowReminderModal] = useState(false);
-  const [reminderMessage, setReminderMessage] = useState(
-    'Dear Parent, please settle outstanding school fees this term. Pay here: {pay_link} You can pay with MoMo, bank transfer, or USSD.'
-  );
+  const [reminderMessage, setReminderMessage] = useState(OWING_SMS_TEMPLATE);
   const [smsQuote, setSmsQuote] = useState(null);
   const [sending, setSending] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
@@ -47,6 +46,22 @@ const Fees = () => {
   useEffect(() => {
     setPage(1);
   }, [tab, searchTerm]);
+
+  useEffect(() => {
+    let cancelled = false;
+    axios
+      .get('/api/fees/reminder-template')
+      .then(({ data }) => {
+        if (cancelled) return;
+        const saved = String(data?.message || '').trim();
+        if (!saved) return;
+        setReminderMessage((current) => (current === OWING_SMS_TEMPLATE ? saved : current));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const sendReminder = async () => {
     setSending(true);
@@ -304,6 +319,11 @@ const Fees = () => {
               onChange={(e) => {
                 setReminderMessage(e.target.value);
                 setSmsQuote(null);
+              }}
+              onBlur={() => {
+                const text = reminderMessage.trim();
+                if (!text) return;
+                axios.put('/api/fees/reminder-template', { message: text }).catch(() => {});
               }}
               rows="6"
               className="mt-6 w-full rounded-3xl border border-slate-600 bg-slate-800 px-4 py-4 text-white"

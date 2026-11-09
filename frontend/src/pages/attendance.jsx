@@ -1,12 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
-import { AlertTriangle, ChevronDown, Clock, Download, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { AlertTriangle, ChevronDown, Clock, Download, MessageSquare, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { cachedGet, invalidateCache, peekCache, staleGet } from '../utils/requestCache';
 import { eachSchoolDay, schoolLocalDate } from '../utils/schoolDate';
 import { useLivePoll } from '../hooks/useLivePoll';
 import { useAuth } from '../contexts/authcontext';
+import { useStaffEmbed } from '../contexts/staffEmbed';
+import AbsentParentSmsModal from '../components/AbsentParentSmsModal';
 import { downloadAllStudentAttendanceZip, downloadTermAttendancePdf } from '../utils/attendanceTermPdf';
 import PaginationBar from '../components/PaginationBar';
 import ConfirmTypedDeleteModal from '../components/ConfirmTypedDeleteModal';
@@ -248,6 +250,7 @@ const TermRecords = ({
 
 const Attendance = () => {
   const { school, canDownload } = useAuth();
+  const { embedded } = useStaffEmbed();
   const [attendanceRecords, setAttendanceRecords] = useState([]);
   const [openKey, setOpenKey] = useState(null);
   const [termCache, setTermCache] = useState({});
@@ -268,6 +271,7 @@ const Attendance = () => {
   const [pageSize, setPageSize] = useState(8);
   const listRef = useRef(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [showAbsentSms, setShowAbsentSms] = useState(false);
 
   const fetchLateSettings = async () => {
     try {
@@ -623,6 +627,16 @@ const Attendance = () => {
             onChange={(e) => setSelectedDate(e.target.value)}
             className={`${fieldClass} w-[10.5rem]`}
           />
+          {embedded ? null : (
+            <button
+              type="button"
+              onClick={() => setShowAbsentSms(true)}
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-600 px-3 text-sm font-medium text-slate-100 hover:bg-slate-800"
+            >
+              <MessageSquare className="h-3.5 w-3.5" />
+              SMS absents
+            </button>
+          )}
           <button
             type="button"
             onClick={refresh}
@@ -787,6 +801,12 @@ const Attendance = () => {
           </>
         )}
       </div>
+
+      <AbsentParentSmsModal
+        open={showAbsentSms}
+        onClose={() => setShowAbsentSms(false)}
+        date={selectedDate}
+      />
 
       {filteredRecords.length > 0 ? (
         <div className="shrink-0 print:hidden">

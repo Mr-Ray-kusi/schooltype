@@ -119,6 +119,7 @@ import { isProtectedStaffRole, staffPortalApiAllowed, staffPortalAsSchoolUser } 
 import { parseRequiredGender, parseRequiredSalary } from './peopleCreate.js';
 import { extraFeesJson } from './feePayments.js';
 import { notifyParentsOfAbsence, sendAbsentParentSms } from './absentNotify.js';
+import { getSchoolSmsTemplates, saveSchoolSmsTemplates } from './smsTemplates.js';
 import { registerAlumniRoutes } from './alumniRoutes.js';
 import { applyTermPromotion } from './studentPromotion.js';
 import { sortClasses } from './classHierarchy.js';
@@ -6568,6 +6569,24 @@ app.post('/api/attendance/mark', authenticateToken, enforcePlanApproval, async (
   }
 });
 
+app.get('/api/attendance/sms-template', authenticateToken, enforcePlanApproval, async (req, res) => {
+  try {
+    const templates = await getSchoolSmsTemplates(req.user.schoolId);
+    res.json({ message: templates.absent });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message || 'Failed to load the absence message' });
+  }
+});
+
+app.put('/api/attendance/sms-template', authenticateToken, enforcePlanApproval, async (req, res) => {
+  try {
+    const saved = await saveSchoolSmsTemplates(req.user.schoolId, { absent: req.body?.message });
+    res.json({ message: saved.absent });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message || 'Failed to save the absence message' });
+  }
+});
+
 app.post('/api/attendance/absent-sms', authenticateToken, enforcePlanApproval, async (req, res) => {
   try {
     if (
@@ -6591,6 +6610,7 @@ app.post('/api/attendance/absent-sms', authenticateToken, enforcePlanApproval, a
       schoolId: req.user.schoolId,
       schoolName: school?.name || 'School',
       date: req.body?.date,
+      message: req.body?.message,
       confirmSmsPayment: Boolean(req.body?.confirmSmsPayment),
       senderName: req.user.staffPortal
         ? req.staffPortal?.staffName || 'Administrator'
@@ -7570,7 +7590,7 @@ async function initializeDatabase() {
 
     const profileCols = await ensureStudentProfileColumns();
     if (profileCols.ok) {
-      console.log('Student gender, extra charges, and staff MoMo columns are ready');
+      console.log('Student gender, extra charges, staff MoMo, and SMS template columns are ready');
     } else if (profileCols.error) {
       console.warn('Could not add profile columns:', profileCols.error.message);
     }

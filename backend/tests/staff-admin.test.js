@@ -45,6 +45,8 @@ test('staff administrator can use academic APIs, not salary payments or wallet t
   assert.equal(staffPortalApiAllowed(admin, { method: 'PUT', path: '/api/classes/1' }).ok, true);
   assert.equal(staffPortalApiAllowed(admin, { method: 'GET', path: '/api/attendance' }).ok, true);
   assert.equal(staffPortalApiAllowed(admin, { method: 'POST', path: '/api/attendance/absent-sms' }).ok, true);
+  assert.equal(staffPortalApiAllowed(admin, { method: 'PUT', path: '/api/attendance/sms-template' }).ok, true);
+  assert.equal(staffPortalApiAllowed(admin, { method: 'PUT', path: '/api/fees/reminder-template' }).ok, false);
   assert.equal(staffPortalApiAllowed(admin, { method: 'GET', path: '/api/alumni' }).ok, true);
   assert.equal(staffPortalApiAllowed(admin, { method: 'POST', path: '/api/alumni/complete' }).ok, true);
   assert.equal(staffPortalApiAllowed(admin, { method: 'POST', path: '/api/scanner/regenerate' }).ok, true);
@@ -96,6 +98,8 @@ test('accountant can manage fees and salary payments but cannot deposit or withd
   assert.equal(staffPortalApiAllowed(accountant, { method: 'GET', path: '/api/fees/overview' }).ok, true);
   assert.equal(staffPortalApiAllowed(accountant, { method: 'POST', path: '/api/fees/manual' }).ok, true);
   assert.equal(staffPortalApiAllowed(accountant, { method: 'POST', path: '/api/staff-portal/session/fees/reminder' }).ok, true);
+  assert.equal(staffPortalApiAllowed(accountant, { method: 'PUT', path: '/api/fees/reminder-template' }).ok, true);
+  assert.equal(staffPortalApiAllowed(accountant, { method: 'PUT', path: '/api/attendance/sms-template' }).ok, false);
   assert.equal(staffPortalApiAllowed(accountant, { method: 'GET', path: '/api/wallet' }).ok, true);
   assert.equal(staffPortalApiAllowed(accountant, { method: 'POST', path: '/api/wallet/deposit' }).ok, false);
   assert.equal(staffPortalApiAllowed(accountant, { method: 'POST', path: '/api/wallet/withdraw' }).ok, false);

@@ -1,9 +1,15 @@
 import { quoteSmsForPhones, settleSmsPayment, refundSchoolAndPlatformUnits } from './smsBilling.js';
 import { sendSmsBatch, toE164 } from './smsProvider.js';
+import { ABSENT_SMS_TEMPLATE, fillSmsTemplate, getSchoolSmsTemplates, requireSmsTemplate, saveSchoolSmsTemplates } from './smsTemplates.js';
 import { supabase } from './supabaseClient.js';
 
-export const ABSENT_SMS_TEMPLATE =
-  '{student_name} did not come to school today. Please contact the school if this is unexpected.';
+export { ABSENT_SMS_TEMPLATE };
+
+const escapeSmsHtml = (value) =>
+  String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 
 const accraDate = (date = new Date()) =>
   new Intl.DateTimeFormat('en-CA', {
@@ -18,11 +24,15 @@ const isPresentStatus = (status) => {
   return value === 'early' || value === 'late' || value === 'present';
 };
 
-export function absenceMessage(studentName, className, schoolName) {
+export function absenceMessage(studentName, className, schoolName, template = ABSENT_SMS_TEMPLATE) {
   const who = studentName || 'your child';
-  const where = className ? ` (${className})` : '';
+  const named = className ? `${who} (${className})` : who;
   const school = schoolName || 'the school';
-  return `${who}${where} did not come to school today. Please contact ${school} if this is unexpected.`;
+  return fillSmsTemplate(template || ABSENT_SMS_TEMPLATE, {
+    student_name: named,
+    class: className || '',
+    school_name: school,
+  });
 }
 
 export function groupAbsentParents(students) {
@@ -37,7 +47,7 @@ export function groupAbsentParents(students) {
   return [...byPhone.entries()].map(([phone, kids]) => ({ phone, students: kids }));
 }
 
-export function buildAbsentSmsBodies(groups, schoolName) {
+export function buildAbsentSmsBodies(groups, schoolName, template = ABSENT_SMS_TEMPLATE) {
   const bodies = {};
   for (const group of groups || []) {
     const names = (group.students || []).map((student) => {
@@ -48,7 +58,7 @@ export function buildAbsentSmsBodies(groups, schoolName) {
       names.length <= 1
         ? names[0] || 'your child'
         : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
-    bodies[group.phone] = absenceMessage(who, '', schoolName).replace(' ()', '');
+    bodies[group.phone] = absenceMessage(who, '', schoolName, template);
   }
   return bodies;
 }
@@ -87,6 +97,7 @@ export async function sendAbsentParentSms({
   schoolId,
   schoolName,
   date,
+  message,
   confirmSmsPayment,
   senderName,
   senderRole,
@@ -98,13 +109,19 @@ export async function sendAbsentParentSms({
   }
   const ymd = /^\d{4}-\d{2}-\d{2}$/.test(String(date || '')) ? String(date) : accraDate();
   const label = schoolName || 'School';
+  const saved = await getSchoolSmsTemplates(schoolId);
+  const template =
+    message === undefined || message === null ? saved.absent : requireSmsTemplate(message);
+  if (template !== saved.absent) {
+    await saveSchoolSmsTemplates(schoolId, { absent: template }).catch(() => {});
+  }
   const absent = await listAbsentStudentsForDay({ schoolId, date: ymd });
   const groups = groupAbsentParents(absent);
   const phones = groups.map((group) => group.phone);
-  const bodiesByPhone = buildAbsentSmsBodies(groups, label);
+  const bodiesByPhone = buildAbsentSmsBodies(groups, label, template);
   const sample =
     Object.values(bodiesByPhone).sort((left, right) => right.length - left.length)[0] ||
-    absenceMessage('your child', '', label);
+    absenceMessage('your child', '', label, template);
 
   if (!phones.length) {
     const err = new Error(
@@ -217,13 +234,15 @@ export async function notifyParentsOfAbsence({
   if (!schoolId || !roster.length) return { sms: 0, email: 0 };
 
   const label = schoolName || 'School';
+  const saved = await getSchoolSmsTemplates(schoolId);
+  const template = saved.absent || ABSENT_SMS_TEMPLATE;
   const smsCandidates = [];
   const emailCandidates = [];
 
   for (const student of roster) {
     const phone = toE164(student.parent_phone || student.parentPhone);
     const email = String(student.parent_email || student.parentEmail || '').trim();
-    const body = absenceMessage(student.name, student.class || student.label);
+    const body = absenceMessage(student.name, student.class || student.label, label, template);
     if (phone) smsCandidates.push({ student, phone, body, email });
     else if (email) emailCandidates.push({ student, email, body });
   }
@@ -295,7 +314,7 @@ export async function notifyParentsOfAbsence({
         to: row.email,
         subject: `${label}: ${row.student?.name || 'Student'} is absent today`,
         text: row.body,
-        html: `<p>${row.body}</p>`,
+        html: `<p>${escapeSmsHtml(row.body)}</p>`,
       });
       emailSent += 1;
     } catch (error) {

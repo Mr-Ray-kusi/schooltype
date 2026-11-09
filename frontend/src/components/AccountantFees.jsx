@@ -7,6 +7,7 @@ import FeePaymentReceiptModal from './FeePaymentReceiptModal';
 import { formatGhs } from '../utils/feeReceiptPdf';
 import { downloadTableXlsx } from '../utils/tableXlsx';
 import { useAuth } from '../contexts/authcontext';
+import { OWING_SMS_TEMPLATE } from '../constants/smsTemplates';
 
 const formatWhen = (value) => {
   if (!value) return '';
@@ -322,9 +323,7 @@ const AccountantFees = ({
   const [showManual, setShowManual] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
   const [showReminder, setShowReminder] = useState(false);
-  const [reminderMessage, setReminderMessage] = useState(
-    'Dear Parent, please settle outstanding school fees this term. Pay here: {pay_link} You can pay with MoMo, bank transfer, or USSD.'
-  );
+  const [reminderMessage, setReminderMessage] = useState(OWING_SMS_TEMPLATE);
   const [smsQuote, setSmsQuote] = useState(null);
   const [sending, setSending] = useState(false);
   const [exporting, setExporting] = useState('');
@@ -344,6 +343,22 @@ const AccountantFees = ({
   useEffect(() => {
     load().catch(() => {});
   }, [load]);
+
+  useEffect(() => {
+    let cancelled = false;
+    axios
+      .get('/api/staff-portal/session/fees/reminder-template', requestConfig)
+      .then(({ data }) => {
+        if (cancelled) return;
+        const saved = String(data?.message || '').trim();
+        if (!saved) return;
+        setReminderMessage((current) => (current === OWING_SMS_TEMPLATE ? saved : current));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [requestConfig]);
 
   useEffect(() => {
     if (reminderOpen) {
@@ -717,6 +732,13 @@ const AccountantFees = ({
               onChange={(e) => {
                 setReminderMessage(e.target.value);
                 setSmsQuote(null);
+              }}
+              onBlur={() => {
+                const text = reminderMessage.trim();
+                if (!text) return;
+                axios
+                  .put('/api/staff-portal/session/fees/reminder-template', { message: text }, requestConfig)
+                  .catch(() => {});
               }}
               rows="6"
               className="mt-6 w-full rounded-3xl border border-slate-600 bg-slate-800 px-4 py-4 text-white"

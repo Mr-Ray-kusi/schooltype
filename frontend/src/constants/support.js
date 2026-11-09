@@ -38,7 +38,7 @@ export const SUPPORT_FAQS = [
   },
   {
     q: 'What happens if a student is marked absent?',
-    a: 'The school can send a ready-made SMS to the parent from Attendance. Late check-ins can also move to absent after the late window.',
+    a: 'The school can edit the absence message, then send it to the parent from Attendance. Late check-ins can also move to absent after the late window.',
   },
   {
     q: 'Who can see our school records?',
