@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
-import { Download, Printer, RefreshCw, Trash2, X } from 'lucide-react';
+import { Download, Printer, RefreshCw, Trash2 } from 'lucide-react';
 import { useAuth } from '../contexts/authcontext';
 import { useLivePoll } from '../hooks/useLivePoll';
 import { forceGet, invalidateCache, peekCache, staleGet, REPORT_CACHE_MS } from '../utils/requestCache';
 import ClassReportBoard from '../components/ClassReportBoard';
+import ConfirmTypedDeleteModal from '../components/ConfirmTypedDeleteModal';
 import {
   downloadStudentReportCardsPdf,
   downloadSubjectRankingsPdf,
@@ -26,7 +27,6 @@ const ReportCards = () => {
   const [selectedStudentKeys, setSelectedStudentKeys] = useState([]);
   const [clearing, setClearing] = useState(false);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
-  const [clearConfirmText, setClearConfirmText] = useState('');
   const [filterOptions, setFilterOptions] = useState({ classes: [], terms: [] });
 
   const loadScores = useCallback(
@@ -114,21 +114,15 @@ const ReportCards = () => {
   const closeClearConfirm = () => {
     if (clearing) return;
     setClearConfirmOpen(false);
-    setClearConfirmText('');
   };
 
   const handleClearAllScores = () => {
-    setClearConfirmText('');
     setClearConfirmOpen(true);
   };
 
   const confirmClearAllScores = async () => {
     if (!canWrite) {
       toast.error('Your term plan has ended. Scores stay view-only until you renew.');
-      return;
-    }
-    if (clearConfirmText !== CLEAR_SCORES_PHRASE) {
-      toast.error(`Type ${CLEAR_SCORES_PHRASE} to confirm`);
       return;
     }
     setClearing(true);
@@ -138,7 +132,6 @@ const ReportCards = () => {
       setScores([]);
       setSelectedStudentKeys([]);
       setClearConfirmOpen(false);
-      setClearConfirmText('');
       toast.success(data?.message || 'Teacher score entries cleared');
       await loadScores({ silent: false, force: true });
     } catch (err) {
@@ -289,61 +282,17 @@ const ReportCards = () => {
         }
       />
 
-      {clearConfirmOpen ? (
-        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-slate-950/70 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-sm sm:items-center sm:p-4">
-          <div className="w-full max-w-md rounded-t-3xl border border-slate-700 bg-slate-900 p-6 shadow-2xl sm:rounded-3xl">
-            <div className="flex items-start justify-between gap-3">
-              <h2 className="text-lg font-bold text-white">Clear all scores?</h2>
-              <button
-                type="button"
-                onClick={closeClearConfirm}
-                disabled={clearing}
-                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white disabled:opacity-50"
-                aria-label="Cancel"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <p className="mt-3 text-sm leading-relaxed text-slate-100">
-              This permanently deletes every teacher score for this school. Type the 20 characters below to confirm.
-            </p>
-            <p className="mt-4 rounded-xl bg-slate-950 px-3 py-2 font-mono text-sm text-amber-200">
-              {CLEAR_SCORES_PHRASE}
-            </p>
-            <label className="mt-4 block text-sm text-slate-100">
-              Type the text above
-              <input
-                value={clearConfirmText}
-                onChange={(event) => setClearConfirmText(event.target.value.slice(0, CLEAR_SCORES_PHRASE.length))}
-                autoComplete="off"
-                spellCheck={false}
-                disabled={clearing}
-                className="mt-1.5 w-full rounded-xl border border-slate-600 bg-slate-950 px-3 py-2.5 font-mono text-sm text-white outline-none focus:border-sky-500"
-                placeholder={CLEAR_SCORES_PHRASE}
-              />
-            </label>
-            <div className="mt-6 flex flex-col gap-2">
-              <button
-                type="button"
-                disabled={clearing || clearConfirmText !== CLEAR_SCORES_PHRASE}
-                onClick={confirmClearAllScores}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-rose-500 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <Trash2 className="h-4 w-4" />
-                {clearing ? 'Clearing…' : 'Clear all scores'}
-              </button>
-              <button
-                type="button"
-                disabled={clearing}
-                onClick={closeClearConfirm}
-                className="rounded-xl px-4 py-2 text-sm text-slate-100 hover:bg-slate-800 disabled:opacity-60"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <ConfirmTypedDeleteModal
+        open={clearConfirmOpen}
+        title="Clear all scores?"
+        description="This permanently deletes every teacher score for this school. Type the phrase below to confirm."
+        confirmText={CLEAR_SCORES_PHRASE}
+        actionLabel="Clear all scores"
+        busyLabel="Clearing…"
+        busy={clearing}
+        onClose={closeClearConfirm}
+        onConfirm={confirmClearAllScores}
+      />
     </div>
   );
 };

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Download, Trash2, X } from 'lucide-react';
 
 const ConfirmPersonDeleteModal = ({
@@ -10,9 +10,20 @@ const ConfirmPersonDeleteModal = ({
   onRemove,
 }) => {
   const [busy, setBusy] = useState('');
+  const [typed, setTyped] = useState('');
+  const phrase = String(name || '').trim() || 'DELETE';
+
+  useEffect(() => {
+    if (open) {
+      setTyped('');
+      setBusy('');
+    }
+  }, [open, phrase]);
+
   if (!open) return null;
 
   const label = kind === 'staff' ? 'staff member' : kind === 'non-staff' ? 'non-staff member' : 'student';
+  const matches = typed.trim() === phrase;
 
   const run = async (action, key) => {
     if (busy) return;
@@ -41,8 +52,23 @@ const ConfirmPersonDeleteModal = ({
         </div>
         <p className="mt-3 text-sm leading-relaxed text-slate-300">
           Permanently removing this {label} deletes their attendance, reports, fee receipts, and the
-          rest of their record. Download their details first if the school still needs a copy.
+          rest of their record. Download their details first if the school still needs a copy. Type the
+          name below to confirm.
         </p>
+        <p className="mt-4 rounded-xl bg-slate-950 px-3 py-2 font-mono text-sm text-amber-200">{phrase}</p>
+        <label className="mt-4 block text-sm text-slate-100">
+          Type the text above to confirm
+          <input
+            value={typed}
+            onChange={(event) => setTyped(event.target.value)}
+            autoFocus
+            autoComplete="off"
+            spellCheck={false}
+            disabled={Boolean(busy)}
+            className="mt-1.5 w-full rounded-xl border border-slate-600 bg-slate-950 px-3 py-2.5 font-mono text-sm text-white outline-none focus:border-sky-500 disabled:opacity-60"
+            placeholder={phrase}
+          />
+        </label>
         <div className="mt-6 flex flex-col gap-2">
           <button
             type="button"
@@ -55,9 +81,9 @@ const ConfirmPersonDeleteModal = ({
           </button>
           <button
             type="button"
-            disabled={Boolean(busy)}
+            disabled={Boolean(busy) || !matches}
             onClick={() => run(onRemove, 'remove')}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-rose-500 disabled:opacity-60"
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-rose-500 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Trash2 className="h-4 w-4" />
             {busy === 'remove' ? 'Removing…' : 'Permanently remove records'}

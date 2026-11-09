@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { planFeatureLabels } from '../constants/plans';
+import ConfirmTypedDeleteModal from '../components/ConfirmTypedDeleteModal';
 
 const formatMoney = (amount) =>
   new Intl.NumberFormat('en-GH', { style: 'currency', currency: 'GHS', maximumFractionDigits: 0 }).format(amount || 0);
@@ -67,7 +68,6 @@ const SuperAdminSchool = () => {
   const [updatingApproval, setUpdatingApproval] = useState(false);
   const [updatingSubscription, setUpdatingSubscription] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [deleteConfirmName, setDeleteConfirmName] = useState('');
   const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
@@ -117,14 +117,15 @@ const SuperAdminSchool = () => {
   };
 
   const handleDeleteSchool = async () => {
-    if (deleteConfirmName.trim() !== school.name) {
+    const confirmName = String(school?.name || '').trim();
+    if (!confirmName) {
       toast.error('School name does not match');
       return;
     }
     setDeleting(true);
     try {
       await axios.delete(`/api/super-admin/schools/${schoolId}`, {
-        data: { confirmName: deleteConfirmName.trim() },
+        data: { confirmName },
       });
       toast.success('School account deleted');
       navigate('/super-admin');
@@ -488,44 +489,18 @@ const SuperAdminSchool = () => {
         </div>
       </div>
 
-      {showDeleteModal ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <div className="w-full max-w-md space-y-4 rounded-3xl border border-white/10 bg-[#141416] p-6">
-            <h3 className="text-lg font-semibold text-white">Confirm deletion</h3>
-            <p className="text-sm text-zinc-400">
-              Type <span className="font-medium text-white">{school.name}</span> to permanently delete this school
-              account.
-            </p>
-            <input
-              type="text"
-              value={deleteConfirmName}
-              onChange={(event) => setDeleteConfirmName(event.target.value)}
-              placeholder="School name"
-              className="w-full rounded-xl border border-white/10 bg-zinc-950 px-3 py-2.5 text-sm text-white outline-none focus:border-rose-400/50"
-            />
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowDeleteModal(false);
-                  setDeleteConfirmName('');
-                }}
-                className="rounded-full border border-white/10 px-4 py-2 text-sm text-zinc-200"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={deleting || deleteConfirmName.trim() !== school.name}
-                onClick={handleDeleteSchool}
-                className="rounded-full bg-rose-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
-              >
-                {deleting ? 'Deleting…' : 'Delete permanently'}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <ConfirmTypedDeleteModal
+        open={showDeleteModal}
+        title="Confirm deletion"
+        description={`Type ${school.name} to permanently delete this school account and all of its records.`}
+        confirmText={school.name}
+        actionLabel="Delete permanently"
+        busy={deleting}
+        onClose={() => {
+          if (!deleting) setShowDeleteModal(false);
+        }}
+        onConfirm={handleDeleteSchool}
+      />
     </div>
   );
 };

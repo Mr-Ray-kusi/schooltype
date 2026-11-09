@@ -7,6 +7,7 @@ import { forceGet, invalidateCache, peekCache, staleGet } from '../utils/request
 import MultiSelectDropdown from '../components/MultiSelectDropdown';
 import PersonRecordTable from '../components/PersonRecordTable';
 import PaginationBar from '../components/PaginationBar';
+import ConfirmTypedDeleteModal from '../components/ConfirmTypedDeleteModal';
 import { LIST_PAGE_SIZE } from '../utils/listApi';
 import { sortClasses } from '../utils/classHierarchy';
 import { FEE_CURRENCIES, formatMoney, normalizeFeeCurrency } from '../utils/feeCurrency';
@@ -93,6 +94,8 @@ const Setup = () => {
   const [savingTerms, setSavingTerms] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [termModal, setTermModal] = useState(null);
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const [deletingTyped, setDeletingTyped] = useState(false);
   const [feeCurrency, setFeeCurrency] = useState(normalizeFeeCurrency(school?.fee_currency));
   const [savingCurrency, setSavingCurrency] = useState(false);
 
@@ -300,14 +303,15 @@ const Setup = () => {
     if (ok) setTermModal(null);
   };
 
-  const deleteTerm = async () => {
+  const requestDeleteTerm = () => {
     if (!termModal || termModal.mode !== 'edit') return;
-    if (!window.confirm('Delete this term?')) return;
-    const next = termRows.filter((row, index) =>
-      termModal.id ? row.id !== termModal.id : index !== termModal.index
-    );
-    const ok = await persistTerms(next, 'Term deleted');
-    if (ok) setTermModal(null);
+    const name = String(termModal.name || '').trim() || 'DELETE';
+    setPendingDelete({
+      kind: 'term',
+      name,
+      title: `Delete ${name === 'DELETE' ? 'this term' : name}?`,
+      description: 'This removes the term from the school calendar. Type the term name to confirm.',
+    });
   };
 
   const openAddClass = () => {
@@ -446,34 +450,70 @@ const Setup = () => {
     }
   };
 
-  const deleteClass = async (id) => {
-    if (!window.confirm('Delete this class?')) return;
-    try {
-      await axios.delete(`/api/classes/${id}`);
-      if (classModal?.id === id) setClassModal(null);
-      invalidateCache('classes');
-      load();
-    } catch (error) {
-      if (!error.offlineQueued && error.response) {
-        toast.error(error.response?.data?.error || 'Failed to delete class');
-      }
-    }
+  const requestDeleteClass = (id) => {
+    const name = String(
+      (classModal?.id === id ? classModal.name : classes.find((item) => item.id === id)?.name) || ''
+    ).trim();
+    setPendingDelete({
+      kind: 'class',
+      id,
+      name: name || 'DELETE',
+      title: `Delete ${name || 'this class'}?`,
+      description: 'This permanently removes the class. Type the class name to confirm.',
+    });
   };
 
-  const deleteSubject = async (id) => {
-    if (!window.confirm('Delete this subject?')) return;
-    const removed = subjects.find((item) => item.id === id);
+  const requestDeleteSubject = (id) => {
+    const item = subjects.find((row) => row.id === id);
+    const name = String(subjectDrafts[id]?.name ?? item?.name ?? '').trim();
+    setPendingDelete({
+      kind: 'subject',
+      id,
+      name: name || 'DELETE',
+      title: `Delete ${name || 'this subject'}?`,
+      description: 'This permanently removes the subject. Type the subject name to confirm.',
+    });
+  };
+
+  const confirmPendingDelete = async () => {
+    if (!pendingDelete || deletingTyped) return;
+    setDeletingTyped(true);
     try {
-      await axios.delete(`/api/subjects/${id}`);
-      if (removed?.name) {
-        setCoreLabels((prev) => prev.filter((name) => !matchesCore(name, [removed.name])));
+      if (pendingDelete.kind === 'term') {
+        const next = termRows.filter((row, index) =>
+          termModal.id ? row.id !== termModal.id : index !== termModal.index
+        );
+        const ok = await persistTerms(next, 'Term deleted');
+        if (ok) {
+          setTermModal(null);
+          setPendingDelete(null);
+        }
+        return;
       }
-      invalidateCache('subjects');
-      load();
+      if (pendingDelete.kind === 'class') {
+        await axios.delete(`/api/classes/${pendingDelete.id}`);
+        if (classModal?.id === pendingDelete.id) setClassModal(null);
+        invalidateCache('classes');
+        setPendingDelete(null);
+        load();
+        return;
+      }
+      if (pendingDelete.kind === 'subject') {
+        const removed = subjects.find((item) => item.id === pendingDelete.id);
+        await axios.delete(`/api/subjects/${pendingDelete.id}`);
+        if (removed?.name) {
+          setCoreLabels((prev) => prev.filter((name) => !matchesCore(name, [removed.name])));
+        }
+        invalidateCache('subjects');
+        setPendingDelete(null);
+        load();
+      }
     } catch (error) {
       if (!error.offlineQueued && error.response) {
-        toast.error(error.response?.data?.error || 'Failed to delete subject');
+        toast.error(error.response?.data?.error || 'Failed to delete');
       }
+    } finally {
+      setDeletingTyped(false);
     }
   };
 
@@ -824,7 +864,7 @@ const Setup = () => {
                     ) : null}
                     <button
                       type="button"
-                      onClick={() => deleteSubject(item.id)}
+                      onClick={() => requestDeleteSubject(item.id)}
                       className="shrink-0 text-red-400 hover:text-red-300"
                       aria-label={`Delete ${item.name}`}
                     >
@@ -914,7 +954,7 @@ const Setup = () => {
                 {termModal.mode === 'edit' ? (
                   <button
                     type="button"
-                    onClick={deleteTerm}
+                    onClick={requestDeleteTerm}
                     className="rounded-xl bg-red-500/15 px-4 py-3 text-sm font-medium text-red-300 hover:bg-red-500/25"
                   >
                     Delete
@@ -1047,7 +1087,7 @@ const Setup = () => {
                 {classModal.mode === 'edit' ? (
                   <button
                     type="button"
-                    onClick={() => deleteClass(classModal.id)}
+                    onClick={() => requestDeleteClass(classModal.id)}
                     className="rounded-xl bg-red-500/15 px-4 py-3 text-sm font-medium text-red-300 hover:bg-red-500/25"
                   >
                     Delete
@@ -1065,6 +1105,19 @@ const Setup = () => {
           </div>
         </div>
       ) : null}
+
+      <ConfirmTypedDeleteModal
+        open={Boolean(pendingDelete)}
+        title={pendingDelete?.title}
+        description={pendingDelete?.description}
+        confirmText={pendingDelete?.name}
+        actionLabel="Permanently delete"
+        busy={deletingTyped}
+        onClose={() => {
+          if (!deletingTyped) setPendingDelete(null);
+        }}
+        onConfirm={confirmPendingDelete}
+      />
     </div>
   );
 };

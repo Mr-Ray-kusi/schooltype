@@ -13,6 +13,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import { useAuth } from '../contexts/authcontext';
+import ConfirmTypedDeleteModal from '../components/ConfirmTypedDeleteModal';
 
 const emptyForm = {
   type: 'mobile_money',
@@ -37,6 +38,8 @@ const BankSettings = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [paystackConfigured, setPaystackConfigured] = useState(true);
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const [deletingAccount, setDeletingAccount] = useState(false);
 
   const defaultLabel = (type) => {
     if (type === 'mobile_money') return isSuperAdmin ? 'Platform MoMo' : 'School MoMo';
@@ -128,16 +131,23 @@ const BankSettings = () => {
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Remove this account from bank settings?')) return;
+  const handleDelete = async () => {
+    if (!pendingDelete?.id) return;
+    setDeletingAccount(true);
     try {
-      await axios.delete(`/api/wallet/accounts/${id}`);
+      await axios.delete(`/api/wallet/accounts/${pendingDelete.id}`);
       toast.success('Account removed');
+      setPendingDelete(null);
       await loadData();
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to delete');
+    } finally {
+      setDeletingAccount(false);
     }
   };
+
+  const accountConfirmName = (account) =>
+    String(account?.label || account?.account_name || account?.account_number || '').trim() || 'DELETE';
 
   return (
     <>
@@ -443,7 +453,7 @@ const BankSettings = () => {
                               )}
                               <button
                                 type="button"
-                                onClick={() => handleDelete(account.id)}
+                                onClick={() => setPendingDelete(account)}
                                 className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-200 transition hover:bg-rose-500/20"
                               >
                                 <Trash2 className="h-3 w-3" />
@@ -461,6 +471,19 @@ const BankSettings = () => {
           </section>
         </div>
       </div>
+
+      <ConfirmTypedDeleteModal
+        open={Boolean(pendingDelete)}
+        title={`Remove ${pendingDelete ? accountConfirmName(pendingDelete) : 'this account'}?`}
+        description="This removes the account from bank settings. Type the account name to confirm."
+        confirmText={pendingDelete ? accountConfirmName(pendingDelete) : ''}
+        actionLabel="Remove account"
+        busy={deletingAccount}
+        onClose={() => {
+          if (!deletingAccount) setPendingDelete(null);
+        }}
+        onConfirm={handleDelete}
+      />
 
       <style>{`
         @keyframes fadeIn {

@@ -146,9 +146,14 @@ const FeePaymentReceiptModal = ({
             <p className="text-xs uppercase tracking-[0.2em] text-sky-300/80">School fees receipt</p>
             <h2 className="mt-2 text-2xl font-semibold text-white">{student.name}</h2>
             <p className="mt-1 text-sm text-slate-400">
-              {schoolName || 'School'}
-              {student.class ? ` · ${student.class}` : ''}
-              {periodLabel || month ? ` · ${periodLabel || month}` : ''}
+              {[
+                student.class,
+                String(periodLabel || month || '')
+                  .replace(/\s*\(\d{4}-\d{2}-\d{2}\s*[–-]\s*\d{4}-\d{2}-\d{2}\)\s*$/, '')
+                  .trim(),
+              ]
+                .filter(Boolean)
+                .join(' · ')}
             </p>
             {student.recorded_by ? (
               <p className="mt-1 text-xs text-slate-500">Recorded by {student.recorded_by}</p>

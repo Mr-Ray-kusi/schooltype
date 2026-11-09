@@ -3,6 +3,7 @@ import axios from 'axios';
 import PersonRecordTable from '../components/PersonRecordTable';
 import PersonDetailModal from '../components/PersonDetailModal';
 import ConfirmPersonDeleteModal from '../components/ConfirmPersonDeleteModal';
+import CopyMarkButton from '../components/CopyMarkButton';
 import PaginationBar from '../components/PaginationBar';
 import { buildPersonIdUrl } from '../utils/studentIdQr';
 import { useAuth } from '../contexts/authcontext';
@@ -811,22 +812,12 @@ const Staff = () => {
                       readOnly
                       className="w-full rounded-lg border border-slate-500 bg-slate-700 px-4 py-2 font-mono text-slate-50"
                     />
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        try {
-                          await navigator.clipboard.writeText(staffForm.secretCode || '');
-                          toast.success('Access code copied');
-                        } catch {
-                          toast.error('Could not copy access code');
-                        }
-                      }}
+                    <CopyMarkButton
+                      value={staffForm.secretCode}
+                      label="access code"
                       className="shrink-0 rounded-lg border border-slate-500 px-3 py-2 text-slate-200 hover:bg-slate-700"
-                      aria-label="Copy access code"
-                      title="Copy access code"
-                    >
-                      <Copy className="h-4 w-4" />
-                    </button>
+                      onError={() => toast.error('Could not copy access code')}
+                    />
                     <button
                       type="button"
                       onClick={() => setStaffForm({ ...staffForm, secretCode: generateStrongPassword(16) })}

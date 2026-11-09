@@ -8,6 +8,7 @@ import { downloadPersonPack, downloadPeoplePacks, studentPack } from '../utils/p
 import PersonRecordTable from '../components/PersonRecordTable';
 import PersonDetailModal from '../components/PersonDetailModal';
 import ConfirmPersonDeleteModal from '../components/ConfirmPersonDeleteModal';
+import CopyMarkButton from '../components/CopyMarkButton';
 import PaginationBar from '../components/PaginationBar';
 import { Search, User, Download, UserPlus, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -555,9 +556,14 @@ const Students = () => {
                 />
                 <div className="rounded-lg border border-slate-600 p-3">
                   <p className="text-sm font-medium text-slate-200">Portal password</p>
-                  <p className="mt-2 font-mono text-lg tracking-[0.3em] text-white">
-                    {portalPasswordState === 'loading' ? 'Loading…' : portalPassword || 'Not issued yet'}
-                  </p>
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <p className="font-mono text-lg tracking-[0.3em] text-white">
+                      {portalPasswordState === 'loading' ? 'Loading…' : portalPassword || 'Not issued yet'}
+                    </p>
+                    {portalPasswordState === 'ready' && portalPassword ? (
+                      <CopyMarkButton value={portalPassword} label="portal password" />
+                    ) : null}
+                  </div>
                   <div className="mt-3 flex gap-2">
                     <button type="button" onClick={replacePortalPassword} className="rounded-lg bg-slate-700 px-3 py-2 text-xs text-white">
                       New password

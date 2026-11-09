@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
-import toast, { Toaster } from 'react-hot-toast';
+import { createPortal } from 'react-dom';
+import toast, { useToaster } from 'react-hot-toast';
 import { AlertTriangle, CheckCircle2, Info, Loader2 } from 'lucide-react';
 
 const kindOf = (type) => {
@@ -65,6 +66,12 @@ const PopupCard = ({ t }) => {
 };
 
 const PopupToaster = () => {
+  const { toasts } = useToaster({
+    duration: 8000,
+    success: { duration: 6000 },
+    error: { duration: Infinity },
+  });
+
   useEffect(() => {
     const wrap = (fn) => (message, options) => {
       toast.dismiss();
@@ -84,21 +91,10 @@ const PopupToaster = () => {
     };
   }, []);
 
-  return (
-    <Toaster
-      position="top-center"
-      gutter={0}
-      containerClassName="popup-toaster"
-      containerStyle={{ top: 0, left: 0, right: 0, bottom: 0 }}
-      toastOptions={{
-        duration: 8000,
-        success: { duration: 6000 },
-        error: { duration: Infinity },
-      }}
-    >
-      {(t) => <PopupCard t={t} />}
-    </Toaster>
-  );
+  const active = [...toasts].reverse().find((item) => item.visible);
+  if (!active || typeof document === 'undefined') return null;
+
+  return createPortal(<PopupCard t={active} />, document.body);
 };
 
 export default PopupToaster;

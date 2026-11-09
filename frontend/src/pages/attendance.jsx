@@ -9,6 +9,7 @@ import { useLivePoll } from '../hooks/useLivePoll';
 import { useAuth } from '../contexts/authcontext';
 import { downloadAllStudentAttendanceZip, downloadTermAttendancePdf } from '../utils/attendanceTermPdf';
 import PaginationBar from '../components/PaginationBar';
+import ConfirmTypedDeleteModal from '../components/ConfirmTypedDeleteModal';
 
 const ATTENDANCE_ROW_HEIGHT = 56;
 
@@ -261,6 +262,7 @@ const Attendance = () => {
   const [savingLateTime, setSavingLateTime] = useState(false);
   const [setupClasses, setSetupClasses] = useState([]);
   const [deletingKey, setDeletingKey] = useState(null);
+  const [pendingDelete, setPendingDelete] = useState(null);
   const [bulkBusy, setBulkBusy] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(8);
@@ -455,13 +457,6 @@ const Attendance = () => {
   const deletePersonRecords = async (record) => {
     if (!record?.user_id) return;
     const name = getPersonName(record);
-    if (
-      !window.confirm(
-        `Delete every attendance record for ${name}? This cannot be undone.`
-      )
-    ) {
-      return;
-    }
     const key = personKey(record);
     setDeletingKey(key);
     try {
@@ -475,6 +470,7 @@ const Attendance = () => {
         return next;
       });
       setOpenKey(null);
+      setPendingDelete(null);
       refresh();
     } catch (error) {
       toast.error(error.response?.data?.error || 'Could not delete these records');
@@ -554,7 +550,7 @@ const Attendance = () => {
       userType: record.user_type,
       seed: record,
       selectedDate,
-      onDelete: isStudent ? () => deletePersonRecords(record) : undefined,
+      onDelete: isStudent ? () => setPendingDelete(record) : undefined,
       deleting: deletingKey === key,
       onClose: () => setOpenKey(null),
     };
@@ -802,6 +798,23 @@ const Attendance = () => {
           />
         </div>
       ) : null}
+
+      <ConfirmTypedDeleteModal
+        open={Boolean(pendingDelete)}
+        title={`Delete attendance for ${pendingDelete ? getPersonName(pendingDelete) : 'this person'}?`}
+        description={
+          pendingDelete
+            ? `This permanently deletes every attendance record for ${getPersonName(pendingDelete)}. Type their name to confirm.`
+            : null
+        }
+        confirmText={pendingDelete ? getPersonName(pendingDelete) : ''}
+        actionLabel="Delete attendance records"
+        busy={Boolean(deletingKey)}
+        onClose={() => {
+          if (!deletingKey) setPendingDelete(null);
+        }}
+        onConfirm={() => deletePersonRecords(pendingDelete)}
+      />
     </div>
   );
 };

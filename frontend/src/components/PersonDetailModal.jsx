@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { Copy, Download, Edit2, Trash2, X } from 'lucide-react';
+import { Download, Edit2, Trash2, X } from 'lucide-react';
+import CopyMarkButton from './CopyMarkButton';
 
 const ACCENTS = {
   sky: {
@@ -26,7 +27,6 @@ const PersonDetailModal = ({
   downloadLabel = 'Download pack',
 }) => {
   const [downloading, setDownloading] = useState(false);
-  const [copiedLabel, setCopiedLabel] = useState('');
   const colors = ACCENTS[accent] || ACCENTS.sky;
 
   const groups = useMemo(() => {
@@ -103,26 +103,7 @@ const PersonDetailModal = ({
                           {field.value || '—'}
                         </span>
                         {field.copy && field.value ? (
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              try {
-                                await navigator.clipboard.writeText(String(field.value));
-                                setCopiedLabel(field.label);
-                                window.setTimeout(() => setCopiedLabel(''), 1500);
-                              } catch {
-                                /* ignore */
-                              }
-                            }}
-                            className="shrink-0 rounded-lg p-1 text-slate-400 hover:bg-slate-800 hover:text-white"
-                            aria-label={`Copy ${field.label}`}
-                            title="Copy"
-                          >
-                            <Copy className="h-4 w-4" />
-                            <span className="sr-only">
-                              {copiedLabel === field.label ? 'Copied' : 'Copy'}
-                            </span>
-                          </button>
+                          <CopyMarkButton value={field.value} label={field.label} />
                         ) : null}
                       </dd>
                     </div>

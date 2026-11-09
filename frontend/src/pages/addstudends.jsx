@@ -13,6 +13,7 @@ import {
   X,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import CopyMarkButton from '../components/CopyMarkButton';
 import { notifySchoolDataChanged } from '../utils/requestCache';
 import { emptyExtraFee, extraFeesPayload } from '../utils/extraFees';
 import { useAuth } from '../contexts/authcontext';
@@ -114,11 +115,17 @@ const AddStudent = ({ onClose } = {}) => {
         <dl className="mt-5 space-y-3 text-sm">
           <div className="rounded-xl bg-slate-950 px-4 py-3">
             <dt className="text-slate-400">Student ID</dt>
-            <dd className="mt-1 font-mono text-lg">{issued.id}</dd>
+            <dd className="mt-1 flex items-center justify-between gap-2">
+              <span className="font-mono text-lg">{issued.id}</span>
+              <CopyMarkButton value={issued.id} label="student ID" />
+            </dd>
           </div>
           <div className="rounded-xl bg-slate-950 px-4 py-3">
             <dt className="text-slate-400">Password</dt>
-            <dd className="mt-1 font-mono text-lg tracking-[0.3em]">{issued.password}</dd>
+            <dd className="mt-1 flex items-center justify-between gap-2">
+              <span className="font-mono text-lg tracking-[0.3em]">{issued.password}</span>
+              <CopyMarkButton value={issued.password} label="portal password" />
+            </dd>
           </div>
         </dl>
         <button type="button" onClick={finish} className="mt-6 w-full rounded-xl bg-sky-500 py-3 font-semibold text-white">

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import axios from 'axios';
-import { Copy, LogOut } from 'lucide-react';
+import { Check, Copy, LogOut } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import MarketingChrome from '../components/MarketingChrome';
@@ -162,10 +162,14 @@ function CopyField({ label, value, mono = false }) {
                 /* ignore */
               }
             }}
-            aria-label={`Copy ${label}`}
+            aria-label={copied ? `${label} copied` : `Copy ${label}`}
+            title={copied ? 'Copied' : `Copy ${label}`}
           >
             {copied ? (
-              'Copied'
+              <>
+                <Check className="h-4 w-4 text-emerald-400" />
+                Copied
+              </>
             ) : (
               <>
                 <Copy className="h-4 w-4" />
