@@ -15,6 +15,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import { useAuth } from '../contexts/authcontext';
+import { forceGet, peekCache, rememberSession, sessionGet } from '../utils/requestCache';
 
 const formatGhs = (value) =>
   `GHS ${Number(value || 0).toLocaleString(undefined, {
@@ -89,12 +90,15 @@ const SchoolWallet = ({ viewOnly = false } = {}) => {
   const moneyLocked = viewOnly || (!isSuperAdmin && isSubscriptionReadOnly);
   const bankSettingsPath = isSuperAdmin ? '/super-admin/bank-settings' : '/bank-settings';
   const title = isSuperAdmin ? 'Platform Wallet' : 'School Wallet';
+  const walletKey = isSuperAdmin ? 'wallet:platform' : 'wallet:school';
+  const cachedWallet = peekCache(walletKey);
+  const savedView = peekCache(`view:${walletKey}`) || {};
   const [searchParams, setSearchParams] = useSearchParams();
-  const [wallet, setWallet] = useState(null);
-  const [accounts, setAccounts] = useState([]);
-  const [transactions, setTransactions] = useState([]);
-  const [paystack, setPaystack] = useState({ configured: false, currency: 'GHS' });
-  const [loading, setLoading] = useState(true);
+  const [wallet, setWallet] = useState(cachedWallet?.wallet || null);
+  const [accounts, setAccounts] = useState(cachedWallet?.accounts || []);
+  const [transactions, setTransactions] = useState(cachedWallet?.transactions || []);
+  const [paystack, setPaystack] = useState(cachedWallet?.paystack || { configured: false, currency: 'GHS' });
+  const [loading, setLoading] = useState(!cachedWallet);
   const [accountId, setAccountId] = useState('');
   const [amount, setAmount] = useState('');
   const [busy, setBusy] = useState(false);
@@ -102,7 +106,7 @@ const SchoolWallet = ({ viewOnly = false } = {}) => {
   const [action, setAction] = useState(isSuperAdmin ? 'withdraw' : 'deposit');
   const [downloading, setDownloading] = useState(false);
   const [pendingWithdraw, setPendingWithdraw] = useState(null);
-  const [txFilter, setTxFilter] = useState('all');
+  const [txFilter, setTxFilter] = useState(savedView.txFilter || 'all');
 
   const selectedAccount = useMemo(
     () => accounts.find((a) => a.id === accountId) || null,
@@ -136,20 +140,37 @@ const SchoolWallet = ({ viewOnly = false } = {}) => {
     }
   }, [action, selectableAccounts, accountId]);
 
-  const loadWallet = useCallback(async () => {
-    setLoading(true);
+  const applyWallet = useCallback((data) => {
+    setWallet(data?.wallet || null);
+    setAccounts(data?.accounts || []);
+    setTransactions(data?.transactions || []);
+    setPaystack(data?.paystack || { configured: false, currency: 'GHS' });
+  }, []);
+
+  const loadWallet = useCallback(async ({ fresh = false, spin = false } = {}) => {
+    if (!fresh) {
+      const hit = peekCache(walletKey);
+      if (hit) {
+        applyWallet(hit);
+        setLoading(false);
+        return;
+      }
+    }
+    if (spin || !peekCache(walletKey)) setLoading(true);
     try {
-      const { data } = await axios.get('/api/wallet');
-      setWallet(data.wallet);
-      setAccounts(data.accounts || []);
-      setTransactions(data.transactions || []);
-      setPaystack(data.paystack || { configured: false });
+      const fetchWallet = () => axios.get('/api/wallet').then((response) => response.data);
+      const data = fresh ? await forceGet(walletKey, fetchWallet) : await sessionGet(walletKey, fetchWallet);
+      applyWallet(data);
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to load wallet');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [applyWallet, walletKey]);
+
+  useEffect(() => {
+    rememberSession(`view:${walletKey}`, { txFilter });
+  }, [txFilter, walletKey]);
 
   useEffect(() => {
     loadWallet();
@@ -163,7 +184,7 @@ const SchoolWallet = ({ viewOnly = false } = {}) => {
       try {
         await axios.post(`/api/wallet/verify/${encodeURIComponent(ref)}`);
         toast.success('Deposit verified');
-        await loadWallet();
+        await loadWallet({ fresh: true });
       } catch (err) {
         toast.error(err.response?.data?.error || 'Could not verify deposit');
       } finally {
@@ -205,7 +226,7 @@ const SchoolWallet = ({ viewOnly = false } = {}) => {
         toast.success('Deposit credited to wallet');
         setAmount('');
         setMomoHint('');
-        await loadWallet();
+        await loadWallet({ fresh: true });
         return;
       }
 
@@ -223,20 +244,20 @@ const SchoolWallet = ({ viewOnly = false } = {}) => {
           toast.success('Payment confirmed — wallet credited');
           setAmount('');
           setMomoHint('');
-          await loadWallet();
+          await loadWallet({ fresh: true });
           return;
         }
         if (verified.data.transaction?.status === 'failed') {
           toast.error('Payment failed or was declined');
           setMomoHint('');
-          await loadWallet();
+          await loadWallet({ fresh: true });
           return;
         }
       }
       toast('Still waiting for phone confirmation. Keep this page open or refresh later.', {
         icon: '⏳',
       });
-      await loadWallet();
+      await loadWallet({ fresh: true });
     } catch (err) {
       const raw = err.response?.data?.error || err.response?.data?.message || '';
       // Paystack's normal MoMo start message — treat as prompt sent, not failure
@@ -245,7 +266,7 @@ const SchoolWallet = ({ viewOnly = false } = {}) => {
           'A payment prompt was sent to your MoMo number. Approve it on your phone to complete the deposit.'
         );
         toast.success('Payment sent — confirm on your phone');
-        await loadWallet();
+        await loadWallet({ fresh: true });
         return;
       }
       toast.error(raw || 'Deposit failed');
@@ -280,10 +301,10 @@ const SchoolWallet = ({ viewOnly = false } = {}) => {
         );
         setAmount('');
         setPendingWithdraw(null);
-        await loadWallet();
+        await loadWallet({ fresh: true });
       } catch (err) {
         toast.error(err.response?.data?.error || 'Withdrawal failed');
-        await loadWallet();
+        await loadWallet({ fresh: true });
       } finally {
         setBusy(false);
       }
@@ -308,10 +329,10 @@ const SchoolWallet = ({ viewOnly = false } = {}) => {
       }
       toast.success(data.status === 'success' ? 'Withdrawal completed' : 'Withdrawal submitted');
       setAmount('');
-      await loadWallet();
+      await loadWallet({ fresh: true });
     } catch (err) {
       toast.error(err.response?.data?.error || 'Withdrawal failed');
-      await loadWallet();
+      await loadWallet({ fresh: true });
     } finally {
       setBusy(false);
     }
@@ -428,7 +449,7 @@ const SchoolWallet = ({ viewOnly = false } = {}) => {
         <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
           <button
             type="button"
-            onClick={loadWallet}
+            onClick={() => loadWallet({ fresh: true, spin: true })}
             disabled={loading || busy}
             className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-600 bg-slate-900 px-3 py-2.5 text-sm font-medium text-slate-200 hover:border-slate-500 hover:bg-slate-800 disabled:opacity-50"
           >
