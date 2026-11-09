@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import { RefreshCw, Wallet } from 'lucide-react';
@@ -6,9 +6,7 @@ import PaginationBar from '../components/PaginationBar';
 import { notifySchoolDataChanged, onSchoolDataChanged } from '../utils/requestCache';
 import { useAuth } from '../contexts/authcontext';
 import { SUBSCRIPTION_READ_ONLY_MESSAGE } from '../utils/subscriptionAccess';
-
-const PAYMENT_ROW_HEIGHT = 48;
-const PAYMENT_HEAD_HEIGHT = 36;
+import { LIST_PAGE_SIZE } from '../utils/listApi';
 
 const formatGhs = (value) =>
   `GHS ${Number(value || 0).toLocaleString(undefined, {
@@ -27,8 +25,6 @@ const Payments = () => {
   const [pending, setPending] = useState(null);
   const [alert, setAlert] = useState('');
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(6);
-  const listRef = useRef(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -71,22 +67,9 @@ const Payments = () => {
     setPage(1);
   }, [group]);
 
-  useEffect(() => {
-    const el = listRef.current;
-    if (!el) return undefined;
-    const measure = () => {
-      const next = Math.max(1, Math.floor((el.clientHeight - PAYMENT_HEAD_HEIGHT) / PAYMENT_ROW_HEIGHT));
-      setPageSize((current) => (current === next ? current : next));
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [visible.length, pending, loading]);
-
-  const pageCount = Math.max(1, Math.ceil(visible.length / pageSize) || 1);
+  const pageCount = Math.max(1, Math.ceil(visible.length / LIST_PAGE_SIZE) || 1);
   const safePage = Math.min(page, pageCount);
-  const paged = visible.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const paged = visible.slice((safePage - 1) * LIST_PAGE_SIZE, safePage * LIST_PAGE_SIZE);
 
   useEffect(() => {
     if (page > pageCount) setPage(pageCount);
@@ -320,7 +303,7 @@ const Payments = () => {
           </p>
         ) : (
           <>
-            <div ref={listRef} className="min-h-0 flex-1 overflow-hidden">
+            <div className="min-h-[28rem] min-w-0 flex-1 overflow-auto">
               <table className="min-w-full text-left text-sm">
                 <thead className="bg-slate-950/50 text-[11px] uppercase tracking-wide text-slate-500">
                   <tr>
@@ -335,7 +318,7 @@ const Payments = () => {
                   {paged.map((person) => {
                     const key = `${person.kind}:${person.id}`;
                     return (
-                      <tr key={key} className="border-t border-slate-800" style={{ height: PAYMENT_ROW_HEIGHT }}>
+                      <tr key={key} className="border-t border-slate-800">
                         <td className="px-3 md:px-4">
                           <p className="truncate font-medium text-white">{person.name}</p>
                           <p className="truncate text-[11px] leading-none text-slate-500">
@@ -386,7 +369,7 @@ const Payments = () => {
               <PaginationBar
                 page={safePage}
                 total={visible.length}
-                limit={pageSize}
+                limit={LIST_PAGE_SIZE}
                 onPageChange={setPage}
               />
             </div>
