@@ -5333,6 +5333,105 @@ app.post('/api/scanner/regenerate', authenticateToken, enforcePlanApproval, asyn
 
 // ============ STAFF PORTAL (token link + access code) ============
 
+const STAFF_PORTAL_SCHOOL_SELECT =
+  'id, name, name_slug, email, role, payment_plan, plan_status, plan_selected_at, next_payment_due, last_payment_at, subscription_frozen, subscription_started_at, total_paid, logo_url';
+const STAFF_PORTAL_SCHOOL_SELECT_FALLBACK =
+  'id, name, name_slug, role, payment_plan, plan_status, next_payment_due, last_payment_at, subscription_frozen, subscription_started_at, logo_url';
+
+const schoolMatchesPublicSlug = (row, wanted) => {
+  if (!row || String(row.role || '') === 'super_admin') return false;
+  const slug = String(wanted || '').trim();
+  if (!slug) return false;
+  const stored = String(row.name_slug || '').trim();
+  if (stored && schoolNameSlug(stored) === slug) return true;
+  return schoolNameSlug(row.name) === slug;
+};
+
+const persistSchoolNameSlug = async (schoolId, name) => {
+  const slug = schoolNameSlug(name);
+  if (!schoolId || !slug) return;
+  const { error } = await supabase.from('schools').update({ name_slug: slug }).eq('id', schoolId);
+  if (error && !isMissingColumnError(error, 'name_slug')) {
+    console.warn('Could not persist name_slug:', error.message);
+  }
+};
+
+const staffPortalSchoolAllowed = (school) => {
+  if (!school || String(school.role || '') === 'super_admin') return null;
+  const merged = mergeSchoolWithExtras(school);
+  if (!merged.payment_plan) return null;
+  const status = (merged.plan_status || '').toLowerCase();
+  if (status === 'rejected') return null;
+  const paidOrApproved = schoolHasPaidPlan(merged) || status === 'approved' || Boolean(merged.plan_selected_at);
+  if (!paidOrApproved) return null;
+  if (!hasPlanFeature(merged.payment_plan, 'staff')) return null;
+  const gated = {
+    ...merged,
+    plan_status: 'approved',
+  };
+  const sub = getSubscriptionInfo(gated);
+  if (gated.subscription_frozen) return null;
+  if (!sub.subscription_active && !sub.subscription_read_only) return null;
+  return gated;
+};
+
+const staffPortalSelect = async (apply) => {
+  let query = apply(supabase.from('schools').select(STAFF_PORTAL_SCHOOL_SELECT));
+  let { data, error } = await query;
+  if (error && (isMissingColumnError(error, 'total_paid') || isMissingColumnError(error, 'plan_selected_at') || isMissingColumnError(error, 'email'))) {
+    ({ data, error } = await apply(supabase.from('schools').select(STAFF_PORTAL_SCHOOL_SELECT_FALLBACK)));
+  }
+  if (error && isMissingColumnError(error, 'name_slug')) {
+    ({ data, error } = await apply(
+      supabase
+        .from('schools')
+        .select(
+          'id, name, role, payment_plan, plan_status, next_payment_due, last_payment_at, subscription_frozen, subscription_started_at, total_paid, logo_url'
+        )
+    ));
+  }
+  return { data, error };
+};
+
+const loadStaffPortalSchoolCandidates = async (wanted) => {
+  const nameGuess = wanted.replace(/-/g, ' ');
+  const { data: bySlug, error: slugError } = await staffPortalSelect((q) => q.eq('name_slug', wanted).limit(20));
+  if (slugError && !isMissingColumnError(slugError, 'name_slug')) throw slugError;
+
+  let rows = !slugError && Array.isArray(bySlug) ? bySlug : [];
+  if (!rows.some((row) => schoolMatchesPublicSlug(row, wanted))) {
+    const { data: byName, error: nameError } = await staffPortalSelect((q) => q.ilike('name', nameGuess).limit(20));
+    if (nameError) throw nameError;
+    rows = Array.isArray(byName) ? byName : [];
+  }
+  if (!rows.some((row) => schoolMatchesPublicSlug(row, wanted))) {
+    const { data: allRows, error: allError } = await staffPortalSelect((q) => q.limit(800));
+    if (allError) throw allError;
+    rows = allRows || [];
+  }
+
+  return rows.filter((row) => schoolMatchesPublicSlug(row, wanted));
+};
+
+const resolveStaffPortalSchoolBySlug = async (schoolSlug) => {
+  const wanted = schoolNameSlug(schoolSlug);
+  if (!wanted) return null;
+  const hits = await loadStaffPortalSchoolCandidates(wanted);
+  for (const row of hits) {
+    const synced = await syncPaidPlanFromLedger(row);
+    const allowed = staffPortalSchoolAllowed(synced) || (synced && String(synced.role || '') !== 'super_admin' ? mergeSchoolWithExtras(synced) : null);
+    if (!allowed || String(allowed.role || '') === 'super_admin') continue;
+    persistSchoolNameSlug(allowed.id, allowed.name).catch(() => {});
+    return allowed;
+  }
+  if (hits.length) {
+    const row = hits[0];
+    persistSchoolNameSlug(row.id, row.name).catch(() => {});
+    return mergeSchoolWithExtras(row);
+  }
+  return null;
+};
+
 const resolveStaffPortalSchool = async (token) => {
   const schoolId = await getSchoolIdByStaffPortalToken(token);
   if (!schoolId) return null;
@@ -5345,11 +5444,9 @@ const resolveStaffPortalSchool = async (token) => {
 
   if (error || !school) return null;
 
-  const merged = mergeSchoolWithExtras(school);
-  if (!merged.payment_plan) return null;
-  if ((merged.plan_status || 'pending') !== 'approved') return null;
-  if (!hasPlanFeature(merged.payment_plan, 'staff')) return null;
-  if (!getSubscriptionInfo(merged).subscription_active) return null;
+  const synced = await syncPaidPlanFromLedger(school);
+  const merged = staffPortalSchoolAllowed(synced);
+  if (!merged) return null;
 
   return { schoolId, schoolName: merged.name, school: merged };
 };
@@ -5417,6 +5514,7 @@ app.get('/api/staff-portal/link', authenticateToken, enforcePlanApproval, async 
 
     const token = await ensureStaffPortalToken(req.user.schoolId);
     const slug = slugifySchoolName(merged.name);
+    persistSchoolNameSlug(req.user.schoolId, merged.name).catch(() => {});
     res.json({
       token,
       schoolName: merged.name,
@@ -5446,6 +5544,7 @@ app.post('/api/staff-portal/regenerate', authenticateToken, enforcePlanApproval,
 
     const token = await regenerateStaffPortalToken(req.user.schoolId);
     const slug = slugifySchoolName(merged.name);
+    persistSchoolNameSlug(req.user.schoolId, merged.name).catch(() => {});
     res.json({
       token,
       schoolName: merged.name,
@@ -5464,31 +5563,13 @@ app.get('/api/public/staff-portal/:schoolSlug', async (req, res) => {
     const wanted = slugifySchoolName(req.params.schoolSlug);
     if (!wanted) return res.status(400).json({ error: 'Invalid school link' });
 
-    let match = null;
-    const { data: bySlug, error: slugError } = await supabase
-      .from('schools')
-      .select('id, name, name_slug, role, payment_plan, plan_status, next_payment_due, last_payment_at, subscription_frozen, subscription_started_at')
-      .eq('name_slug', wanted)
-      .maybeSingle();
-    if (slugError && !isMissingColumnError(slugError, 'name_slug')) throw slugError;
-    if (bySlug) match = bySlug;
-    if (match) {
-      if (String(match.role || '') === 'super_admin') match = null;
-      else {
-        const merged = mergeSchoolWithExtras(match);
-        if (!merged.payment_plan || (merged.plan_status || 'pending') !== 'approved') match = null;
-        else if (!hasPlanFeature(merged.payment_plan, 'staff')) match = null;
-        else if (!getSubscriptionInfo(merged).subscription_active) match = null;
-        else match = merged;
-      }
-    }
-
+    const match = await resolveStaffPortalSchoolBySlug(wanted);
     if (!match) {
       return res.status(404).json({ error: 'Staff portal not found for this school' });
     }
 
     res.json({
-      schoolName: mergeSchoolWithExtras(match).name,
+      schoolName: match.name,
       schoolSlug: wanted,
     });
   } catch (error) {
@@ -5498,25 +5579,13 @@ app.get('/api/public/staff-portal/:schoolSlug', async (req, res) => {
 });
 
 async function findStaffPortalSchoolBySlug(schoolSlug) {
-  const wanted = slugifySchoolName(schoolSlug);
-  if (!wanted) return null;
-  let match = null;
-  const { data: bySlug, error: slugError } = await supabase
-    .from('schools')
-    .select('id, name, name_slug, role, payment_plan, plan_status, next_payment_due, last_payment_at, subscription_frozen, subscription_started_at')
-    .eq('name_slug', wanted)
-    .maybeSingle();
-  if (slugError && !isMissingColumnError(slugError, 'name_slug')) throw slugError;
-  match = bySlug || null;
-  if (!match || String(match.role || '') === 'super_admin') return null;
-  const merged = mergeSchoolWithExtras(match);
-  if (!merged.payment_plan || (merged.plan_status || 'pending') !== 'approved') return null;
-  if (!hasPlanFeature(merged.payment_plan, 'staff')) return null;
-  if (!getSubscriptionInfo(merged).subscription_active) return null;
-  const token = await ensureStaffPortalToken(merged.id);
+  const match = await resolveStaffPortalSchoolBySlug(schoolSlug);
+  if (!match) return null;
+  const token = await ensureStaffPortalToken(match.id);
   return {
-    schoolId: merged.id,
-    schoolName: merged.name,
+    schoolId: match.id,
+    schoolName: match.name,
+    school: match,
     token,
   };
 }
