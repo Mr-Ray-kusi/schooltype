@@ -32,3 +32,17 @@ test('the built-in absence message names the child and the school', () => {
   assert.match(bodies['233244000001'], /Ama Mensah/);
   assert.match(bodies['233244000001'], /did not come to school today/);
 });
+
+test('an edited absence message replaces the built-in wording', () => {
+  const bodies = buildAbsentSmsBodies(
+    [
+      {
+        phone: '233244000001',
+        students: [{ name: 'Kofi Mensah', class: 'JHS 1' }],
+      },
+    ],
+    'Bright Future',
+    '{student_name} is absent from {school_name} today.'
+  );
+  assert.equal(bodies['233244000001'], 'Kofi Mensah (JHS 1) is absent from Bright Future today.');
+});

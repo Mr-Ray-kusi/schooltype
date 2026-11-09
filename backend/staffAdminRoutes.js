@@ -755,6 +755,7 @@ export function registerStaffAdminRoutes(app, { authenticateStaffPortal }) {
           schoolId: req.staffPortal.schoolId,
           schoolName: school?.name || 'School',
           date: req.body?.date,
+          message: req.body?.message,
           confirmSmsPayment: Boolean(req.body?.confirmSmsPayment),
           senderName: req.staffPortal.staffName || 'Administrator',
           senderRole: 'Administrator',

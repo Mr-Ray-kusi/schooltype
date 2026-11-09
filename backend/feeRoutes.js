@@ -22,6 +22,7 @@ import { getFrontendBaseUrl } from './emailVerification.js';
 import { attachFeePayLink, sendSmsBatch } from './smsProvider.js';
 import { settleSmsPayment, refundSchoolAndPlatformUnits, quoteSmsForPhones } from './smsBilling.js';
 import { buildOwingFeeSmsBodies, groupOwingParents } from './feeReminderSms.js';
+import { getSchoolSmsTemplates, requireSmsTemplate, saveSchoolSmsTemplates } from './smsTemplates.js';
 import { makeWalletReference } from './schoolWalletStore.js';
 import { supabase } from './supabaseClient.js';
 import { displayStudentId, needsSchoolStudentId, syncStudentIds } from './studentId.js';
@@ -831,11 +832,11 @@ async function sendOwingFeeReminders({
   message,
   confirmSmsPayment,
 }) {
-  const text = String(message || '').trim();
-  if (!text) {
-    const err = new Error('Enter a reminder message.');
-    err.status = 400;
-    throw err;
+  const saved = await getSchoolSmsTemplates(schoolId);
+  const text =
+    message === undefined || message === null ? saved.owing : requireSmsTemplate(message);
+  if (text !== saved.owing) {
+    await saveSchoolSmsTemplates(schoolId, { owing: text }).catch(() => {});
   }
 
   const overview = await getFeeOverviewPayload(schoolId);
@@ -1822,6 +1823,24 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
     }
   });
 
+  app.get('/api/fees/reminder-template', authenticateToken, enforcePlanApproval, async (req, res) => {
+    try {
+      const templates = await getSchoolSmsTemplates(req.user.schoolId);
+      res.json({ message: templates.owing });
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message || 'Failed to load the fee reminder' });
+    }
+  });
+
+  app.put('/api/fees/reminder-template', authenticateToken, enforcePlanApproval, async (req, res) => {
+    try {
+      const saved = await saveSchoolSmsTemplates(req.user.schoolId, { owing: req.body?.message });
+      res.json({ message: saved.owing });
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message || 'Failed to save the fee reminder' });
+    }
+  });
+
   app.post('/api/fees/reminder', authenticateToken, enforcePlanApproval, async (req, res) => {
     try {
       const { data: school } = await supabase
@@ -2136,6 +2155,34 @@ export function registerStaffFeeRoutes(app, { authenticateStaffPortal }) {
         }
         console.error('Accountant fee update error:', err);
         res.status(500).json({ error: err.message || 'Failed to update this payment' });
+      }
+    }
+  );
+
+  app.get(
+    '/api/staff-portal/session/fees/reminder-template',
+    authenticateStaffPortal,
+    requireAccountant,
+    async (req, res) => {
+      try {
+        const templates = await getSchoolSmsTemplates(req.staffPortal.schoolId);
+        res.json({ message: templates.owing });
+      } catch (err) {
+        res.status(err.status || 500).json({ error: err.message || 'Failed to load the fee reminder' });
+      }
+    }
+  );
+
+  app.put(
+    '/api/staff-portal/session/fees/reminder-template',
+    authenticateStaffPortal,
+    requireAccountant,
+    async (req, res) => {
+      try {
+        const saved = await saveSchoolSmsTemplates(req.staffPortal.schoolId, { owing: req.body?.message });
+        res.json({ message: saved.owing });
+      } catch (err) {
+        res.status(err.status || 500).json({ error: err.message || 'Failed to save the fee reminder' });
       }
     }
   );
