@@ -2,10 +2,11 @@ import { platformSupabase } from './supabaseClient.js';
 import { isSharedRuntimeEnabled } from './sharedRuntime.js';
 
 const store = new Map();
-const MAX_ENTRIES = 80;
+const MAX_ENTRIES = 1500;
 let seenGeneration = null;
 let bumpTimer = null;
 let syncTimer = null;
+const pendingPrefixes = new Set();
 
 function evictExpired(now = Date.now()) {
   for (const [key, hit] of store.entries()) {
@@ -16,6 +17,11 @@ function evictExpired(now = Date.now()) {
 function evictOldest() {
   const first = store.keys().next().value;
   if (first !== undefined) store.delete(first);
+}
+
+function keyMatchesPrefix(key, prefix) {
+  if (!prefix) return true;
+  return key.startsWith(prefix) || key.includes(`:${prefix}`) || key.includes(`${prefix}:`);
 }
 
 export function cacheGet(key) {
@@ -42,12 +48,34 @@ function clearLocal(prefix = '') {
     return;
   }
   for (const key of store.keys()) {
-    if (key.startsWith(prefix)) store.delete(key);
+    if (keyMatchesPrefix(key, prefix)) store.delete(key);
   }
+}
+
+function encodeBump(generation, prefixes) {
+  if (!prefixes?.length || prefixes.includes('')) return String(generation);
+  return JSON.stringify({ g: generation, p: prefixes });
+}
+
+function decodeBump(raw) {
+  const text = String(raw || '0');
+  if (text.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(text);
+      const generation = String(parsed?.g ?? text);
+      const prefixes = Array.isArray(parsed?.p) ? parsed.p.map(String) : [''];
+      return { generation, prefixes: prefixes.length ? prefixes : [''] };
+    } catch {
+      return { generation: text, prefixes: [''] };
+    }
+  }
+  return { generation: text, prefixes: [''] };
 }
 
 async function publishCacheBump() {
   if (!platformSupabase || !isSharedRuntimeEnabled()) return;
+  const prefixes = pendingPrefixes.has('') ? [''] : [...pendingPrefixes];
+  pendingPrefixes.clear();
   try {
     const { data, error } = await platformSupabase
       .from('runtime_flags')
@@ -55,7 +83,9 @@ async function publishCacheBump() {
       .eq('name', 'cache_generation')
       .maybeSingle();
     if (error) return;
-    const next = String((Number(data?.value) || 0) + 1);
+    const current = decodeBump(data?.value);
+    const nextGen = String((Number(current.generation) || 0) + 1);
+    const next = encodeBump(nextGen, prefixes);
     const saved = await platformSupabase.from('runtime_flags').upsert(
       { name: 'cache_generation', value: next, updated_at: new Date().toISOString() },
       { onConflict: 'name' }
@@ -66,8 +96,9 @@ async function publishCacheBump() {
   }
 }
 
-function scheduleCacheBump() {
+function scheduleCacheBump(prefix = '') {
   if (!isSharedRuntimeEnabled()) return;
+  pendingPrefixes.add(prefix);
   if (bumpTimer) return;
   bumpTimer = setTimeout(() => {
     bumpTimer = null;
@@ -91,8 +122,9 @@ async function pullCacheGeneration() {
       return;
     }
     if (value !== seenGeneration) {
+      const bump = decodeBump(value);
       seenGeneration = value;
-      clearLocal('');
+      for (const prefix of bump.prefixes) clearLocal(prefix);
     }
   } catch {
     // keep serving this process cache until the next check
@@ -110,7 +142,7 @@ export function startSharedCacheSync() {
 
 export function cacheInvalidate(prefix = '') {
   clearLocal(prefix);
-  scheduleCacheBump();
+  scheduleCacheBump(prefix);
 }
 
 export function cacheStats() {

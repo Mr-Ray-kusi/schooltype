@@ -3,7 +3,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
-import { disableTenantJwt, getTenantStore, isTenantJwtDisabled } from './tenantContext.js';
+import { disableTenantJwt, getTenantStore } from './tenantContext.js';
 import { isJwtAuthError, noteJwtClockRejection } from './jwtClock.js';
 import { isProduction } from './runtime.js';
 
@@ -51,7 +51,7 @@ export const supabase = platform
   ? new Proxy(platform, {
       get(target, prop, receiver) {
         const tenant = getTenantStore();
-        const client = isTenantJwtDisabled() ? target : tenant?.db || target;
+        const client = tenant?.usePlatform ? target : tenant?.db || target;
         const value = client[prop];
         if (typeof value === 'function') return value.bind(client);
         return value;
@@ -64,7 +64,7 @@ export async function withSchoolDb(run) {
   if (!first?.error || !isJwtAuthError(first.error)) return first;
   noteJwtClockRejection(first.error.message || first.error.code);
   disableTenantJwt(first.error.message || first.error.code);
-  if (!platform || platform === supabase) return first;
+  if (!platform) return first;
   return run(platform);
 }
 

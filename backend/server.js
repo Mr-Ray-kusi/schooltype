@@ -298,15 +298,7 @@ const generateStrongPassword = (length = 16) => {
 
 const bumpSchoolCaches = (schoolId) => {
   if (!schoolId) return;
-  cacheInvalidate(`dash:${schoolId}`);
-  cacheInvalidate(`att-sum:${schoolId}`);
-  cacheInvalidate(`att-day:${schoolId}`);
-  cacheInvalidate(`att-people:${schoolId}`);
-  cacheInvalidate(`att-fill:${schoolId}`);
-  cacheInvalidate(`att-person-fill:${schoolId}`);
-  cacheInvalidate(`reports:${schoolId}`);
-  cacheInvalidate(`analytics:${schoolId}`);
-  cacheInvalidate(`fee-dash:${schoolId}`);
+  cacheInvalidate(String(schoolId));
 };
 
 const SCHOOL_PLAN_COLUMNS = [
@@ -1273,7 +1265,13 @@ const authenticateToken = (req, res, next) => {
       req.staffPortal = user;
       req.accessToken = token;
       const tenantDb = createTenantClient(user.schoolId, 'school');
-      return runWithTenant({ db: tenantDb, schoolId: user.schoolId }, () => next());
+      return runWithTenant({ db: tenantDb, schoolId: user.schoolId }, () => {
+        try {
+          next();
+        } catch (err) {
+          next(err);
+        }
+      });
     }
     try {
       const session = await getAuthSession(token);
@@ -1305,7 +1303,13 @@ const authenticateToken = (req, res, next) => {
         'School tenant client was not created. Loading this request with school_id filters.'
       );
     }
-    runWithTenant({ db: tenantDb, schoolId: user.schoolId }, () => next());
+    runWithTenant({ db: tenantDb, schoolId: user.schoolId }, () => {
+      try {
+        next();
+      } catch (err) {
+        next(err);
+      }
+    });
   });
 };
 
@@ -7920,6 +7924,18 @@ app.post('/api/super-admin/notifications', authenticateToken, requireSuperAdmin,
   }
 });
 
+app.use((err, req, res, next) => {
+  console.error(`Request failed for school ${req.user?.schoolId || 'unknown'}:`, err?.message || err);
+  if (res.headersSent) return next(err);
+  res.status(err.status || 500).json({
+    error: 'This school action failed. Other schools are not affected.',
+  });
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('Isolated school failure (unhandled rejection):', reason?.message || reason);
+});
+
 // Render (and local dev) keep one Node process listening. Do not boot this
 // path under Vercel — the API is not a serverless function anymore.
 if (!isVercel()) {
@@ -7945,16 +7961,23 @@ if (!isVercel()) {
 
       const sweepAbsences = async () => {
         await withJobLock('absence-sweep', 8 * 60 * 1000, async () => {
-          const { data: schools, error } = await supabase.from('schools').select('id').limit(400);
+          const db = platformSupabase || supabase;
+          const { data: schools, error } = await db.from('schools').select('id').limit(400);
           if (error) {
             console.warn('Absence sweep school list failed:', error.message);
             return;
           }
           for (const school of schools || []) {
             try {
-              await backfillMissedAttendance(school.id);
+              await Promise.race([
+                backfillMissedAttendance(school.id),
+                new Promise((_, reject) => {
+                  const timer = setTimeout(() => reject(new Error('timed out')), 20000);
+                  if (timer.unref) timer.unref();
+                }),
+              ]);
             } catch (err) {
-              console.warn(`Absence sweep failed for ${school.id}:`, err.message);
+              console.warn(`Absence sweep skipped school ${school.id}:`, err.message);
             }
           }
         });
