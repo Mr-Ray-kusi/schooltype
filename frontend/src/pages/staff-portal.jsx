@@ -715,7 +715,7 @@ const StaffPortal = () => {
                 {financeTab === 'about' ? null : financeTab === 'wallet' ? (
                   <SchoolWallet viewOnly />
                 ) : financeTab === 'payments' ? (
-                  <div className="flex min-h-[28rem] min-w-0 flex-1 flex-col">
+                  <div className="min-w-0">
                     <Payments />
                   </div>
                 ) : (

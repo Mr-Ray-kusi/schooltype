@@ -227,7 +227,7 @@ const Payments = () => {
         </div>
       </header>
 
-      <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-900/70">
+      <section className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-900/70">
         <div className="flex shrink-0 flex-col gap-2 border-b border-slate-800 px-4 py-2.5 md:flex-row md:items-center md:justify-between md:px-5">
           <div>
             <h2 className="text-sm font-semibold text-white">Salaries</h2>
@@ -303,7 +303,7 @@ const Payments = () => {
           </p>
         ) : (
           <>
-            <div className="min-h-[28rem] min-w-0 flex-1 overflow-auto">
+            <div className="min-w-0 overflow-x-auto">
               <table className="min-w-full text-left text-sm">
                 <thead className="bg-slate-950/50 text-[11px] uppercase tracking-wide text-slate-500">
                   <tr>
@@ -319,14 +319,14 @@ const Payments = () => {
                     const key = `${person.kind}:${person.id}`;
                     return (
                       <tr key={key} className="border-t border-slate-800">
-                        <td className="px-3 md:px-4">
+                        <td className="px-3 py-3 align-middle md:px-4">
                           <p className="truncate font-medium text-white">{person.name}</p>
                           <p className="truncate text-[11px] leading-none text-slate-500">
                             {person.kind === 'non-staff' ? 'Non-staff' : 'Staff'}
                           </p>
                         </td>
-                        <td className="truncate px-3 text-slate-300 md:px-4">{person.role || '—'}</td>
-                        <td className="px-3 md:px-4">
+                        <td className="truncate px-3 py-3 align-middle text-slate-300 md:px-4">{person.role || '—'}</td>
+                        <td className="px-3 py-3 align-middle md:px-4">
                           <input
                             value={phones[key] ?? person.momo_phone ?? ''}
                             onChange={(event) => setPhones((current) => ({ ...current, [key]: event.target.value }))}
@@ -346,10 +346,10 @@ const Payments = () => {
                             className="h-8 w-36 rounded-lg border border-slate-600 bg-slate-950/60 px-2.5 text-sm text-white"
                           />
                         </td>
-                        <td className="px-3 text-right tabular-nums text-white md:px-4">
+                        <td className="px-3 py-3 text-right align-middle tabular-nums text-white md:px-4">
                           {person.salary > 0 ? formatGhs(person.salary) : '—'}
                         </td>
-                        <td className="px-3 text-right md:px-4">
+                        <td className="px-3 py-3 text-right align-middle md:px-4">
                           <button
                             type="button"
                             disabled={Boolean(busyId) || person.salary < 1 || !canWrite}

@@ -8,7 +8,7 @@ const PaginationBar = ({ page = 1, total = 0, limit = 50, onPageChange }) => {
   const to = Math.min(current * limit, total);
 
   return (
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-wrap items-center gap-2">
       <p className="text-sm text-slate-400">
         Showing {from}–{to} of {total}
       </p>
