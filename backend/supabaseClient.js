@@ -3,7 +3,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
-import { disableTenantJwt, getTenantStore } from './tenantContext.js';
+import { disableTenantJwt, getTenantStore, isTenantJwtDisabled } from './tenantContext.js';
 import { isJwtAuthError, noteJwtClockRejection } from './jwtClock.js';
 import { isProduction } from './runtime.js';
 
@@ -51,7 +51,7 @@ export const supabase = platform
   ? new Proxy(platform, {
       get(target, prop, receiver) {
         const tenant = getTenantStore();
-        const client = tenant?.db || target;
+        const client = isTenantJwtDisabled() ? target : tenant?.db || target;
         const value = client[prop];
         if (typeof value === 'function') return value.bind(client);
         return value;

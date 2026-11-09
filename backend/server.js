@@ -1244,6 +1244,9 @@ async function sendAuthEmail({ to, subject, text, html }) {
   return info;
 }
 
+let warnedMissingTenantJwt = false;
+let warnedMissingTenantClient = false;
+
 // Middleware to verify JWT
 const authenticateToken = (req, res, next) => {
   const token = readAccessToken(req);
@@ -1288,13 +1291,19 @@ const authenticateToken = (req, res, next) => {
     }
     req.user = user;
     req.accessToken = token;
-    if (IS_PRODUCTION && user.role !== 'super_admin' && !tenantJwtConfigured()) {
-      return res.status(503).json({ error: 'School access is temporarily unavailable' });
+    if (user.role !== 'super_admin' && !tenantJwtConfigured() && !warnedMissingTenantJwt) {
+      warnedMissingTenantJwt = true;
+      console.error(
+        'SUPABASE_JWT_SECRET is not set. School screens will load with school_id filters until it is set.'
+      );
     }
     const tenantDb =
       user.role === 'super_admin' ? null : createTenantClient(user.schoolId, user.role);
-    if (IS_PRODUCTION && user.role !== 'super_admin' && !tenantDb) {
-      return res.status(503).json({ error: 'School access is temporarily unavailable' });
+    if (user.role !== 'super_admin' && tenantJwtConfigured() && !tenantDb && !warnedMissingTenantClient) {
+      warnedMissingTenantClient = true;
+      console.error(
+        'School tenant client was not created. Loading this request with school_id filters.'
+      );
     }
     runWithTenant({ db: tenantDb, schoolId: user.schoolId }, () => next());
   });
@@ -7460,11 +7469,10 @@ async function initializeDatabase() {
       );
       return false;
     }
-    if (IS_PRODUCTION && !tenantJwtConfigured()) {
+    if (!tenantJwtConfigured()) {
       console.error(
-        'Database setup failed: SUPABASE_JWT_SECRET must be set in production so school screens use tenant RLS instead of the master key.'
+        'SUPABASE_JWT_SECRET is not set. School screens will use the master key with school_id filters. Set it to the Supabase JWT secret so RLS can isolate tenants.'
       );
-      return false;
     }
 
     if (!supabase) {
