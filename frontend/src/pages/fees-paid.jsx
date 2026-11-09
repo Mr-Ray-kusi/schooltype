@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import { Plus, RefreshCw, Search } from 'lucide-react';
@@ -7,15 +7,27 @@ import RecordFeePaymentModal from '../components/RecordFeePaymentModal';
 import FeePaymentReceiptModal from '../components/FeePaymentReceiptModal';
 import PaginationBar from '../components/PaginationBar';
 import { LIST_PAGE_SIZE } from '../utils/listApi.js';
+import { invalidateCache, peekCache, rememberSession, sessionGet } from '../utils/requestCache';
+
+const FEES_VIEW_KEY = 'view:fees-admin';
+
+const feesCacheKey = ({ page, tab, search }) => `fees:admin:${tab}:${page}:${search || ''}`;
 
 const formatGhs = (value) =>
   `GHS ${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const Fees = () => {
   const { school } = useAuth();
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState('paid');
+  const savedView = peekCache(FEES_VIEW_KEY) || {};
+  const initialQuery = {
+    page: savedView.page || 1,
+    tab: savedView.tab || 'paid',
+    search: savedView.search || '',
+  };
+  const initialFees = peekCache(feesCacheKey(initialQuery));
+  const [data, setData] = useState(initialFees || null);
+  const [loading, setLoading] = useState(!initialFees);
+  const [tab, setTab] = useState(initialQuery.tab);
   const [showManual, setShowManual] = useState(false);
   const [showReminderModal, setShowReminderModal] = useState(false);
   const [reminderMessage, setReminderMessage] = useState(
@@ -24,14 +36,30 @@ const Fees = () => {
   const [smsQuote, setSmsQuote] = useState(null);
   const [sending, setSending] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [page, setPage] = useState(1);
+  const [searchTerm, setSearchTerm] = useState(initialQuery.search);
+  const [page, setPage] = useState(initialQuery.page);
+  const filterRef = useRef({ tab: initialQuery.tab, search: initialQuery.search });
 
-  const load = useCallback(async () => {
+  const load = useCallback(async ({ fresh = false, spin = false } = {}) => {
+    const key = feesCacheKey({ page, tab, search: searchTerm });
+    if (!fresh) {
+      const hit = peekCache(key);
+      if (hit) {
+        setData(hit);
+        setLoading(false);
+        return;
+      }
+    }
+    if (spin || !peekCache(key)) setLoading(true);
     try {
-      const { data: payload } = await axios.get('/api/fees/overview', {
-        params: { page, limit: LIST_PAGE_SIZE, tab, q: searchTerm || undefined },
-      });
+      if (fresh) invalidateCache('fees:admin:');
+      const payload = await sessionGet(key, () =>
+        axios
+          .get('/api/fees/overview', {
+            params: { page, limit: LIST_PAGE_SIZE, tab, q: searchTerm || undefined },
+          })
+          .then((response) => response.data)
+      );
       setData(payload);
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to load fees');
@@ -45,8 +73,14 @@ const Fees = () => {
   }, [load]);
 
   useEffect(() => {
+    if (filterRef.current.tab === tab && filterRef.current.search === searchTerm) return;
+    filterRef.current = { tab, search: searchTerm };
     setPage(1);
   }, [tab, searchTerm]);
+
+  useEffect(() => {
+    rememberSession(FEES_VIEW_KEY, { tab, page, search: searchTerm });
+  }, [tab, page, searchTerm]);
 
   const sendReminder = async () => {
     setSending(true);
@@ -104,10 +138,7 @@ const Fees = () => {
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={() => {
-              setLoading(true);
-              load();
-            }}
+            onClick={() => load({ fresh: true, spin: true })}
             disabled={loading}
             className="inline-flex items-center gap-2 rounded-lg border border-slate-600 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-70"
           >
@@ -342,8 +373,7 @@ const Fees = () => {
           month={data?.month}
           onClose={() => setShowManual(false)}
           onSaved={() => {
-            setLoading(true);
-            load();
+            load({ fresh: true });
           }}
         />
       ) : null}
@@ -356,8 +386,7 @@ const Fees = () => {
           schoolName={school?.name}
           onClose={() => setSelectedId(null)}
           onChanged={() => {
-            setLoading(true);
-            load();
+            load({ fresh: true });
           }}
         />
       ) : null}

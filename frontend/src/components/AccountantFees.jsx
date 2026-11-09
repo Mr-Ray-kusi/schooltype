@@ -7,6 +7,10 @@ import FeePaymentReceiptModal from './FeePaymentReceiptModal';
 import { formatGhs } from '../utils/feeReceiptPdf';
 import { downloadTableXlsx } from '../utils/tableXlsx';
 import { useAuth } from '../contexts/authcontext';
+import { forceGet, peekCache, rememberSession, sessionGet } from '../utils/requestCache';
+
+const STAFF_FEES_KEY = 'fees:staff-overview';
+const STAFF_FEES_VIEW_KEY = 'view:fees-accountant';
 
 const formatWhen = (value) => {
   if (!value) return '';
@@ -315,10 +319,12 @@ const AccountantFees = ({
 }) => {
   const { canDownload } = useAuth();
   const requestConfig = useMemo(() => ({ headers: authHeaders }), [authHeaders]);
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState('unpaid');
-  const [classFilter, setClassFilter] = useState('');
+  const savedView = peekCache(STAFF_FEES_VIEW_KEY) || {};
+  const cachedFees = peekCache(STAFF_FEES_KEY);
+  const [data, setData] = useState(cachedFees || null);
+  const [loading, setLoading] = useState(!cachedFees);
+  const [tab, setTab] = useState(savedView.tab || 'unpaid');
+  const [classFilter, setClassFilter] = useState(savedView.classFilter || '');
   const [showManual, setShowManual] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
   const [showReminder, setShowReminder] = useState(false);
@@ -329,9 +335,20 @@ const AccountantFees = ({
   const [sending, setSending] = useState(false);
   const [exporting, setExporting] = useState('');
 
-  const load = useCallback(async () => {
+  const load = useCallback(async ({ fresh = false, spin = false } = {}) => {
+    if (!fresh) {
+      const hit = peekCache(STAFF_FEES_KEY);
+      if (hit) {
+        setData(hit);
+        setLoading(false);
+        return;
+      }
+    }
+    if (spin || !peekCache(STAFF_FEES_KEY)) setLoading(true);
     try {
-      const { data: payload } = await axios.get('/api/staff-portal/session/fees/overview', requestConfig);
+      const payload = await (fresh ? forceGet : sessionGet)(STAFF_FEES_KEY, () =>
+        axios.get('/api/staff-portal/session/fees/overview', requestConfig).then((response) => response.data)
+      );
       setData(payload);
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to load fees');
@@ -344,6 +361,10 @@ const AccountantFees = ({
   useEffect(() => {
     load().catch(() => {});
   }, [load]);
+
+  useEffect(() => {
+    rememberSession(STAFF_FEES_VIEW_KEY, { tab, classFilter });
+  }, [tab, classFilter]);
 
   useEffect(() => {
     if (reminderOpen) {
@@ -516,8 +537,7 @@ const AccountantFees = ({
           <button
             type="button"
             onClick={() => {
-              setLoading(true);
-              load().catch(() => {});
+              load({ fresh: true, spin: true }).catch(() => {});
             }}
             disabled={loading}
             className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg border border-slate-600 px-3 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-70"
@@ -671,8 +691,7 @@ const AccountantFees = ({
           momoCheckoutUrl="/api/staff-portal/session/fees/checkout"
           onClose={() => setShowManual(false)}
           onSaved={() => {
-            setLoading(true);
-            load().catch(() => {});
+            load({ fresh: true }).catch(() => {});
           }}
         />
       ) : null}
@@ -687,8 +706,7 @@ const AccountantFees = ({
           patchUrl={(id) => `/api/staff-portal/session/fees/manual/${encodeURIComponent(id)}`}
           onClose={() => setSelectedId(null)}
           onChanged={() => {
-            setLoading(true);
-            load().catch(() => {});
+            load({ fresh: true }).catch(() => {});
           }}
         />
       ) : null}
