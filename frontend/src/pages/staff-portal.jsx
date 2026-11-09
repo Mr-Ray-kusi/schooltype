@@ -709,13 +709,19 @@ const StaffPortal = () => {
         ) : isAccountant ? (
           <div className={`flex h-full min-h-0 w-full min-w-0 ${shellPadL} flex-col lg:flex-row lg:gap-4`}>
             <div className="shrink-0 py-4 lg:py-6">{accountantNav}</div>
-            <div className={`min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto py-3 lg:py-4 ${shellPadR}`}>
+            <div
+              className={`min-h-0 min-w-0 flex-1 py-3 lg:py-4 ${shellPadR} ${
+                financeTab === 'payments'
+                  ? 'flex h-full flex-col overflow-hidden'
+                  : 'space-y-4 overflow-y-auto'
+              }`}
+            >
               {financeTab === 'about' ? aboutMePanel : null}
               <AuthContext.Provider value={portalAuth}>
                 {financeTab === 'about' ? null : financeTab === 'wallet' ? (
                   <SchoolWallet viewOnly />
                 ) : financeTab === 'payments' ? (
-                  <div className="flex min-h-[28rem] min-w-0 flex-1 flex-col">
+                  <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
                     <Payments />
                   </div>
                 ) : (
