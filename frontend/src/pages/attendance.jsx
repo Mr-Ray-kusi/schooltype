@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { AlertTriangle, ChevronDown, Clock, Download, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { Download, RefreshCw, Search, Trash2, X } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { cachedGet, invalidateCache, peekCache, staleGet } from '../utils/requestCache';
@@ -9,24 +9,19 @@ import { useLivePoll } from '../hooks/useLivePoll';
 import { useAuth } from '../contexts/authcontext';
 import { downloadAllStudentAttendanceZip, downloadTermAttendancePdf } from '../utils/attendanceTermPdf';
 import PaginationBar from '../components/PaginationBar';
+import PersonRecordTable from '../components/PersonRecordTable';
 import ConfirmTypedDeleteModal from '../components/ConfirmTypedDeleteModal';
-
-const ATTENDANCE_ROW_HEIGHT = 56;
+import { LIST_PAGE_SIZE } from '../utils/listApi';
 
 const fieldClass =
   'h-9 min-h-9 w-full rounded-lg border border-slate-600 bg-slate-900 px-2.5 text-sm text-white outline-none focus:ring-2 focus:ring-primary-500';
 
-const typeBadge = (type) => {
-  switch (type) {
-    case 'student':
-      return 'bg-sky-500/15 text-sky-200';
-    case 'staff':
-      return 'bg-emerald-500/15 text-emerald-200';
-    case 'non-staff':
-      return 'bg-slate-600/40 text-slate-200';
-    default:
-      return 'bg-slate-600/40 text-slate-200';
-  }
+const typeLabel = (type) => {
+  const value = String(type || '').toLowerCase();
+  if (value === 'student') return 'Student';
+  if (value === 'staff') return 'Staff';
+  if (value === 'non-staff' || value === 'nonstaff' || value === 'non_staff') return 'Non-staff';
+  return 'Person';
 };
 
 const getPersonLabel = (record) => {
@@ -139,20 +134,34 @@ const TermRecords = ({
     return <p className="px-3 py-2 text-xs text-slate-400">Loading this term…</p>;
   }
 
+  const summaryLine = pack?.summary
+    ? `${pack.summary.days} days · ${pack.summary.early} early · ${pack.summary.late} late${
+        pack.summary.absent ? ` · ${pack.summary.absent} absent` : ''
+      }`
+    : '';
+
   return (
-    <div className="flex h-full min-h-0 flex-col bg-slate-900 px-3 py-2">
-      <div className="flex shrink-0 items-center justify-between gap-2">
-        <p className="truncate text-xs text-slate-400">
-          {personName}
-          {personLabel ? ` · ${personLabel}` : ''}
-          {pack?.term?.name ? ` · ${pack.term.name}` : ''}
-          {pack?.summary
-            ? ` · ${pack.summary.days} days · ${pack.summary.early} early · ${pack.summary.late} late${
-                pack.summary.absent ? ` · ${pack.summary.absent} absent` : ''
-              }`
-            : ''}
-        </p>
-        <div className="flex shrink-0 gap-2">
+    <div className="flex h-full min-h-0 flex-col bg-slate-900">
+      <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-800 px-5 py-4">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Attendance</p>
+          <h2 className="mt-1 truncate text-xl font-bold text-white">{personName}</h2>
+          <p className="mt-1 truncate text-sm text-slate-400">
+            {[typeLabel(userType), personLabel, pack?.term?.name, summaryLine].filter(Boolean).join(' · ')}
+          </p>
+        </div>
+        {onClose ? (
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white"
+            aria-label="Close"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        ) : null}
+      </div>
+      <div className="flex shrink-0 gap-2 px-5 py-3">
           <button
             type="button"
             disabled={!canDownload}
@@ -176,7 +185,7 @@ const TermRecords = ({
                 toast.error('Could not download this attendance record');
               }
             }}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-600 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-800"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-600 px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-800"
           >
             <Download className="h-3.5 w-3.5" />
             Download
@@ -189,52 +198,37 @@ const TermRecords = ({
                 event.stopPropagation();
                 onDelete();
               }}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/40 px-2.5 py-1 text-xs text-rose-200 hover:bg-rose-500/10 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/40 px-3 py-1.5 text-sm text-rose-200 hover:bg-rose-500/10 disabled:opacity-50"
             >
               <Trash2 className="h-3.5 w-3.5" />
               {deleting ? 'Deleting…' : 'Delete'}
             </button>
           ) : null}
-          {onClose ? (
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                onClose();
-              }}
-              className="rounded-lg border border-slate-600 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-800"
-            >
-              Close
-            </button>
-          ) : null}
-        </div>
       </div>
       {records.length === 0 ? (
-        <p className="mt-3 text-xs text-slate-500">No records for this term yet.</p>
+        <p className="px-5 pb-5 text-sm text-slate-500">No records for this term yet.</p>
       ) : (
-        <div className="mt-2 min-h-0 flex-1 overflow-y-auto overscroll-contain">
-          <table className="w-full text-left text-xs">
-            <thead className="sticky top-0 z-10 bg-slate-900 text-slate-400">
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5">
+          <table className="w-full text-left text-sm">
+            <thead className="sticky top-0 z-10 bg-slate-800 text-slate-300">
               <tr>
-                <th className="px-2 py-1 font-medium">Date</th>
-                <th className="px-2 py-1 font-medium">Time</th>
-                <th className="px-2 py-1 font-medium">Status</th>
+                <th className="px-3 py-2 font-medium">Date</th>
+                <th className="px-3 py-2 font-medium">Time</th>
+                <th className="px-3 py-2 font-medium">Status</th>
               </tr>
             </thead>
             <tbody>
               {records.map((row) => {
                 const status = getPunctuality(row);
                 return (
-                  <tr key={row.id || row.date} className="border-t border-slate-800">
-                    <td className="px-2 py-1 text-slate-200">
+                  <tr key={row.id || row.date} className="border-t border-slate-800 bg-slate-900 text-slate-100">
+                    <td className="px-3 py-2 text-slate-200">
                       {row.date ? format(new Date(`${row.date}T12:00:00`), 'EEE d MMM') : '—'}
                     </td>
-                    <td className="px-2 py-1 tabular-nums text-slate-300">
+                    <td className="px-3 py-2 tabular-nums text-slate-300">
                       {status === 'absent' ? '—' : row.timestamp ? format(new Date(row.timestamp), 'hh:mm a') : '—'}
                     </td>
-                    <td className={`px-2 py-1 ${statusTone(status)}`}>
-                      {statusLabel(status)}
-                    </td>
+                    <td className={`px-3 py-2 ${statusTone(status)}`}>{statusLabel(status)}</td>
                   </tr>
                 );
               })}
@@ -265,8 +259,6 @@ const Attendance = () => {
   const [pendingDelete, setPendingDelete] = useState(null);
   const [bulkBusy, setBulkBusy] = useState('');
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(8);
-  const listRef = useRef(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchLateSettings = async () => {
@@ -411,34 +403,38 @@ const Attendance = () => {
     setPage(1);
   }, [selectedType, selectedClass, searchQuery, selectedDate]);
 
-  useEffect(() => {
-    const el = listRef.current;
-    if (!el) return undefined;
-    const measure = () => {
-      const next = Math.max(1, Math.floor(el.clientHeight / ATTENDANCE_ROW_HEIGHT));
-      setPageSize((current) => (current === next ? current : next));
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [openKey, filteredRecords.length]);
-
-  const pageCount = Math.max(1, Math.ceil(filteredRecords.length / pageSize));
+  const pageCount = Math.max(1, Math.ceil(filteredRecords.length / LIST_PAGE_SIZE));
   const safePage = Math.min(page, pageCount);
   const pagedRecords = useMemo(
-    () => filteredRecords.slice((safePage - 1) * pageSize, safePage * pageSize),
-    [filteredRecords, safePage, pageSize]
+    () => filteredRecords.slice((safePage - 1) * LIST_PAGE_SIZE, safePage * LIST_PAGE_SIZE),
+    [filteredRecords, safePage]
   );
   const openRecord = useMemo(
     () => (openKey ? filteredRecords.find((record) => personKey(record) === openKey) || null : null),
     [openKey, filteredRecords]
   );
-  const visibleRecords = useMemo(() => {
-    if (!openRecord) return pagedRecords;
-    if (pagedRecords.some((record) => personKey(record) === openKey)) return pagedRecords;
-    return [openRecord, ...pagedRecords];
-  }, [openKey, openRecord, pagedRecords]);
+  const tableRows = useMemo(
+    () =>
+      pagedRecords.map((record) => ({
+        ...record,
+        id: record.user_id || record.id,
+        kind: record.user_type || 'student',
+        name: getPersonName(record),
+        typeLabel: typeLabel(record.user_type),
+        detail: getPersonLabel(record),
+        timeLabel: formatMarkTime(record.timestamp),
+      })),
+    [pagedRecords]
+  );
+
+  useEffect(() => {
+    if (!openRecord || pendingDelete) return undefined;
+    const onKey = (event) => {
+      if (event.key === 'Escape') setOpenKey(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [openRecord, pendingDelete]);
 
   const refresh = async () => {
     if (refreshing) return;
@@ -556,13 +552,9 @@ const Attendance = () => {
     };
   };
 
-  const togglePerson = async (record) => {
+  const openPerson = async (record) => {
     if (!record?.user_id) return;
     const key = personKey(record);
-    if (openKey === key) {
-      setOpenKey(null);
-      return;
-    }
     setOpenKey(key);
     if (Array.isArray(termCache[key]?.records) && termCache[key].records.length) return;
     setTermLoading(true);
@@ -713,78 +705,36 @@ const Attendance = () => {
         </button>
       </div>
 
-      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-700 bg-slate-800 lg:flex-row">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         {filteredRecords.length === 0 ? (
-          <div className="flex h-full flex-1 items-center justify-center px-4 text-center text-sm text-slate-400">
-            {searchQuery.trim()
-              ? 'No one matches that name or ID for this date.'
-              : 'No students, staff, or non-staff for this date.'}
+          <div className="rounded-2xl border border-dashed border-slate-600 bg-slate-800/50 py-16 text-center">
+            <p className="text-slate-300">
+              {searchQuery.trim()
+                ? 'No one matches that name or ID for this date.'
+                : 'No students, staff, or non-staff for this date.'}
+            </p>
           </div>
         ) : (
-          <>
-            <div
-              ref={listRef}
-              className={`min-h-0 overflow-y-auto overscroll-contain ${
-                openKey
-                  ? 'flex-1 border-b border-slate-700 lg:w-[22rem] lg:flex-none lg:border-b-0 lg:border-r'
-                  : 'flex-1'
-              }`}
-              onWheel={(event) => event.stopPropagation()}
-            >
-              {visibleRecords.map((record) => {
-                const status = getPunctuality(record);
-                const key = personKey(record);
-                const isOpen = openKey === key;
-                return (
-                  <div
-                    key={record.id || key}
-                    className={`border-b border-slate-700 last:border-b-0 ${isOpen ? 'bg-slate-900/70' : ''}`}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => togglePerson(record)}
-                      className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-slate-700/40"
-                      aria-expanded={isOpen}
-                    >
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-white">{getPersonName(record)}</p>
-                        <p className="truncate text-xs text-slate-400">
-                          {record.user_type} · {getPersonLabel(record)}
-                          <span className={`ml-2 capitalize ${typeBadge(record.user_type)} rounded-full px-1.5 py-0.5`}>
-                            {record.user_type}
-                          </span>
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-3">
-                        <div className="text-right">
-                          <p className="text-xs tabular-nums text-slate-300">{formatMarkTime(record.timestamp)}</p>
-                          <p className={`inline-flex items-center gap-1 text-xs ${statusTone(status)}`}>
-                            {status === 'late' || status === 'absent' ? (
-                              <AlertTriangle className="h-3.5 w-3.5" />
-                            ) : (
-                              <Clock className="h-3.5 w-3.5" />
-                            )}
-                            {statusLabel(status)}
-                          </p>
-                        </div>
-                        <ChevronDown
-                          className={`h-4 w-4 text-slate-400 transition ${isOpen ? 'rotate-180' : ''}`}
-                        />
-                      </div>
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-            {openRecord ? (
-              <div
-                className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
-                onWheel={(event) => event.stopPropagation()}
-              >
-                <TermRecords {...termRecordProps(openRecord)} />
-              </div>
-            ) : null}
-          </>
+          <PersonRecordTable
+            rows={tableRows}
+            minWidth="520px"
+            compact
+            onSelect={openPerson}
+            columns={[
+              { key: 'name', header: 'Name' },
+              { key: 'typeLabel', header: 'Type' },
+              { key: 'detail', header: 'Class / Role' },
+              { key: 'timeLabel', header: 'Time' },
+              {
+                key: 'status',
+                header: 'Status',
+                render: (row) => {
+                  const status = getPunctuality(row);
+                  return <span className={statusTone(status)}>{statusLabel(status)}</span>;
+                },
+              },
+            ]}
+          />
         )}
       </div>
 
@@ -793,9 +743,26 @@ const Attendance = () => {
           <PaginationBar
             page={safePage}
             total={filteredRecords.length}
-            limit={pageSize}
+            limit={LIST_PAGE_SIZE}
             onPageChange={setPage}
           />
+        </div>
+      ) : null}
+
+      {openRecord ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/70 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-sm sm:items-center sm:p-4"
+          onClick={() => setOpenKey(null)}
+        >
+          <div
+            className="flex h-[min(80dvh,36rem)] w-full max-w-2xl flex-col overflow-hidden rounded-t-3xl border border-slate-700 bg-slate-900 shadow-2xl sm:rounded-3xl"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Attendance for ${getPersonName(openRecord)}`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <TermRecords {...termRecordProps(openRecord)} />
+          </div>
         </div>
       ) : null}
 
