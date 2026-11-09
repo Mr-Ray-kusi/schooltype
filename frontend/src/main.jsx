@@ -2,7 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import axios from 'axios'
 import App from './app'
-import { Toaster } from 'react-hot-toast'
+import PopupToaster from './components/PopupToaster'
 import './index.css'
 import { enqueueMutation, isOfflineMutationUrl, mutationLabel } from './utils/offlineQueue'
 import { readCsrfToken, writeCsrfToken } from './utils/csrf'
@@ -102,14 +102,6 @@ if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <App />
-    <Toaster
-      position="top-center"
-      gutter={8}
-      toastOptions={{
-        duration: 2800,
-        success: { iconTheme: { primary: '#27AE60', secondary: '#fff' } },
-        error: { iconTheme: { primary: '#E74C3C', secondary: '#fff' } },
-      }}
-    />
+    <PopupToaster />
   </React.StrictMode>
 )
