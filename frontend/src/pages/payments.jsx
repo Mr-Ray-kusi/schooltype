@@ -3,7 +3,7 @@ import axios from 'axios';
 import toast from 'react-hot-toast';
 import { RefreshCw, Wallet } from 'lucide-react';
 import PaginationBar from '../components/PaginationBar';
-import { notifySchoolDataChanged, onSchoolDataChanged } from '../utils/requestCache';
+import { forceGet, notifySchoolDataChanged, onSchoolDataChanged, peekCache, rememberSession, sessionGet } from '../utils/requestCache';
 import { useAuth } from '../contexts/authcontext';
 import { SUBSCRIPTION_READ_ONLY_MESSAGE } from '../utils/subscriptionAccess';
 import { LIST_PAGE_SIZE } from '../utils/listApi';
@@ -14,34 +14,56 @@ const formatGhs = (value) =>
     maximumFractionDigits: 2,
   })}`;
 
+const PAYROLL_KEY = 'payroll:list';
+const PAYROLL_VIEW_KEY = 'view:payroll';
+
+const phoneMap = (rows) =>
+  Object.fromEntries((rows || []).map((person) => [`${person.kind}:${person.id}`, person.momo_phone || '']));
+
+const rememberPayrollView = (group, page) => rememberSession(PAYROLL_VIEW_KEY, { group, page });
+
 const Payments = () => {
   const { canWrite } = useAuth();
-  const [people, setPeople] = useState([]);
-  const [wallet, setWallet] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [group, setGroup] = useState('all');
-  const [phones, setPhones] = useState({});
+  const cachedPayroll = peekCache(PAYROLL_KEY);
+  const savedView = peekCache(PAYROLL_VIEW_KEY) || {};
+  const [people, setPeople] = useState(cachedPayroll?.people || []);
+  const [wallet, setWallet] = useState(cachedPayroll?.wallet || null);
+  const [loading, setLoading] = useState(!cachedPayroll);
+  const [group, setGroup] = useState(savedView.group || 'all');
+  const [phones, setPhones] = useState(() => phoneMap(cachedPayroll?.people));
   const [busyId, setBusyId] = useState('');
   const [pending, setPending] = useState(null);
   const [alert, setAlert] = useState('');
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useState(savedView.page || 1);
+  const groupRef = React.useRef(group);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const applyPayroll = useCallback((data) => {
+    const rows = data?.people || [];
+    setPeople(rows);
+    setWallet(data?.wallet || null);
+    setPhones(phoneMap(rows));
+  }, []);
+
+  const load = useCallback(async ({ fresh = false, spin = false } = {}) => {
+    if (!fresh) {
+      const hit = peekCache(PAYROLL_KEY);
+      if (hit) {
+        applyPayroll(hit);
+        setLoading(false);
+        return;
+      }
+    }
+    if (spin || !peekCache(PAYROLL_KEY)) setLoading(true);
     try {
-      const { data } = await axios.get('/api/payroll');
-      const rows = data.people || [];
-      setPeople(rows);
-      setWallet(data.wallet || null);
-      setPhones(
-        Object.fromEntries(rows.map((person) => [`${person.kind}:${person.id}`, person.momo_phone || '']))
-      );
+      const fetchPayroll = () => axios.get('/api/payroll').then((response) => response.data);
+      const data = fresh ? await forceGet(PAYROLL_KEY, fetchPayroll) : await sessionGet(PAYROLL_KEY, fetchPayroll);
+      applyPayroll(data);
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to load salary payments');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [applyPayroll]);
 
   useEffect(() => {
     load();
@@ -49,11 +71,9 @@ const Payments = () => {
 
   useEffect(() => {
     return onSchoolDataChanged((prefixes) => {
-      if (
-        prefixes.includes('visible') ||
-        prefixes.some((prefix) => !prefix || prefix === 'staff' || prefix.startsWith('staff'))
-      ) {
-        load();
+      if (prefixes.includes('visible')) return;
+      if (prefixes.some((prefix) => !prefix || prefix === 'staff' || prefix.startsWith('staff'))) {
+        load({ fresh: true });
       }
     });
   }, [load]);
@@ -64,8 +84,14 @@ const Payments = () => {
   );
 
   useEffect(() => {
+    if (groupRef.current === group) return;
+    groupRef.current = group;
     setPage(1);
   }, [group]);
+
+  useEffect(() => {
+    rememberPayrollView(group, page);
+  }, [group, page]);
 
   const pageCount = Math.max(1, Math.ceil(visible.length / LIST_PAGE_SIZE) || 1);
   const safePage = Math.min(page, pageCount);
@@ -164,7 +190,7 @@ const Payments = () => {
       }
       setPending(null);
       setWallet(data.wallet || wallet);
-      await load();
+      await load({ fresh: true });
     } catch (err) {
       toast.error(err.response?.data?.error || 'Could not confirm salary payment');
     } finally {
@@ -217,7 +243,7 @@ const Payments = () => {
           </p>
           <button
             type="button"
-            onClick={load}
+            onClick={() => load({ fresh: true, spin: true })}
             disabled={loading}
             className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-600 bg-slate-900 px-3 py-2 text-sm font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-50"
           >

@@ -11,7 +11,7 @@ import { AuthContext } from '../contexts/authcontext';
 import { SUBSCRIPTION_READ_ONLY_MESSAGE } from '../utils/subscriptionAccess';
 import useLiteMode from '../hooks/useLiteMode';
 import { readStaffPortalSession, staffPortalSessionForPath } from '../utils/staffPortalSession';
-import { notifySchoolDataChanged, onSchoolDataChanged } from '../utils/requestCache';
+import { clearPersistedCache, notifySchoolDataChanged, onSchoolDataChanged } from '../utils/requestCache';
 import { readCsrfToken, writeCsrfToken, applyCsrfHeader } from '../utils/csrf';
 
 const ROLES = ['Administrator', 'Teacher', 'Accountant'];
@@ -163,6 +163,7 @@ const StaffPortal = () => {
   };
 
   const clearSession = () => {
+    clearPersistedCache();
     sessionStorage.removeItem(SESSION_KEY);
     setSessionToken(null);
     setStaff(null);

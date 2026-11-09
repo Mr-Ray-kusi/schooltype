@@ -96,6 +96,15 @@ export function isCacheFresh(key, ttlMs) {
   return Boolean(hit && Date.now() - hit.at < ttlMs);
 }
 
+/** Keep a GET for this browser session. A full reload drops it; logout clears it. */
+export function sessionGet(key, fetcher) {
+  return cachedGet(key, fetcher, Number.POSITIVE_INFINITY);
+}
+
+export function rememberSession(key, data) {
+  memory.set(key, { at: Date.now(), data });
+}
+
 /**
  * GET cache. Dashboard uses 5 minutes; lists default to 45s.
  * In-flight requests for the same key are deduped.
