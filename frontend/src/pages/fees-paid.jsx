@@ -197,7 +197,15 @@ const Fees = () => {
         <div className="min-w-0 rounded-xl border border-slate-700 bg-slate-800 p-3">
           <p className="text-[10px] uppercase leading-tight tracking-wide text-slate-300">Unpaid revenue</p>
           <p className="mt-1.5 break-words text-lg font-extrabold text-amber-300 lg:text-xl xl:text-2xl">
-            {formatGhs(totals.unpaid_amount)}
+            {formatGhs(
+              Math.max(
+                0,
+                (totals.billed_amount == null
+                  ? Number(totals.paid_amount || 0) + Number(totals.unpaid_amount || 0)
+                  : Number(totals.billed_amount) || 0) -
+                  Math.max(Number(totals.paid_amount) || 0, Number(totals.year_collected) || 0)
+              )
+            )}
           </p>
           <p className="mt-0.5 text-xs text-slate-400">{totals.unpaid || 0} student{(totals.unpaid || 0) === 1 ? '' : 's'} owing</p>
         </div>

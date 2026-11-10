@@ -161,8 +161,10 @@ const Dashboard = () => {
     },
     {
       title: 'Unpaid revenue',
-      hint: locked ? null : 'Total revenue − year collected',
-      value: formatGlanceMoney(stats.unpaidRevenue),
+      hint: locked ? null : 'Total revenue − collected fees',
+      value: formatGlanceMoney(
+        Math.max(0, Number(stats.totalRevenue || 0) - Math.max(Number(stats.feesPaid) || 0, Number(stats.yearCollected) || 0))
+      ),
       icon: Receipt,
       accent: 'text-amber-300 bg-amber-500/15 border-amber-500/25',
       feature: 'fees-paid',

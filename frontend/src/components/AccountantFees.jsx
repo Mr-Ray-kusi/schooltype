@@ -459,13 +459,13 @@ const AccountantFees = ({
     : [...new Set((data?.students || []).map((row) => row.class).filter(Boolean))];
   const totals = data?.totals || {};
   const collectedTerm = Number(totals.paid_amount) || 0;
-  const unpaidAmount = Number(totals.unpaid_amount) || 0;
+  const yearCollected = Number(totals.year_collected) || 0;
   const billedAmount = Number.isFinite(Number(totals.billed_amount))
     ? Number(totals.billed_amount)
-    : collectedTerm + unpaidAmount;
+    : collectedTerm + (Number(totals.unpaid_amount) || 0);
+  const unpaidAmount = Math.max(0, billedAmount - Math.max(collectedTerm, yearCollected));
   const collectedShare = billedAmount > 0 ? Math.min(100, (collectedTerm / billedAmount) * 100) : 0;
   const owingCount = Number(totals.unpaid) || 0;
-  const yearCollected = Number(totals.year_collected) || 0;
   const rows = tab === 'paid' ? paid : unpaid;
   const selected = (data?.students || []).find((row) => row.id === selectedId) || null;
   const periodLabel = data?.period_label || data?.term_name || data?.month;

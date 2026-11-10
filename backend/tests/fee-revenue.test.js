@@ -14,6 +14,17 @@ test('unpaid revenue is total revenue minus year collected', () => {
   assert.equal(figures.unpaidRevenue, 600);
 });
 
+test('unpaid revenue still deducts term collections when year collected is empty', () => {
+  const figures = schoolRevenueFigures({
+    billedAmount: 3910,
+    collectedAmount: 500,
+    yearCollected: 0,
+  });
+  assert.equal(figures.totalRevenue, 3910);
+  assert.equal(figures.feesPaid, 500);
+  assert.equal(figures.unpaidRevenue, 3410);
+});
+
 test('unpaid revenue does not go below zero when year collected exceeds total revenue', () => {
   const figures = schoolRevenueFigures({
     billedAmount: 100,

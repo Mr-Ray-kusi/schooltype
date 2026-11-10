@@ -740,14 +740,15 @@ export async function getFeeOverviewPayload(schoolId, query = {}) {
   const paid = billed.filter((row) => row.paid_amount > 0);
   const unpaid = billed.filter((row) => row.outstanding >= 0.01);
   const billedAmount = billed.reduce((sum, row) => sum + Number(row.fee_amount || 0), 0);
-  const collectedAmount = (payments || [])
+  const collectedOnAccounts = billed.reduce((sum, row) => sum + Number(row.paid_amount || 0), 0);
+  const collectedFromPayments = (payments || [])
     .filter((row) => isSuccessfulFeeStatus(row.status))
     .reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
-  const yearCollected = roundMoney(
-    (yearPayments || [])
-      .filter((row) => isSuccessfulFeeStatus(row.status))
-      .reduce((sum, row) => sum + (Number(row.amount) || 0), 0)
-  );
+  const collectedAmount = Math.max(collectedOnAccounts, collectedFromPayments);
+  const yearLedgerAmount = (yearPayments || [])
+    .filter((row) => isSuccessfulFeeStatus(row.status))
+    .reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+  const yearCollected = roundMoney(Math.max(yearLedgerAmount, collectedAmount));
   const revenue = schoolRevenueFigures({ billedAmount, collectedAmount, yearCollected });
 
   const classesChart = [...classFeeByName.keys()]
