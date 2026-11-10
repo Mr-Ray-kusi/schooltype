@@ -5,7 +5,7 @@ import { getClientIp, checkStudentPortalAllowed, recordStudentPortalAuthFailure,
 import { readStudentAccessToken, setStudentSessionCookie, clearStudentSessionCookie } from './cookieAuth.js';
 import { issueCsrf, clearCsrfCookie } from './csrf.js';
 import { sanitizeSearchTerm } from './httpSecurity.js';
-import { mergeSchoolWithExtras, schoolHasPaidPlan } from './schoolPlanStore.js';
+import { mergeSchoolWithExtras } from './schoolPlanStore.js';
 import { getSubscriptionInfo } from './subscription.js';
 import {
   academicTermHasEnded,
@@ -66,14 +66,24 @@ function directorySchoolCard(row) {
 
 function portalSchoolCard(row) {
   if (!row || String(row.role || '') === 'super_admin') return null;
-  const merged = mergeSchoolWithExtras(row);
-  if (!schoolHasPaidPlan(merged)) return null;
-  const subscription = getSubscriptionInfo(merged);
-  if (!subscription.subscription_active) return null;
+  const name = String(row.name || row.school_name || '').trim();
+  if (!row.id || !name) return null;
+  const merged = mergeSchoolWithExtras(row) || row;
+  let subscription = {
+    subscription_read_only: false,
+    can_record_fees: true,
+    next_payment_due: null,
+    last_payment_at: null,
+  };
+  try {
+    subscription = getSubscriptionInfo(merged);
+  } catch (err) {
+    console.warn('Student portal skipped subscription details:', err.message || err);
+  }
   return {
-    id: merged.id,
-    name: merged.name,
-    logo_url: merged.logo_url || null,
+    id: merged.id || row.id,
+    name,
+    logo_url: merged.logo_url || row.logo_url || null,
     fee_currency: String(merged.fee_currency || 'GHS').toUpperCase(),
     subscription_read_only: Boolean(subscription.subscription_read_only),
     subscription_can_record_fees: Boolean(subscription.can_record_fees),
@@ -82,11 +92,28 @@ function portalSchoolCard(row) {
   };
 }
 
+export function portalDirectorySchools(rows) {
+  const schools = [];
+  for (const row of rows || []) {
+    try {
+      const card = directorySchoolCard(row);
+      if (card) schools.push(card);
+    } catch (err) {
+      console.warn('Skipped a school on the portal list:', err.message || err);
+    }
+  }
+  schools.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+  return schools;
+}
+
 const PORTAL_SCHOOL_COLUMNS =
   'id, name, role, logo_url, payment_plan, plan_status, plan_selected_at, next_payment_due, last_payment_at, subscription_frozen, subscription_started_at, total_paid';
 
 async function publicSchoolCard(schoolId) {
-  const { data, error } = await supabase.from('schools').select(PORTAL_SCHOOL_COLUMNS).eq('id', schoolId).maybeSingle();
+  let { data, error } = await supabase.from('schools').select(PORTAL_SCHOOL_COLUMNS).eq('id', schoolId).maybeSingle();
+  if (error) {
+    ({ data, error } = await supabase.from('schools').select('id, name, role, logo_url').eq('id', schoolId).maybeSingle());
+  }
   if (error || !data) return null;
   return portalSchoolCard(data);
 }
@@ -100,10 +127,18 @@ export function portalSchoolsSearchTerm(query) {
 async function pageSchoolRows(client, columns, q) {
   const pageSize = 1000;
   const rows = [];
+  let ordered = true;
   for (let from = 0; from < 20000; from += pageSize) {
     let query = client.from('schools').select(columns);
     if (q) query = query.ilike('name', `%${q}%`);
-    const { data, error } = await query.order('name', { ascending: true }).range(from, from + pageSize - 1);
+    if (ordered) query = query.order('name', { ascending: true });
+    let { data, error } = await query.range(from, from + pageSize - 1);
+    if (error && ordered) {
+      ordered = false;
+      query = client.from('schools').select(columns);
+      if (q) query = query.ilike('name', `%${q}%`);
+      ({ data, error } = await query.range(from, from + pageSize - 1));
+    }
     if (error) throw error;
     const chunk = data || [];
     rows.push(...chunk);
@@ -113,12 +148,17 @@ async function pageSchoolRows(client, columns, q) {
 }
 
 async function loadPortalSchoolRows(client, q) {
-  try {
-    return await pageSchoolRows(client, PORTAL_SCHOOL_COLUMNS, q);
-  } catch (error) {
-    console.warn('Student portal school list retrying with fewer columns:', error.message || error);
-    return pageSchoolRows(client, 'id, name, role, logo_url', q);
+  const attempts = [PORTAL_SCHOOL_COLUMNS, 'id, name, role, logo_url', 'id, name, role', 'id, name'];
+  let lastError = null;
+  for (const columns of attempts) {
+    try {
+      return await pageSchoolRows(client, columns, q);
+    } catch (error) {
+      lastError = error;
+      console.warn('Student portal school list retrying with fewer columns:', error.message || error);
+    }
   }
+  throw lastError;
 }
 
 function portalDb() {
@@ -382,17 +422,7 @@ export function registerStudentPortalRoutes(app, { authenticateToken, enforcePla
       const q = portalSchoolsSearchTerm(req.query.q);
       const client = platformSupabase || supabase;
       const rows = await loadPortalSchoolRows(client, q);
-      const schools = [];
-      for (const row of rows) {
-        try {
-          const card = directorySchoolCard(row);
-          if (card) schools.push(card);
-        } catch (err) {
-          console.warn('Skipped a school on the portal list:', err.message);
-        }
-      }
-      schools.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
-      res.json({ schools });
+      res.json({ schools: portalDirectorySchools(rows) });
     } catch (error) {
       console.error('Student portal school list failed:', error.message || error);
       res.status(500).json({ error: 'Could not load schools' });

@@ -10,7 +10,7 @@ import {
   recordStudentPortalFailure,
   studentPortalLocked,
 } from '../studentPortalStore.js';
-import { portalSchoolsSearchTerm, studentPortalDetails } from '../studentPortalRoutes.js';
+import { portalDirectorySchools, portalSchoolsSearchTerm, studentPortalDetails } from '../studentPortalRoutes.js';
 
 process.env.JWT_SECRET =
   process.env.JWT_SECRET && process.env.JWT_SECRET.length >= 32
@@ -22,6 +22,27 @@ test('the student portal lists every school without asking for a search first', 
   assert.equal(portalSchoolsSearchTerm(' '), '');
   assert.equal(portalSchoolsSearchTerm('a'), '');
   assert.equal(portalSchoolsSearchTerm('  acacia  '), 'acacia');
+});
+
+test('registered schools stay on the student portal list before a plan is approved', () => {
+  const schools = portalDirectorySchools([
+    { id: 'pending', name: 'Achimota School', role: 'admin', plan_status: 'pending' },
+    { id: 'plain', name: 'Ridge International', role: 'school' },
+    { id: 'admin-only', role: 'super_admin', name: 'Platform', plan_status: 'approved' },
+    { id: 'blank', name: '   ', role: 'admin' },
+    {
+      id: 'logo',
+      name: 'East Legon Academy',
+      role: 'admin',
+      logo_url: `data:image/png;base64,${'a'.repeat(3000)}`,
+    },
+  ]);
+  assert.deepEqual(
+    schools.map((school) => school.name),
+    ['Achimota School', 'East Legon Academy', 'Ridge International']
+  );
+  assert.equal(schools.find((school) => school.id === 'logo').logo_url, null);
+  assert.equal(schools.find((school) => school.id === 'pending').id, 'pending');
 });
 
 test('the student portal shows the same personal details the school keeps on file', () => {
