@@ -54,6 +54,16 @@ function authenticateStudentPortal(req, res, next) {
   });
 }
 
+function directorySchoolCard(row) {
+  const card = portalSchoolCard(row);
+  if (!card) return null;
+  const logo = String(card.logo_url || '');
+  if (!logo || logo.startsWith('data:') || logo.length > 2048) {
+    return { ...card, logo_url: null };
+  }
+  return card;
+}
+
 function portalSchoolCard(row) {
   if (!row || String(row.role || '') === 'super_admin') return null;
   const merged = mergeSchoolWithExtras(row);
@@ -79,6 +89,36 @@ async function publicSchoolCard(schoolId) {
   const { data, error } = await supabase.from('schools').select(PORTAL_SCHOOL_COLUMNS).eq('id', schoolId).maybeSingle();
   if (error || !data) return null;
   return portalSchoolCard(data);
+}
+
+/** A blank or one-letter query lists every school. Longer text narrows that list by name. */
+export function portalSchoolsSearchTerm(query) {
+  const q = sanitizeSearchTerm(String(query || ''), 80);
+  return q.length >= 2 ? q : '';
+}
+
+async function pageSchoolRows(client, columns, q) {
+  const pageSize = 1000;
+  const rows = [];
+  for (let from = 0; from < 20000; from += pageSize) {
+    let query = client.from('schools').select(columns);
+    if (q) query = query.ilike('name', `%${q}%`);
+    const { data, error } = await query.order('name', { ascending: true }).range(from, from + pageSize - 1);
+    if (error) throw error;
+    const chunk = data || [];
+    rows.push(...chunk);
+    if (chunk.length < pageSize) break;
+  }
+  return rows;
+}
+
+async function loadPortalSchoolRows(client, q) {
+  try {
+    return await pageSchoolRows(client, PORTAL_SCHOOL_COLUMNS, q);
+  } catch (error) {
+    console.warn('Student portal school list retrying with fewer columns:', error.message || error);
+    return pageSchoolRows(client, 'id, name, role, logo_url', q);
+  }
 }
 
 function portalDb() {
@@ -339,25 +379,13 @@ export function registerStudentPortalRoutes(app, { authenticateToken, enforcePla
   const requireWritablePlan = typeof enforcePlanApproval === 'function' ? enforcePlanApproval : (_req, _res, next) => next();
   app.get('/api/student-portal/schools', async (req, res) => {
     try {
-      const q = sanitizeSearchTerm(String(req.query.q || ''), 80);
-      if (q.length < 2) {
-        return res.json({ schools: [] });
-      }
+      const q = portalSchoolsSearchTerm(req.query.q);
       const client = platformSupabase || supabase;
-      const columns = PORTAL_SCHOOL_COLUMNS;
-      let rows;
-      const first = await client.from('schools').select(columns).ilike('name', `%${q}%`).limit(20);
-      if (first.error) {
-        const retry = await client.from('schools').select('id, name, role, logo_url').ilike('name', `%${q}%`).limit(20);
-        if (retry.error) throw retry.error;
-        rows = retry.data || [];
-      } else {
-        rows = first.data || [];
-      }
+      const rows = await loadPortalSchoolRows(client, q);
       const schools = [];
       for (const row of rows) {
         try {
-          const card = portalSchoolCard(row);
+          const card = directorySchoolCard(row);
           if (card) schools.push(card);
         } catch (err) {
           console.warn('Skipped a school on the portal list:', err.message);

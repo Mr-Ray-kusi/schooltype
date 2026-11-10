@@ -550,8 +550,8 @@ const StudentPortal = () => {
     return () => applyLiteClass(false);
   }, []);
   const [schools, setSchools] = useState([]);
-  const [schoolQuery, setSchoolQuery] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [schoolsError, setSchoolsError] = useState('');
   const [error, setError] = useState('');
   const [studentId, setStudentId] = useState('');
   const [password, setPassword] = useState('');
@@ -561,33 +561,25 @@ const StudentPortal = () => {
   const [tab, setTab] = useState('details');
 
   useEffect(() => {
-    if (session || schoolId) return undefined;
-    const q = schoolQuery.trim();
-    if (q.length < 2) {
-      setSchools([]);
-      setLoading(false);
-      return undefined;
-    }
+    if (session?.sessionToken) return undefined;
     let cancelled = false;
     setLoading(true);
-    const timer = window.setTimeout(() => {
-      axios
-        .get('/api/student-portal/schools', { params: { q } })
-        .then(({ data }) => {
-          if (!cancelled) setSchools(Array.isArray(data.schools) ? data.schools : []);
-        })
-        .catch((err) => {
-          if (!cancelled) setError(err.response?.data?.error || 'Could not load schools');
-        })
-        .finally(() => {
-          if (!cancelled) setLoading(false);
-        });
-    }, 250);
+    setSchoolsError('');
+    axios
+      .get('/api/student-portal/schools')
+      .then(({ data }) => {
+        if (!cancelled) setSchools(Array.isArray(data.schools) ? data.schools : []);
+      })
+      .catch((err) => {
+        if (!cancelled) setSchoolsError(err.response?.data?.error || 'Could not load schools');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
     return () => {
       cancelled = true;
-      window.clearTimeout(timer);
     };
-  }, [session, schoolId, schoolQuery]);
+  }, [session?.sessionToken]);
 
   useEffect(() => {
     if (!session?.sessionToken) return undefined;
@@ -966,10 +958,10 @@ const StudentPortal = () => {
   let body;
   if (schoolId) {
     body = (
-      <form onSubmit={signIn} className="portal-signin mx-auto max-w-md rounded-3xl border border-[var(--mk-line)] bg-white p-6">
+      <form onSubmit={signIn} className="portal-signin mx-auto max-w-md rounded-3xl border border-[var(--mk-line)] bg-[#123028] p-6">
         <SchoolCover school={chosenSchool} />
-        <h1 className="mt-4 text-3xl font-semibold">Student portal</h1>
-        <p className="portal-signin-note mt-2 text-sm">Enter your student ID and password.</p>
+        <h1 className="mt-4 text-3xl font-semibold">{chosenSchool?.name || 'Student portal'}</h1>
+        <p className="portal-signin-note mt-2 text-sm">Enter your student ID and password for this school.</p>
         <label className="mt-5 block text-sm font-semibold" htmlFor="portal-id">
           Student ID
         </label>
@@ -1010,17 +1002,13 @@ const StudentPortal = () => {
     body = (
       <div className="mx-auto max-w-5xl">
         <h1 className="font-serif text-4xl font-bold">Student portal</h1>
-        <p className="mt-2 max-w-2xl text-sm text-[#3d4a45]">Search for the school you attend.</p>
-        <input
-          className="mt-6 w-full max-w-md rounded-xl border border-[var(--mk-line)] px-3 py-3 text-base"
-          value={schoolQuery}
-          onChange={(event) => setSchoolQuery(event.target.value)}
-          placeholder="Type at least 2 letters of the school name"
-        />
-        {error ? <p className="mt-4 text-sm text-[#a3472a]">{error}</p> : null}
-        {loading ? <p className="mt-8 text-sm">Searching schools…</p> : null}
-        {!loading && schoolQuery.trim().length >= 2 && !schools.length ? (
-          <p className="mt-8 text-sm">No matching schools.</p>
+        <p className="mt-2 max-w-2xl text-sm text-[#3d4a45]">
+          Choose your school, then sign in with your student ID and password.
+        </p>
+        {schoolsError ? <p className="mt-4 text-sm text-[#a3472a]">{schoolsError}</p> : null}
+        {loading ? <p className="mt-8 text-sm">Loading schools…</p> : null}
+        {!loading && !schoolsError && !schools.length ? (
+          <p className="mt-8 text-sm">No schools are registered yet.</p>
         ) : null}
         <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {schools.map((school) => (
@@ -1028,7 +1016,8 @@ const StudentPortal = () => {
               key={school.id}
               type="button"
               onClick={() => navigate(`/portal/${school.id}`)}
-              className="overflow-hidden rounded-3xl border border-[var(--mk-line)] bg-white text-left"
+              className="overflow-hidden rounded-3xl border border-[var(--mk-line)] bg-white text-left transition hover:border-[#123028] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#123028]"
+              aria-label={`Sign in to ${school.name}`}
             >
               <SchoolCover school={school} />
               <span className="portal-school-name">{school.name}</span>

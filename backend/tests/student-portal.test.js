@@ -10,12 +10,19 @@ import {
   recordStudentPortalFailure,
   studentPortalLocked,
 } from '../studentPortalStore.js';
-import { studentPortalDetails } from '../studentPortalRoutes.js';
+import { portalSchoolsSearchTerm, studentPortalDetails } from '../studentPortalRoutes.js';
 
 process.env.JWT_SECRET =
   process.env.JWT_SECRET && process.env.JWT_SECRET.length >= 32
     ? process.env.JWT_SECRET
     : 'test-secret-key-change-this-32chars!!';
+
+test('the student portal lists every school without asking for a search first', () => {
+  assert.equal(portalSchoolsSearchTerm(''), '');
+  assert.equal(portalSchoolsSearchTerm(' '), '');
+  assert.equal(portalSchoolsSearchTerm('a'), '');
+  assert.equal(portalSchoolsSearchTerm('  acacia  '), 'acacia');
+});
 
 test('the student portal shows the same personal details the school keeps on file', () => {
   const details = studentPortalDetails(

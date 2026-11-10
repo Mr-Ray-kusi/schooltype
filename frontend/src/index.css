@@ -207,7 +207,8 @@
   font-weight: 600;
   line-height: 1.35;
   letter-spacing: 0;
-  color: #fffaf2;
+  color: #1a1712;
+  background: #fffaf2;
 }
 
 .mk .portal-signin h1,
