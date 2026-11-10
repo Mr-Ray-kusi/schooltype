@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import PlanPendingBanner from '../components/PlanPendingBanner';
 import axios from 'axios';
 import { useAuth } from '../contexts/authcontext';
-import { DASHBOARD_CACHE_MS, onSchoolDataChanged, peekCache, staleGet } from '../utils/requestCache';
+import { DASHBOARD_CACHE_MS, financeDataChanged, onSchoolDataChanged, peekCache, staleGet } from '../utils/requestCache';
 import { schoolLocalDate, schoolLocalDateLabel } from '../utils/schoolDate';
 import { useLivePoll } from '../hooks/useLivePoll';
 import SchoolAnalyticsChart from '../components/SchoolAnalyticsChart';
@@ -92,14 +92,7 @@ const Dashboard = () => {
 
   useEffect(() => {
     return onSchoolDataChanged((prefixes) => {
-      if (prefixes.includes('visible')) return;
-      if (
-        prefixes.some(
-          (prefix) => !prefix || prefix === 'fees' || prefix === 'dashboard' || prefix === 'wallet'
-        )
-      ) {
-        fetchDashboardData(selectedDate, { silent: true });
-      }
+      if (financeDataChanged(prefixes)) fetchDashboardData(selectedDate, { silent: true });
     });
   }, [fetchDashboardData, selectedDate]);
 

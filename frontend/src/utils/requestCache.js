@@ -190,6 +190,14 @@ export function invalidateCache(prefix = '') {
 const SCHOOL_DATA_EVENT = 'schooltype:data';
 const SCHOOL_DATA_REV_KEY = 'st_data_rev';
 
+/** Fee, wallet, and salary edits should refresh both the school admin and the staff accountant. */
+export const FINANCE_PREFIXES = ['fees', 'wallet', 'dashboard', 'payments'];
+
+export function financeDataChanged(prefixes) {
+  if (prefixes?.includes('visible')) return false;
+  return (prefixes || []).some((prefix) => !prefix || FINANCE_PREFIXES.includes(prefix));
+}
+
 export function notifySchoolDataChanged(prefixes = ['staff']) {
   const list = Array.isArray(prefixes) ? prefixes.filter(Boolean) : [prefixes].filter(Boolean);
   if (!list.length) invalidateCache();

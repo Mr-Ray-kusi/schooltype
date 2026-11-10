@@ -3,7 +3,8 @@ import axios from 'axios';
 import toast from 'react-hot-toast';
 import { RefreshCw, Wallet } from 'lucide-react';
 import PaginationBar from '../components/PaginationBar';
-import { forceGet, notifySchoolDataChanged, onSchoolDataChanged, peekCache, rememberSession, sessionGet } from '../utils/requestCache';
+import { FINANCE_PREFIXES, financeDataChanged, forceGet, notifySchoolDataChanged, onSchoolDataChanged, peekCache, rememberSession, sessionGet } from '../utils/requestCache';
+import { useLivePoll } from '../hooks/useLivePoll';
 import { useAuth } from '../contexts/authcontext';
 import { SUBSCRIPTION_READ_ONLY_MESSAGE } from '../utils/subscriptionAccess';
 import { LIST_PAGE_SIZE } from '../utils/listApi';
@@ -71,12 +72,16 @@ const Payments = () => {
 
   useEffect(() => {
     return onSchoolDataChanged((prefixes) => {
-      if (prefixes.includes('visible')) return;
-      if (prefixes.some((prefix) => !prefix || prefix === 'staff' || prefix.startsWith('staff'))) {
+      if (
+        financeDataChanged(prefixes) ||
+        prefixes.some((prefix) => prefix === 'staff' || String(prefix).startsWith('staff'))
+      ) {
         load({ fresh: true });
       }
     });
   }, [load]);
+
+  useLivePoll(() => load({ fresh: true }), 45000, !loading);
 
   const visible = useMemo(
     () => (group === 'all' ? people : people.filter((person) => person.kind === group)),
@@ -190,7 +195,7 @@ const Payments = () => {
       }
       setPending(null);
       setWallet(data.wallet || wallet);
-      notifySchoolDataChanged(['wallet', 'dashboard', 'staff']);
+      notifySchoolDataChanged(FINANCE_PREFIXES);
       await load({ fresh: true });
     } catch (err) {
       toast.error(err.response?.data?.error || 'Could not confirm salary payment');

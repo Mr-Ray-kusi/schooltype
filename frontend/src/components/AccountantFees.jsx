@@ -8,6 +8,8 @@ import { formatGhs } from '../utils/feeReceiptPdf';
 import { downloadTableXlsx } from '../utils/tableXlsx';
 import { useAuth } from '../contexts/authcontext';
 import {
+  FINANCE_PREFIXES,
+  financeDataChanged,
   forceGet,
   notifySchoolDataChanged,
   onSchoolDataChanged,
@@ -376,10 +378,7 @@ const AccountantFees = ({
 
   useEffect(() => {
     return onSchoolDataChanged((prefixes) => {
-      if (prefixes.includes('visible')) return;
-      if (prefixes.some((prefix) => !prefix || prefix === 'fees' || prefix === 'dashboard' || prefix === 'wallet')) {
-        load({ fresh: true }).catch(() => {});
-      }
+      if (financeDataChanged(prefixes)) load({ fresh: true }).catch(() => {});
     });
   }, [load]);
 
@@ -716,7 +715,7 @@ const AccountantFees = ({
           momoCheckoutUrl="/api/staff-portal/session/fees/checkout"
           onClose={() => setShowManual(false)}
           onSaved={() => {
-            notifySchoolDataChanged(['fees', 'dashboard', 'wallet']);
+            notifySchoolDataChanged(FINANCE_PREFIXES);
           }}
         />
       ) : null}
@@ -731,7 +730,7 @@ const AccountantFees = ({
           patchUrl={(id) => `/api/staff-portal/session/fees/manual/${encodeURIComponent(id)}`}
           onClose={() => setSelectedId(null)}
           onChanged={() => {
-            notifySchoolDataChanged(['fees', 'dashboard', 'wallet']);
+            notifySchoolDataChanged(FINANCE_PREFIXES);
           }}
         />
       ) : null}

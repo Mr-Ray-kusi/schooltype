@@ -15,7 +15,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import { useAuth } from '../contexts/authcontext';
-import { forceGet, onSchoolDataChanged, peekCache, rememberSession, sessionGet } from '../utils/requestCache';
+import { FINANCE_PREFIXES, financeDataChanged, forceGet, notifySchoolDataChanged, onSchoolDataChanged, peekCache, rememberSession, sessionGet } from '../utils/requestCache';
 import { useLivePoll } from '../hooks/useLivePoll';
 
 const formatGhs = (value) =>
@@ -183,10 +183,7 @@ const SchoolWallet = ({ viewOnly = false } = {}) => {
 
   useEffect(() => {
     return onSchoolDataChanged((prefixes) => {
-      if (prefixes.includes('visible')) return;
-      if (prefixes.some((prefix) => !prefix || prefix === 'fees' || prefix === 'wallet' || prefix === 'dashboard')) {
-        loadWallet({ fresh: true });
-      }
+      if (financeDataChanged(prefixes)) loadWallet({ fresh: true });
     });
   }, [loadWallet]);
 
@@ -200,6 +197,7 @@ const SchoolWallet = ({ viewOnly = false } = {}) => {
       try {
         await axios.post(`/api/wallet/verify/${encodeURIComponent(ref)}`);
         toast.success('Deposit verified');
+        notifySchoolDataChanged(FINANCE_PREFIXES);
         await loadWallet({ fresh: true });
       } catch (err) {
         toast.error(err.response?.data?.error || 'Could not verify deposit');
@@ -242,6 +240,7 @@ const SchoolWallet = ({ viewOnly = false } = {}) => {
         toast.success('Deposit credited to wallet');
         setAmount('');
         setMomoHint('');
+        notifySchoolDataChanged(FINANCE_PREFIXES);
         await loadWallet({ fresh: true });
         return;
       }
@@ -260,6 +259,7 @@ const SchoolWallet = ({ viewOnly = false } = {}) => {
           toast.success('Payment confirmed — wallet credited');
           setAmount('');
           setMomoHint('');
+          notifySchoolDataChanged(FINANCE_PREFIXES);
           await loadWallet({ fresh: true });
           return;
         }
@@ -317,6 +317,7 @@ const SchoolWallet = ({ viewOnly = false } = {}) => {
         );
         setAmount('');
         setPendingWithdraw(null);
+        notifySchoolDataChanged(FINANCE_PREFIXES);
         await loadWallet({ fresh: true });
       } catch (err) {
         toast.error(err.response?.data?.error || 'Withdrawal failed');
@@ -345,6 +346,7 @@ const SchoolWallet = ({ viewOnly = false } = {}) => {
       }
       toast.success(data.status === 'success' ? 'Withdrawal completed' : 'Withdrawal submitted');
       setAmount('');
+      notifySchoolDataChanged(FINANCE_PREFIXES);
       await loadWallet({ fresh: true });
     } catch (err) {
       toast.error(err.response?.data?.error || 'Withdrawal failed');

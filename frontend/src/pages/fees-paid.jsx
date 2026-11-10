@@ -8,6 +8,8 @@ import FeePaymentReceiptModal from '../components/FeePaymentReceiptModal';
 import PaginationBar from '../components/PaginationBar';
 import { LIST_PAGE_SIZE } from '../utils/listApi.js';
 import {
+  FINANCE_PREFIXES,
+  financeDataChanged,
   invalidateCache,
   notifySchoolDataChanged,
   onSchoolDataChanged,
@@ -47,7 +49,7 @@ const Fees = () => {
   const [searchTerm, setSearchTerm] = useState(initialQuery.search);
   const [page, setPage] = useState(initialQuery.page);
   const filterRef = useRef({ tab: initialQuery.tab, search: initialQuery.search });
-  const shownRef = useRef(Boolean(cached));
+  const shownRef = useRef(Boolean(initialFees));
 
   const load = useCallback(async ({ fresh = false, spin = false } = {}) => {
     const key = feesCacheKey({ page, tab, search: searchTerm });
@@ -86,10 +88,7 @@ const Fees = () => {
 
   useEffect(() => {
     return onSchoolDataChanged((prefixes) => {
-      if (prefixes.includes('visible')) return;
-      if (prefixes.some((prefix) => !prefix || prefix === 'fees' || prefix === 'dashboard' || prefix === 'wallet')) {
-        load({ fresh: true });
-      }
+      if (financeDataChanged(prefixes)) load({ fresh: true });
     });
   }, [load]);
 
@@ -406,7 +405,7 @@ const Fees = () => {
           month={data?.month}
           onClose={() => setShowManual(false)}
           onSaved={() => {
-            notifySchoolDataChanged(['fees', 'dashboard', 'wallet']);
+            notifySchoolDataChanged(FINANCE_PREFIXES);
           }}
         />
       ) : null}
@@ -419,7 +418,7 @@ const Fees = () => {
           schoolName={school?.name}
           onClose={() => setSelectedId(null)}
           onChanged={() => {
-            notifySchoolDataChanged(['fees', 'dashboard', 'wallet']);
+            notifySchoolDataChanged(FINANCE_PREFIXES);
           }}
         />
       ) : null}
