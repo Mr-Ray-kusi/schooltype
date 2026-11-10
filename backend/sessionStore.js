@@ -17,6 +17,7 @@ function useCloud() {
 const memory = new Map();
 const staffCurrent = new Map();
 const scannerSlots = new Map();
+let sessionSeq = 0;
 
 function isLive(row, now = Date.now()) {
   return Boolean(row) && !row.revoked_at && new Date(row.expires_at).getTime() > now;
@@ -33,11 +34,13 @@ export async function createAuthSession({ schoolId, token, remember, expiresAt, 
     created_at: new Date().toISOString(),
     last_seen_at: new Date().toISOString(),
     revoked_at: null,
+    seq: ++sessionSeq,
   };
   memory.set(row.token_hash, row);
   if (useCloud()) {
     const persist = { ...row };
     delete persist.kind;
+    delete persist.seq;
     platformSupabase
       .from('auth_sessions')
       .insert([persist])
@@ -85,7 +88,9 @@ export async function trimSchoolAdminSessions(schoolId, keepToken, limit = SCHOO
     const aKeep = a[0] === keepHash ? 1 : 0;
     const bKeep = b[0] === keepHash ? 1 : 0;
     if (aKeep !== bKeep) return bKeep - aKeep;
-    return new Date(b[1].created_at || 0).getTime() - new Date(a[1].created_at || 0).getTime();
+    const timeDiff = new Date(b[1].created_at || 0).getTime() - new Date(a[1].created_at || 0).getTime();
+    if (timeDiff) return timeDiff;
+    return (b[1].seq || 0) - (a[1].seq || 0);
   });
 
   const keepCount = keepHash && byHash.has(keepHash) ? 1 : 0;
