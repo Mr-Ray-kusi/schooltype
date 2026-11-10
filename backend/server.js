@@ -169,11 +169,15 @@ import { isProduction, isVercel } from './runtime.js';
 import {
   applyBaselineSecurityHeaders,
   corsOriginAllowed,
+  installSafeConsole,
+  rejectUnsafeRequest,
   sanitizePublicText,
   sanitizeSearchTerm,
   safeClientError,
   scrubErrorResponse,
 } from './httpSecurity.js';
+
+installSafeConsole();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -267,6 +271,13 @@ app.use(
     },
   })
 );
+
+app.use((req, res, next) => {
+  if (req.method === 'OPTIONS') return next();
+  const blocked = rejectUnsafeRequest(req);
+  if (!blocked) return next();
+  return res.status(400).json({ error: 'Request blocked' });
+});
 
 const MAX_LOGO_SIZE = 2 * 1024 * 1024; // 2MB
 const PAGE_SIZE = 50;

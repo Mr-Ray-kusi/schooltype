@@ -56,17 +56,159 @@ export function scrubErrorResponse(body, statusCode) {
   const next = { ...body };
   if (typeof next.error === 'string') {
     const redacted = redactSecrets(next.error);
-    if (statusCode >= 500 && shouldHideServerError(redacted)) {
-      console.error('Hidden server error:', redacted.slice(0, 500));
+    if (shouldHideServerError(redacted)) {
       next.error = 'Request failed';
     } else {
       next.error = redacted.slice(0, 240);
     }
   }
-  if (statusCode >= 400 && next.details && typeof next.details === 'object') {
+  if (statusCode >= 400) {
     delete next.details;
+    delete next.hint;
+    delete next.stack;
+    delete next.query;
+  }
+  if (statusCode >= 500 || next.error === 'Request failed') {
+    const code = String(next.code || '');
+    if (/pgrst|postgres|^[0-9A-Z]{5}$/i.test(code)) delete next.code;
   }
   return next;
+}
+
+const LOG_METHODS = ['log', 'info', 'warn', 'error', 'debug'];
+
+export function safeLogValue(value) {
+  if (value instanceof Error) {
+    const text = `${value.name || 'Error'}: ${value.message || ''}`;
+    if (shouldHideServerError(text)) return 'Internal error';
+    return redactSecrets(text).slice(0, 240);
+  }
+  if (typeof value === 'string') {
+    if (shouldHideServerError(value)) return 'Internal error';
+    return redactSecrets(value).slice(0, 500);
+  }
+  if (value && typeof value === 'object') {
+    try {
+      const text = JSON.stringify(value);
+      if (shouldHideServerError(text)) return 'Internal error';
+    } catch {
+      return 'Internal error';
+    }
+  }
+  return value;
+}
+
+export function installSafeConsole() {
+  if (globalThis.__schooltypeSafeConsole) return;
+  const original = {};
+  for (const method of LOG_METHODS) {
+    original[method] = console[method].bind(console);
+    console[method] = (...args) => original[method](...args.map(safeLogValue));
+  }
+  globalThis.__schooltypeSafeConsole = true;
+}
+
+const POLLUTION_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
+const KEY_NAME = /^[A-Za-z][A-Za-z0-9_]{0,48}$/;
+const EMAIL_KEY = /email$/i;
+const PHONE_KEY = /(^|_)(phone|momo_phone)$/i;
+const NUMBER_KEY = /^(page|limit|offset)$/i;
+const QUERY_TEXT = /^[\p{L}\p{N}\s.,_@+\-:'()/?=&%]*$/u;
+
+const BODY_ATTACK = [
+  /<\s*\/?\s*(script|iframe|object|embed|svg)\b/i,
+  /javascript\s*:/i,
+  /\bon(?:error|load|click|mouseover|focus)\s*=/i,
+  /\bunion\b[\s/*]*\bselect\b/i,
+  /\bdrop\b\s+\btable\b/i,
+  /\binformation_schema\b/i,
+  /\bpg_sleep\s*\(/i,
+  /\bor\b\s+\d+\s*=\s*\d+/i,
+  /'\s*or\s+'/i,
+  /\.\.(?:\/|\\)/,
+  /\0/,
+];
+
+const QUERY_ATTACK = [
+  ...BODY_ATTACK,
+  /\binsert\b\s+\binto\b/i,
+  /\bdelete\b\s+\bfrom\b/i,
+  /;\s*(?:drop|delete|insert|update|select)\b/i,
+  /%2e%2e/i,
+];
+
+function looksDangerous(value, patterns) {
+  const text = String(value || '');
+  if (text.length > 4000) {
+    const sample = text.slice(0, 200).toLowerCase();
+    if (!/[<'\\]|union|select|script|javascript|\.\.\//i.test(sample) && !text.includes('\0')) return false;
+  }
+  return patterns.some((pattern) => pattern.test(text));
+}
+
+function checkString(key, value, where) {
+  if (value.includes('\0')) return 'Request blocked';
+  if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(value)) return 'Request blocked';
+  const largeField = /logo|photo|image|contentbase64|attachment/i.test(key);
+  if (value.length > (largeField ? 500000 : 8000)) return 'Request blocked';
+  const patterns = where === 'body' ? BODY_ATTACK : QUERY_ATTACK;
+  if (looksDangerous(value, patterns)) return 'Request blocked';
+  if (where === 'query') {
+    if (NUMBER_KEY.test(key) && value && !/^\d{1,6}$/.test(value)) return 'Request blocked';
+    if (value.length > 200) return 'Request blocked';
+    if (!QUERY_TEXT.test(value)) return 'Request blocked';
+  }
+  if (EMAIL_KEY.test(key) && value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return 'Request blocked';
+  if (PHONE_KEY.test(key) && value && !/^[0-9+\-()\s]{6,20}$/.test(value)) return 'Request blocked';
+  return '';
+}
+
+function checkNode(value, key, where, depth) {
+  if (depth > 8) return 'Request blocked';
+  if (value == null) return '';
+  if (typeof value === 'string') return checkString(key, value, where);
+  if (typeof value === 'number') return Number.isFinite(value) ? '' : 'Request blocked';
+  if (typeof value === 'boolean') return '';
+  if (Array.isArray(value)) {
+    if (value.length > 2000) return 'Request blocked';
+    for (const item of value) {
+      const problem = checkNode(item, key, where, depth + 1);
+      if (problem) return problem;
+    }
+    return '';
+  }
+  if (typeof value === 'object') {
+    const names = Object.keys(value);
+    if (names.length > 80) return 'Request blocked';
+    for (const name of names) {
+      if (POLLUTION_KEYS.has(name) || !KEY_NAME.test(name)) return 'Request blocked';
+      const problem = checkNode(value[name], name, where, depth + 1);
+      if (problem) return problem;
+    }
+  }
+  return '';
+}
+
+/** Reject unexpected shapes and common attack text before a route runs. */
+export function rejectUnsafeRequest(req) {
+  const path = String(req.originalUrl || req.url || '');
+  if (looksDangerous(decodeURIComponentSafe(path), QUERY_ATTACK)) return 'Request blocked';
+  const query = req.query && typeof req.query === 'object' ? req.query : {};
+  const queryProblem = checkNode(query, '', 'query', 0);
+  if (queryProblem) return queryProblem;
+  if (req.body && typeof req.body === 'object') {
+    const bodyProblem = checkNode(req.body, '', 'body', 0);
+    if (bodyProblem) return bodyProblem;
+  }
+  return '';
+}
+
+function decodeURIComponentSafe(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 export function safeClientError(error, fallback = 'Request failed') {
