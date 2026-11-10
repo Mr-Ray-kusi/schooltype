@@ -67,7 +67,14 @@ function isPublicMutation(path) {
 
 function hasCookieSession(req) {
   const cookies = parseCookies(req);
-  return Boolean(cookies.st_session || cookies.st_staff || cookies.st_student);
+  return Boolean(
+    cookies.st_session ||
+      cookies.st_refresh ||
+      cookies.st_staff ||
+      cookies.st_staff_refresh ||
+      cookies.st_student ||
+      cookies.st_student_refresh
+  );
 }
 
 export function issueCsrf(res, maxAgeSec) {

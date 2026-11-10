@@ -1,8 +1,23 @@
+import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { platformSupabase, supabase } from './supabaseClient.js';
 import { getFrontendBaseUrl } from './emailVerification.js';
 import { getClientIp, checkStudentPortalAllowed, recordStudentPortalAuthFailure, clearStudentPortalAuthFailures } from './authSecurity.js';
-import { readStudentAccessToken, setStudentSessionCookie, clearStudentSessionCookie } from './cookieAuth.js';
+import {
+  readStudentAccessToken,
+  readStudentRefreshToken,
+  setStudentSessionCookie,
+  setStudentRefreshCookie,
+  clearStudentSessionCookie,
+  clearStudentRefreshCookie,
+} from './cookieAuth.js';
+import {
+  ACCESS_TTL_SEC,
+  clearStudentPortalSession,
+  isStudentRefreshActive,
+  setStudentPortalSession,
+  studentForRefreshToken,
+} from './sessionStore.js';
 import { issueCsrf, clearCsrfCookie } from './csrf.js';
 import { sanitizeSearchTerm } from './httpSecurity.js';
 import { mergeSchoolWithExtras } from './schoolPlanStore.js';
@@ -40,7 +55,7 @@ import {
 } from './studentPortalStore.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
-const STUDENT_SESSION_TTL_SEC = 4 * 60 * 60;
+const STUDENT_REFRESH_TTL_SEC = 4 * 60 * 60;
 
 function authenticateStudentPortal(req, res, next) {
   const token = readStudentAccessToken(req);
@@ -49,9 +64,27 @@ function authenticateStudentPortal(req, res, next) {
     if (err || payload?.purpose !== 'student_portal' || !payload.schoolId || !payload.studentId) {
       return res.status(401).json({ error: 'Your portal session has ended. Sign in again.' });
     }
+    if (payload.rh && !isStudentRefreshActive(payload.studentId, payload.rh)) {
+      return res.status(401).json({ error: 'Your portal session has ended. Sign in again.' });
+    }
     req.studentPortal = payload;
     next();
   });
+}
+
+function signStudentAccess(student, schoolId, refreshHash) {
+  return jwt.sign(
+    {
+      purpose: 'student_portal',
+      schoolId,
+      studentId: student.id,
+      rollNumber: student.roll_number,
+      rh: refreshHash,
+      typ: 'access',
+    },
+    JWT_SECRET,
+    { expiresIn: ACCESS_TTL_SEC, algorithm: 'HS256' }
+  );
 }
 
 function directorySchoolCard(row) {
@@ -458,18 +491,15 @@ export function registerStudentPortalRoutes(app, { authenticateToken, enforcePla
       clearStudentPortalFailures(lockKey);
       await clearStudentPortalAuthFailures(lockKey);
 
-      const sessionToken = jwt.sign(
-        {
-          purpose: 'student_portal',
-          schoolId,
-          studentId: student.id,
-          rollNumber: student.roll_number,
-        },
-        JWT_SECRET,
-        { expiresIn: STUDENT_SESSION_TTL_SEC, algorithm: 'HS256' }
-      );
-      setStudentSessionCookie(res, sessionToken, STUDENT_SESSION_TTL_SEC);
-      const csrfToken = issueCsrf(res, STUDENT_SESSION_TTL_SEC);
+      const refreshToken = crypto.randomBytes(32).toString('base64url');
+      const refreshHash = setStudentPortalSession(student.id, refreshToken, {
+        schoolId,
+        rollNumber: student.roll_number,
+      });
+      const sessionToken = signStudentAccess(student, schoolId, refreshHash);
+      setStudentSessionCookie(res, sessionToken, ACCESS_TTL_SEC);
+      setStudentRefreshCookie(res, refreshToken, STUDENT_REFRESH_TTL_SEC);
+      const csrfToken = issueCsrf(res, STUDENT_REFRESH_TTL_SEC);
 
       res.json({
         sessionToken,
@@ -482,8 +512,44 @@ export function registerStudentPortalRoutes(app, { authenticateToken, enforcePla
     }
   });
 
-  app.post('/api/student-portal/logout', (_req, res) => {
+  app.post('/api/student-portal/refresh', (req, res) => {
+    const refresh = readStudentRefreshToken(req);
+    const current = refresh ? studentForRefreshToken(refresh) : null;
+    if (!current?.studentId || !current.schoolId) {
+      return res.status(401).json({ error: 'Your portal session has ended. Sign in again.' });
+    }
+    const nextRefresh = crypto.randomBytes(32).toString('base64url');
+    const refreshHash = setStudentPortalSession(current.studentId, nextRefresh, {
+      schoolId: current.schoolId,
+      rollNumber: current.rollNumber,
+    });
+    const sessionToken = signStudentAccess(
+      { id: current.studentId, roll_number: current.rollNumber },
+      current.schoolId,
+      refreshHash
+    );
+    setStudentSessionCookie(res, sessionToken, ACCESS_TTL_SEC);
+    setStudentRefreshCookie(res, nextRefresh, STUDENT_REFRESH_TTL_SEC);
+    const csrfToken = issueCsrf(res, STUDENT_REFRESH_TTL_SEC);
+    res.json({ sessionToken, csrfToken, expiresIn: ACCESS_TTL_SEC });
+  });
+
+  app.post('/api/student-portal/logout', (req, res) => {
+    const refresh = readStudentRefreshToken(req);
+    const current = refresh ? studentForRefreshToken(refresh) : null;
+    let studentId = current?.studentId || null;
+    const access = readStudentAccessToken(req);
+    if (!studentId && access) {
+      try {
+        const payload = jwt.verify(access, JWT_SECRET, { algorithms: ['HS256'], ignoreExpiration: true });
+        if (payload?.purpose === 'student_portal') studentId = payload.studentId;
+      } catch {
+        studentId = null;
+      }
+    }
+    if (studentId) clearStudentPortalSession(studentId);
     clearStudentSessionCookie(res);
+    clearStudentRefreshCookie(res);
     clearCsrfCookie(res);
     res.json({ ok: true });
   });
@@ -495,7 +561,7 @@ export function registerStudentPortalRoutes(app, { authenticateToken, enforcePla
       const card = await publicSchoolCard(req.studentPortal.schoolId);
       const terms = await termCatalog(req.studentPortal.schoolId);
       res.json({
-        csrfToken: issueCsrf(res, STUDENT_SESSION_TTL_SEC),
+        csrfToken: issueCsrf(res, STUDENT_REFRESH_TTL_SEC),
         school: card,
         student: await withPortalPassword(student, { schoolId: req.studentPortal.schoolId }),
         terms,

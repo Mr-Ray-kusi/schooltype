@@ -1,6 +1,9 @@
 export const SESSION_COOKIE = 'st_session';
+export const REFRESH_COOKIE = 'st_refresh';
 export const STAFF_COOKIE = 'st_staff';
+export const STAFF_REFRESH_COOKIE = 'st_staff_refresh';
 export const STUDENT_COOKIE = 'st_student';
+export const STUDENT_REFRESH_COOKIE = 'st_student_refresh';
 
 export function parseCookies(req) {
   const header = String(req.headers?.cookie || '');
@@ -45,6 +48,18 @@ export function readStudentAccessToken(req) {
   return parseCookies(req)[STUDENT_COOKIE] || '';
 }
 
+export function readRefreshToken(req) {
+  return parseCookies(req)[REFRESH_COOKIE] || '';
+}
+
+export function readStaffRefreshToken(req) {
+  return parseCookies(req)[STAFF_REFRESH_COOKIE] || '';
+}
+
+export function readStudentRefreshToken(req) {
+  return parseCookies(req)[STUDENT_REFRESH_COOKIE] || '';
+}
+
 function sessionCookieFlags(maxAgeSec) {
   // The site is on Vercel and the API is on Render, so the browser treats the
   // session as cross-site. SameSite=None is required for that cookie to be sent.
@@ -82,12 +97,28 @@ export function clearSessionCookie(res) {
   clearNamedCookie(res, SESSION_COOKIE);
 }
 
+export function setRefreshCookie(res, token, maxAgeSec) {
+  setNamedCookie(res, REFRESH_COOKIE, token, maxAgeSec);
+}
+
+export function clearRefreshCookie(res) {
+  clearNamedCookie(res, REFRESH_COOKIE);
+}
+
 export function setStaffSessionCookie(res, token, maxAgeSec) {
   setNamedCookie(res, STAFF_COOKIE, token, Math.min(Number(maxAgeSec) || 4 * 60 * 60, 4 * 60 * 60));
 }
 
 export function clearStaffSessionCookie(res) {
   clearNamedCookie(res, STAFF_COOKIE);
+}
+
+export function setStaffRefreshCookie(res, token, maxAgeSec) {
+  setNamedCookie(res, STAFF_REFRESH_COOKIE, token, Math.min(Number(maxAgeSec) || 4 * 60 * 60, 4 * 60 * 60));
+}
+
+export function clearStaffRefreshCookie(res) {
+  clearNamedCookie(res, STAFF_REFRESH_COOKIE);
 }
 
 export function setStudentSessionCookie(res, token, maxAgeSec) {
@@ -98,8 +129,19 @@ export function clearStudentSessionCookie(res) {
   clearNamedCookie(res, STUDENT_COOKIE);
 }
 
+export function setStudentRefreshCookie(res, token, maxAgeSec) {
+  setNamedCookie(res, STUDENT_REFRESH_COOKIE, token, Math.min(Number(maxAgeSec) || 4 * 60 * 60, 4 * 60 * 60));
+}
+
+export function clearStudentRefreshCookie(res) {
+  clearNamedCookie(res, STUDENT_REFRESH_COOKIE);
+}
+
 export function clearAllAuthCookies(res) {
   clearSessionCookie(res);
+  clearRefreshCookie(res);
   clearStaffSessionCookie(res);
+  clearStaffRefreshCookie(res);
   clearStudentSessionCookie(res);
+  clearStudentRefreshCookie(res);
 }

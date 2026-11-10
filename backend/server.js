@@ -9,22 +9,35 @@ import { createTenantClient, disableTenantJwt, runWithTenant } from './tenantCon
 import { isJwtAuthError, jwtClockOffsetSec, noteJwtClockRejection, syncJwtClock } from './jwtClock.js';
 import {
   readAccessToken,
+  readRefreshToken,
   readStaffAccessToken,
+  readStaffRefreshToken,
   setSessionCookie,
+  setRefreshCookie,
   setStaffSessionCookie,
+  setStaffRefreshCookie,
+  clearStaffSessionCookie,
+  clearStaffRefreshCookie,
   clearAllAuthCookies,
 } from './cookieAuth.js';
 import { issueCsrf, clearCsrfCookie, requireCsrf } from './csrf.js';
 import { withJobLock } from './jobLock.js';
 import {
+  ACCESS_TTL_SEC,
   createAuthSession,
   getAuthSession,
+  getAuthSessionById,
   revokeAuthSession,
+  revokeAuthSessionById,
   revokeSchoolSessions,
+  rotateAuthSession,
   sessionTtlSeconds,
   trimSchoolAdminSessions,
   setStaffSession,
+  clearStaffSession,
+  staffIdForRefreshToken,
   isStaffSessionActive,
+  isStaffRefreshActive,
   claimScannerSlot,
   touchScannerSlot,
   releaseScannerSlot,
@@ -1061,21 +1074,54 @@ const authTokenPayload = (remember = false) => ({
   expiresIn: remember ? sessionTtlSeconds(true) : parseJwtExpiresInSeconds(JWT_EXPIRES_IN),
 });
 
+function signAccessToken(school, { remember = false, sid }) {
+  assertJwtSecretReady();
+  return jwt.sign(
+    {
+      schoolId: school.id,
+      email: school.email,
+      role: getSchoolRole(school),
+      remember: Boolean(remember),
+      sid,
+      typ: 'access',
+    },
+    JWT_SECRET,
+    { expiresIn: ACCESS_TTL_SEC }
+  );
+}
+
 async function issueSchoolSession(res, school, { remember = false } = {}) {
-  const ttlSec = sessionTtlSeconds(remember);
-  const token = signAuthToken(school, { remember, expiresIn: ttlSec });
-  await createAuthSession({
+  const refreshTtl = sessionTtlSeconds(remember);
+  const refreshToken = crypto.randomBytes(32).toString('base64url');
+  const row = await createAuthSession({
     schoolId: school.id,
-    token,
+    token: refreshToken,
     remember,
-    expiresAt: Date.now() + ttlSec * 1000,
+    expiresAt: Date.now() + refreshTtl * 1000,
   });
   if (getSchoolRole(school) !== 'super_admin') {
-    await trimSchoolAdminSessions(school.id, token);
+    await trimSchoolAdminSessions(school.id, refreshToken);
   }
-  setSessionCookie(res, token, ttlSec);
-  const csrfToken = issueCsrf(res, ttlSec);
-  return { token: 'session', csrfToken, expiresIn: ttlSec, school: formatSchool(school, { light: true }) };
+  const accessToken = signAccessToken(school, { remember, sid: row.id });
+  setSessionCookie(res, accessToken, ACCESS_TTL_SEC);
+  setRefreshCookie(res, refreshToken, refreshTtl);
+  const csrfToken = issueCsrf(res, refreshTtl);
+  return { token: 'session', csrfToken, expiresIn: ACCESS_TTL_SEC, school: formatSchool(school, { light: true }) };
+}
+
+async function endPresentedSchoolSession(req) {
+  const refresh = readRefreshToken(req);
+  if (refresh) await revokeAuthSession(refresh);
+  const access = readAccessToken(req);
+  if (!access) return null;
+  await revokeAuthSession(access);
+  try {
+    const payload = jwt.verify(access, JWT_SECRET, { algorithms: ['HS256'], ignoreExpiration: true });
+    if (payload?.sid) await revokeAuthSessionById(payload.sid);
+    return payload;
+  } catch {
+    return null;
+  }
 }
 
 // Email transporter configuration - uses Gmail SMTP or custom SMTP
@@ -1267,7 +1313,10 @@ const authenticateToken = (req, res, next) => {
       return res.status(403).json({ error: 'Invalid or expired token' });
     }
     if (user?.purpose === 'staff_portal') {
-      if (!(await isStaffSessionActive(user.staffId, token))) {
+      const staffLive = user.rh
+        ? await isStaffRefreshActive(user.staffId, user.rh)
+        : await isStaffSessionActive(user.staffId, token);
+      if (!staffLive) {
         return res.status(401).json({
           error: 'This staff login is already used on another device. Sign in here to continue.',
         });
@@ -1289,18 +1338,12 @@ const authenticateToken = (req, res, next) => {
       });
     }
     try {
-      const session = await getAuthSession(token);
-      if (session.status === 'revoked' || session.status === 'expired') {
-        return res.status(403).json({ error: 'Session ended. Sign in again.' });
-      }
-      if (session.status === 'ok' && session.session?.school_id && session.session.school_id !== user.schoolId) {
-        return res.status(403).json({ error: 'Session ended. Sign in again.' });
-      }
-      if (session.status === 'missing' && process.env.REQUIRE_AUTH_SESSIONS === 'true') {
-        return res.status(403).json({ error: 'Session ended. Sign in again.' });
+      const session = user.sid ? await getAuthSessionById(user.sid) : await getAuthSession(token);
+      if (session.status !== 'ok' || (session.session?.school_id && session.session.school_id !== user.schoolId)) {
+        return res.status(401).json({ error: 'Session ended. Sign in again.' });
       }
     } catch {
-      // Session table may not exist yet; JWT still authenticates.
+      return res.status(401).json({ error: 'Session ended. Sign in again.' });
     }
     req.user = user;
     req.accessToken = token;
@@ -2005,15 +2048,64 @@ app.post('/api/auth/forgot-password', async (req, res) => {
   }
 });
 
-app.post('/api/auth/logout', authenticateToken, async (req, res) => {
-  await revokeAuthSession(req.accessToken || readAccessToken(req));
+app.post('/api/auth/refresh', async (req, res) => {
+  try {
+    const refresh = readRefreshToken(req);
+    const found = refresh ? await getAuthSession(refresh) : { status: 'missing' };
+    if (found.status !== 'ok' || !found.session?.id || !found.session.school_id) {
+      return res.status(401).json({ error: 'Session ended. Sign in again.' });
+    }
+    let { data: school, error } = await selectSchoolById(found.session.school_id, SCHOOL_AUTH_COLUMNS);
+    if (error || !school) return res.status(401).json({ error: 'Session ended. Sign in again.' });
+    school = await syncPaidPlanFromLedger(school);
+    const nextRefresh = crypto.randomBytes(32).toString('base64url');
+    const rotated = await rotateAuthSession(found.session.id, refresh, nextRefresh);
+    if (!rotated) return res.status(401).json({ error: 'Session ended. Sign in again.' });
+    const remember = Boolean(found.session.remember);
+    const accessToken = signAccessToken(school, { remember, sid: found.session.id });
+    const refreshTtl = sessionTtlSeconds(remember);
+    setSessionCookie(res, accessToken, ACCESS_TTL_SEC);
+    setRefreshCookie(res, nextRefresh, refreshTtl);
+    const csrfToken = issueCsrf(res, refreshTtl);
+    res.json({ ok: true, token: 'session', csrfToken, expiresIn: ACCESS_TTL_SEC });
+  } catch (error) {
+    console.error('Session refresh error:', error);
+    res.status(401).json({ error: 'Session ended. Sign in again.' });
+  }
+});
+
+app.post('/api/auth/logout', async (req, res) => {
+  try {
+    await endPresentedSchoolSession(req);
+  } catch {
+    // Still clear the cookies below.
+  }
   clearAllAuthCookies(res);
   clearCsrfCookie(res);
   res.json({ ok: true });
 });
 
-app.post('/api/auth/logout-all', authenticateToken, async (req, res) => {
-  await revokeSchoolSessions(req.user.schoolId);
+app.post('/api/auth/logout-all', async (req, res) => {
+  try {
+    let schoolId = null;
+    const access = readAccessToken(req);
+    if (access) {
+      try {
+        const payload = jwt.verify(access, JWT_SECRET, { algorithms: ['HS256'], ignoreExpiration: true });
+        if (payload?.typ === 'access' || payload?.schoolId) schoolId = payload.schoolId || null;
+      } catch {
+        schoolId = null;
+      }
+    }
+    if (!schoolId) {
+      const refresh = readRefreshToken(req);
+      const found = refresh ? await getAuthSession(refresh) : { status: 'missing' };
+      schoolId = found.session?.school_id || null;
+    }
+    if (schoolId) await revokeSchoolSessions(schoolId);
+  } catch {
+    // Still clear the cookies below.
+  }
   clearAllAuthCookies(res);
   clearCsrfCookie(res);
   res.json({ ok: true });
@@ -4576,9 +4668,14 @@ app.put('/api/staff/:id', authenticateToken, enforcePlanApproval, async (req, re
     }
 
     if (secretCode !== undefined) {
-      updates.secret_code = String(secretCode || '').trim() || generateSecretCode();
+      const nextCode = String(secretCode || '').trim() || generateSecretCode();
+      if (nextCode !== String(currentStaff.secret_code || '')) {
+        updates.secret_code = nextCode;
+        clearStaffSession(id);
+      }
     } else if (!currentStaff.secret_code) {
       updates.secret_code = generateSecretCode();
+      clearStaffSession(id);
     }
 
     const { data: staff, error } = await updateStaffRecord(id, req.user.schoolId, updates);
@@ -5665,6 +5762,8 @@ async function issueStaffPortalSession(req, res, resolved) {
 
   assertJwtSecretReady();
   const subscription = getSubscriptionInfo(resolved.school || {});
+  const refreshToken = crypto.randomBytes(32).toString('base64url');
+  const refreshHash = setStaffSession(staff.id, refreshToken);
   const sessionToken = jwt.sign(
     {
       purpose: 'staff_portal',
@@ -5677,12 +5776,14 @@ async function issueStaffPortalSession(req, res, resolved) {
       plan_status: resolved.school?.plan_status || null,
       subscription_active: Boolean(subscription.subscription_active),
       subscription_read_only: Boolean(subscription.subscription_read_only),
+      rh: refreshHash,
+      typ: 'access',
     },
     JWT_SECRET,
-    { expiresIn: '4h' }
+    { expiresIn: ACCESS_TTL_SEC }
   );
-  await setStaffSession(staff.id, sessionToken);
-  setStaffSessionCookie(res, sessionToken, 4 * 60 * 60);
+  setStaffSessionCookie(res, sessionToken, ACCESS_TTL_SEC);
+  setStaffRefreshCookie(res, refreshToken, 4 * 60 * 60);
   const csrfToken = issueCsrf(res, 4 * 60 * 60);
 
   recordPlatformEvent({
@@ -5723,6 +5824,71 @@ async function issueStaffPortalSession(req, res, resolved) {
     },
   });
 }
+
+app.post('/api/staff-portal/refresh', async (req, res) => {
+  try {
+    const refresh = readStaffRefreshToken(req);
+    const staffId = refresh ? await staffIdForRefreshToken(refresh) : null;
+    if (!staffId) return res.status(401).json({ error: 'Session ended. Sign in again.' });
+    const { data: staff, error } = await supabase
+      .from('staffs')
+      .select('id, name, role, school_id')
+      .eq('id', staffId)
+      .maybeSingle();
+    if (error || !staff) return res.status(401).json({ error: 'Session ended. Sign in again.' });
+    const { data: school } = await selectSchoolById(staff.school_id, SCHOOL_AUTH_COLUMNS);
+    const subscription = getSubscriptionInfo(school || {});
+    const nextRefresh = crypto.randomBytes(32).toString('base64url');
+    const refreshHash = setStaffSession(staff.id, nextRefresh);
+    const sessionToken = jwt.sign(
+      {
+        purpose: 'staff_portal',
+        schoolId: staff.school_id,
+        staffId: staff.id,
+        staffName: staff.name,
+        role: staff.role,
+        payment_plan: school?.payment_plan || null,
+        plan_status: school?.plan_status || null,
+        subscription_active: Boolean(subscription.subscription_active),
+        subscription_read_only: Boolean(subscription.subscription_read_only),
+        rh: refreshHash,
+        typ: 'access',
+      },
+      JWT_SECRET,
+      { expiresIn: ACCESS_TTL_SEC }
+    );
+    setStaffSessionCookie(res, sessionToken, ACCESS_TTL_SEC);
+    setStaffRefreshCookie(res, nextRefresh, 4 * 60 * 60);
+    const csrfToken = issueCsrf(res, 4 * 60 * 60);
+    res.json({ sessionToken, csrfToken, expiresIn: ACCESS_TTL_SEC });
+  } catch (error) {
+    console.error('Staff session refresh error:', error);
+    res.status(401).json({ error: 'Session ended. Sign in again.' });
+  }
+});
+
+app.post('/api/staff-portal/logout', async (req, res) => {
+  try {
+    const refresh = readStaffRefreshToken(req);
+    const fromRefresh = refresh ? await staffIdForRefreshToken(refresh) : null;
+    let staffId = fromRefresh;
+    const access = readStaffAccessToken(req);
+    if (!staffId && access) {
+      try {
+        const payload = jwt.verify(access, JWT_SECRET, { algorithms: ['HS256'], ignoreExpiration: true });
+        if (payload?.purpose === 'staff_portal') staffId = payload.staffId;
+      } catch {
+        staffId = null;
+      }
+    }
+    if (staffId) clearStaffSession(staffId);
+  } catch {
+    // Still clear the cookies below.
+  }
+  clearStaffSessionCookie(res);
+  clearStaffRefreshCookie(res);
+  res.json({ ok: true });
+});
 
 app.get('/api/staff-portal/:token/school', async (req, res) => {
   try {

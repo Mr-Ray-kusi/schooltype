@@ -11,6 +11,7 @@ import { downloadFeeReceiptPdf } from '../utils/feeReceiptPdf';
 import { formatExtraFees } from '../utils/extraFees';
 import { applyCsrfHeader, readCsrfToken, writeCsrfToken } from '../utils/csrf';
 import { collectPortalSchools } from '../utils/portalSchools';
+import { peekSchoolLogo, readStoredSchoolLogo, writeStoredSchoolLogo } from '../utils/schoolLogoStore';
 
 const TOKEN_KEY = 'studentPortalSession';
 
@@ -42,6 +43,18 @@ function writeSession(value) {
       JSON.stringify({ ...value, csrfToken: value.csrfToken || readCsrfToken() })
     );
   }
+}
+
+async function refreshStudentSession(current) {
+  const { data } = await portal.post('/api/student-portal/refresh', {}, { skipAuthRefresh: true });
+  if (!data?.sessionToken) return null;
+  const next = {
+    ...current,
+    sessionToken: data.sessionToken,
+    csrfToken: data.csrfToken || current?.csrfToken,
+  };
+  writeSession(next);
+  return next;
 }
 
 function ordinal(value) {
@@ -520,16 +533,37 @@ function AttendanceCalendar({ term }) {
 }
 
 function SchoolCover({ school }) {
-  const [logo, setLogo] = useState(school?.logo_url || '');
+  const [logo, setLogo] = useState(school?.logo_url || peekSchoolLogo(school?.id) || '');
 
   useEffect(() => {
-    setLogo(school?.logo_url || '');
-    if (school?.logo_url || !school?.id) return undefined;
+    const id = school?.id;
+    if (school?.logo_url) {
+      writeStoredSchoolLogo(school.logo_url, id);
+      setLogo(school.logo_url);
+      return undefined;
+    }
+    const known = id ? peekSchoolLogo(id) : '';
+    if (known) {
+      setLogo(known);
+      return undefined;
+    }
+    if (!id) return undefined;
     let cancelled = false;
-    axios
-      .get(`/api/public/schools/${school.id}/logo`)
-      .then(({ data }) => {
-        if (!cancelled && data?.logo_url) setLogo(data.logo_url);
+    readStoredSchoolLogo(id)
+      .then((stored) => {
+        if (cancelled) return null;
+        if (stored) {
+          setLogo(stored);
+          return null;
+        }
+        return axios.get(`/api/public/schools/${id}/logo`);
+      })
+      .then((result) => {
+        const next = result?.data?.logo_url;
+        if (!cancelled && next) {
+          writeStoredSchoolLogo(next, id);
+          setLogo(next);
+        }
       })
       .catch(() => {});
     return () => {
@@ -615,8 +649,19 @@ const StudentPortal = () => {
           return next;
         });
       })
-      .catch(() => {
+      .catch(async (err) => {
         if (cancelled) return;
+        if (err.response?.status === 401 && !session?.refreshed) {
+          try {
+            const next = await refreshStudentSession(session);
+            if (next?.sessionToken) {
+              setSession({ ...next, refreshed: true });
+              return;
+            }
+          } catch {
+            // The refresh cookie is gone, so the portal session ends.
+          }
+        }
         writeSession(null);
         setSession(null);
       })
@@ -638,8 +683,20 @@ const StudentPortal = () => {
       .then(({ data }) => {
         if (!cancelled) setRecord(data);
       })
-      .catch((err) => {
-        if (!cancelled) setError(err.response?.data?.error || 'Could not load your record');
+      .catch(async (err) => {
+        if (cancelled) return;
+        if (err.response?.status === 401 && !session?.refreshed) {
+          try {
+            const next = await refreshStudentSession(session);
+            if (next?.sessionToken) {
+              setSession({ ...next, refreshed: true });
+              return;
+            }
+          } catch {
+            // Fall through to the visible error.
+          }
+        }
+        setError(err.response?.data?.error || 'Could not load your record');
       });
     return () => {
       cancelled = true;

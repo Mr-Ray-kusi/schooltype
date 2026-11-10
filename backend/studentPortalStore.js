@@ -7,6 +7,7 @@ import { getDataDir } from './dataPaths.js';
 import { useLocalDiskStore } from './runtime.js';
 import { platformSupabase, supabase } from './supabaseClient.js';
 import { ensureSharedRuntimeTables } from './dbPooler.js';
+import { clearStudentPortalSession } from './sessionStore.js';
 
 const DB_PATH = path.join(getDataDir(), 'school-extras.db');
 const FAIL_WINDOW_MS = 15 * 60 * 1000;
@@ -207,6 +208,7 @@ export async function issueStudentPortalPassword(schoolId, studentId) {
   if (!schoolId || !studentId) return null;
   const password = generatePortalPassword(await usedPasswords(schoolId));
   await writeSecret(schoolId, studentId, password);
+  clearStudentPortalSession(studentId);
   return { password };
 }
 

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import toast from 'react-hot-toast';
@@ -41,6 +41,8 @@ const StaffPortal = () => {
   const [role, setRole] = useState('Teacher');
   const [loggingIn, setLoggingIn] = useState(false);
   const [sessionToken, setSessionToken] = useState(restored?.sessionToken || null);
+  const tokenRef = useRef(sessionToken);
+  tokenRef.current = sessionToken;
   const [staff, setStaff] = useState(restored?.staff || null);
   const [students, setStudents] = useState([]);
   const [selectedSubject, setSelectedSubject] = useState('');
@@ -162,6 +164,19 @@ const StaffPortal = () => {
     );
   };
 
+  const signOut = async () => {
+    try {
+      await axios.post(
+        '/api/staff-portal/logout',
+        {},
+        { headers: { Authorization: `Bearer ${tokenRef.current || ''}` }, skipAuthRefresh: true }
+      );
+    } catch {
+      // The server session is cleared when the cookie is still present.
+    }
+    clearSession();
+  };
+
   const clearSession = () => {
     clearPersistedCache();
     sessionStorage.removeItem(SESSION_KEY);
@@ -187,13 +202,57 @@ const StaffPortal = () => {
         ) ||
         /^\/api\/school\/(branding|fees-settings)(\/|$)/.test(path);
       if (staffPortalSchoolApi) {
-        config.headers.Authorization = `Bearer ${sessionToken}`;
+        config.headers.Authorization = `Bearer ${tokenRef.current}`;
         Object.assign(config.headers, applyCsrfHeader(config.headers));
       }
       return config;
     });
     return () => axios.interceptors.request.eject(id);
   }, [sessionToken]);
+
+  useEffect(() => {
+    const id = axios.interceptors.response.use(
+      (response) => response,
+      async (error) => {
+        const config = error.config;
+        const url = String(config?.url || '');
+        if (
+          error.response?.status !== 401 ||
+          !tokenRef.current ||
+          config?._staffRetried ||
+          config?.skipAuthRefresh ||
+          url.includes('/api/staff-portal/refresh') ||
+          url.includes('/login')
+        ) {
+          return Promise.reject(error);
+        }
+        config._staffRetried = true;
+        try {
+          const { data } = await axios.post('/api/staff-portal/refresh', {}, { skipAuthRefresh: true });
+          if (!data?.sessionToken) return Promise.reject(error);
+          tokenRef.current = data.sessionToken;
+          setSessionToken(data.sessionToken);
+          if (data.csrfToken) writeCsrfToken(data.csrfToken);
+          try {
+            const saved = JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null');
+            if (saved?.sessionToken) {
+              saved.sessionToken = data.sessionToken;
+              if (data.csrfToken) saved.csrfToken = data.csrfToken;
+              sessionStorage.setItem(SESSION_KEY, JSON.stringify(saved));
+            }
+          } catch {
+            // ignore a private-mode session
+          }
+          config.headers = config.headers || {};
+          config.headers.Authorization = `Bearer ${data.sessionToken}`;
+          return axios(config);
+        } catch {
+          return Promise.reject(error);
+        }
+      }
+    );
+    return () => axios.interceptors.response.eject(id);
+  }, []);
 
   const loadTeacherData = useCallback(
     async (subject, className, selectedTerm) => {
@@ -681,7 +740,7 @@ const StaffPortal = () => {
             {themeToggle}
             <button
               type="button"
-              onClick={() => clearSession()}
+              onClick={() => signOut()}
               className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm ${
                 liteMode
                   ? 'border-slate-300 bg-white text-slate-800 hover:bg-slate-50'

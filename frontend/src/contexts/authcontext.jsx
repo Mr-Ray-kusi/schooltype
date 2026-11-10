@@ -3,7 +3,7 @@ import axios from 'axios';
 import toast from 'react-hot-toast';
 import { hasFeature as planHasFeature } from '../constants/plans';
 import { clearPersistedCache } from '../utils/requestCache';
-import { clearStoredSchoolLogo, readStoredSchoolLogo, writeStoredSchoolLogo } from '../utils/schoolLogoStore';
+import { clearStoredSchoolLogo, peekSchoolLogo, readStoredSchoolLogo, writeStoredSchoolLogo } from '../utils/schoolLogoStore';
 import { writeCsrfToken } from '../utils/csrf';
 
 export const AuthContext = createContext();
@@ -189,12 +189,14 @@ export const AuthProvider = ({ children }) => {
   const schoolRef = useRef(bootSchool);
 
   const persistSchool = useCallback((schoolData, previous) => {
-    const merged = mergeSchoolState(schoolData, previous === undefined ? schoolRef.current : previous);
+    const prior = previous === undefined ? schoolRef.current : previous;
+    const incoming = schoolData?.id || !prior ? schoolData : { ...prior, ...schoolData };
+    const merged = mergeSchoolState(incoming, prior);
     schoolRef.current = merged;
     setSchool(merged);
     if (!merged) return;
     writeSessionFlag(true);
-    if (merged.logo_url) writeStoredSchoolLogo(merged.logo_url);
+    if (merged.logo_url) writeStoredSchoolLogo(merged.logo_url, merged.id);
     const slim = slimSchoolForStorage(merged);
     try {
       localStorage.setItem('school', JSON.stringify(slim));
@@ -257,7 +259,14 @@ export const AuthProvider = ({ children }) => {
       }
 
       try {
-        const response = await axios.get('/api/auth/verify', { timeout: 8000, withCredentials: true });
+        let response;
+        try {
+          response = await axios.get('/api/auth/verify', { timeout: 8000, withCredentials: true, skipAuthRefresh: true });
+        } catch (error) {
+          if (error.response?.status !== 401 && error.response?.status !== 403) throw error;
+          await axios.post('/api/auth/refresh', {}, { skipAuthRefresh: true, withCredentials: true });
+          response = await axios.get('/api/auth/verify', { timeout: 8000, withCredentials: true, skipAuthRefresh: true });
+        }
         if (response.data?.school) {
           persistSchool(response.data.school, cachedSchool || schoolRef.current);
           if (response.data.csrfToken) writeCsrfToken(response.data.csrfToken);
@@ -284,15 +293,19 @@ export const AuthProvider = ({ children }) => {
     let cancelled = false;
 
     const restoreLogo = async () => {
-      const stored = await readStoredSchoolLogo();
+      const schoolId = schoolRef.current?.id;
+      const stored = peekSchoolLogo(schoolId) || (await readStoredSchoolLogo(schoolId));
       if (cancelled) return;
-      if (stored && !schoolRef.current?.logo_url) {
+      if (stored && schoolRef.current?.logo_url === stored) return;
+      if (stored) {
         persistSchool({ logo_url: stored });
+        return;
       }
       if (schoolRef.current?.role === 'super_admin') return;
       try {
         const { data } = await axios.get('/api/school/branding', { timeout: 12000 });
         if (cancelled || !data?.logo_url) return;
+        writeStoredSchoolLogo(data.logo_url, schoolRef.current?.id || schoolId);
         persistSchool({ logo_url: data.logo_url });
       } catch {
         // keep the stored setup image
@@ -311,16 +324,45 @@ export const AuthProvider = ({ children }) => {
   }, [token]);
 
   useEffect(() => {
+    let refreshRequest = null;
+    const refreshAccess = () => {
+      if (!refreshRequest) {
+        refreshRequest = axios
+          .post('/api/auth/refresh', {}, { skipAuthRefresh: true, withCredentials: true })
+          .finally(() => {
+            refreshRequest = null;
+          });
+      }
+      return refreshRequest;
+    };
+
     const interceptor = axios.interceptors.response.use(
       (response) => response,
-      (error) => {
+      async (error) => {
         const status = error.response?.status;
         const url = error.config?.url || '';
-        // Don't logout on verify retries or transient API errors.
-        if (
+        const schoolApi =
+          status === 401 &&
+          !error.config?.skipAuthRefresh &&
+          !error.config?._retriedAccess &&
+          !isAuthRoute(url) &&
+          !url.includes('/api/auth/refresh') &&
+          !url.includes('/api/auth/verify') &&
+          !url.includes('/api/student-portal') &&
+          !url.includes('/api/staff-portal');
+        if (schoolApi) {
+          try {
+            await refreshAccess();
+            error.config._retriedAccess = true;
+            return axios(error.config);
+          } catch {
+            clearSession();
+          }
+        } else if (
           status === 401 &&
           !isAuthRoute(url) &&
           !url.includes('/api/auth/verify') &&
+          !url.includes('/api/auth/refresh') &&
           !url.includes('/api/student-portal') &&
           !url.includes('/api/staff-portal')
         ) {

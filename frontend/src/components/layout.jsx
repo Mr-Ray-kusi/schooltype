@@ -389,7 +389,6 @@ const Layout = ({ children }) => {
             <img
               src={school.logo_url}
               alt={`${school.name} logo`}
-              loading="lazy"
               className="h-8 w-8 rounded-lg object-cover xl:h-10 xl:w-10"
             />
           ) : (
