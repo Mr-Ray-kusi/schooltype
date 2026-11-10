@@ -20,7 +20,7 @@
     "@zxing/browser": "^0.2.0",
     "@zxing/library": "^0.22.0",
     "autoprefixer": "^10.5.0",
-    "axios": "^1.17.0",
+    "axios": "^1.21.1",
     "date-fns": "^4.4.0",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",
