@@ -502,6 +502,10 @@ const Attendance = () => {
     );
   }
 
+  const viewingPack = viewing
+    ? termCache[personKey(viewing)] || fallbackTermAttendance(viewing, selectedDate)
+    : null;
+
   return (
     <div className="attendance-page flex h-full min-h-0 flex-col gap-2 overflow-hidden">
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
@@ -661,37 +665,23 @@ const Attendance = () => {
 
       <PersonDetailModal
         open={Boolean(viewing)}
-        fields={
-          viewing
-            ? [
-                {
-                  group: 'This term',
-                  label: 'Term',
-                  value: (termCache[personKey(viewing)] || fallbackTermAttendance(viewing, selectedDate))?.term?.name,
-                },
-                {
-                  group: 'This term',
-                  label: 'Early',
-                  value: String(
-                    (termCache[personKey(viewing)] || fallbackTermAttendance(viewing, selectedDate))?.summary?.early ?? 0
-                  ),
-                },
-                {
-                  group: 'This term',
-                  label: 'Late',
-                  value: String(
-                    (termCache[personKey(viewing)] || fallbackTermAttendance(viewing, selectedDate))?.summary?.late ?? 0
-                  ),
-                },
-                {
-                  group: 'This term',
-                  label: 'Absent',
-                  value: String(
-                    (termCache[personKey(viewing)] || fallbackTermAttendance(viewing, selectedDate))?.summary?.absent ?? 0
-                  ),
-                },
-              ]
-            : []
+        pinned={
+          viewingPack ? (
+            <p className="flex items-baseline gap-x-4 whitespace-nowrap text-sm text-slate-400">
+              <span>
+                Term <span className="font-semibold text-white">{viewingPack.term?.name || 'This term'}</span>
+              </span>
+              <span>
+                Early <span className="font-semibold tabular-nums text-emerald-300">{viewingPack.summary?.early ?? 0}</span>
+              </span>
+              <span>
+                Late <span className="font-semibold tabular-nums text-amber-300">{viewingPack.summary?.late ?? 0}</span>
+              </span>
+              <span>
+                Absent <span className="font-semibold tabular-nums text-rose-300">{viewingPack.summary?.absent ?? 0}</span>
+              </span>
+            </p>
+          ) : null
         }
         onClose={() => setViewing(null)}
         onDownload={viewing ? downloadViewingRecord : undefined}
