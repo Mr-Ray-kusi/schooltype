@@ -11,8 +11,7 @@ import { ensureSharedRuntimeTables } from './dbPooler.js';
 const DB_PATH = path.join(getDataDir(), 'school-extras.db');
 const FAIL_WINDOW_MS = 15 * 60 * 1000;
 const MAX_FAILS = 5;
-const PASSWORD_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
-const BLOCKED_PASSWORDS = new Set(['0000', '1111', '1234', '1212', '2222', '2580', 'password', 'Password1']);
+const BLOCKED_PASSWORDS = new Set(['0000', '1111', '1234', '1212', '2222', '2580']);
 
 const fails = new Map();
 let dbPromise = null;
@@ -54,16 +53,22 @@ export function decryptPortalPassword(payload) {
   }
 }
 
-function randomPortalPassword() {
-  const bytes = crypto.randomBytes(8);
-  return Array.from(bytes, (byte) => PASSWORD_ALPHABET[byte % PASSWORD_ALPHABET.length]).join('');
+export function portalSecretMatchesSchool(secret, schoolId) {
+  if (!secret || schoolId == null || schoolId === '') return false;
+  return String(secret.school_id) === String(schoolId);
 }
 
 export function generatePortalPassword(used = []) {
   const taken = new Set((Array.isArray(used) ? used : []).map((value) => String(value)));
   for (const blocked of BLOCKED_PASSWORDS) taken.add(blocked);
-  for (let attempt = 0; attempt < 80; attempt += 1) {
-    const password = randomPortalPassword();
+  if (taken.size >= 10000) {
+    const error = new Error('Could not issue a unique student password. Reset one and try again.');
+    error.status = 409;
+    throw error;
+  }
+  const start = crypto.randomInt(0, 10000);
+  for (let offset = 0; offset < 10000; offset += 1) {
+    const password = String((start + offset) % 10000).padStart(4, '0');
     if (!taken.has(password)) return password;
   }
   const error = new Error('Could not issue a unique student password. Reset one and try again.');
@@ -225,13 +230,13 @@ async function readSecret(studentId) {
 
 export async function revealStudentPortalPassword(schoolId, studentId) {
   const row = await readSecret(studentId);
-  if (!row || String(row.school_id) !== String(schoolId)) return null;
+  if (!portalSecretMatchesSchool(row, schoolId)) return null;
   return decryptPortalPassword(row.password_enc);
 }
 
 export async function verifyStudentPortalPassword(schoolId, studentId, password) {
   const row = await readSecret(studentId);
-  if (!row || String(row.school_id) !== String(schoolId) || !row.password_hash) return false;
+  if (!portalSecretMatchesSchool(row, schoolId) || !row.password_hash) return false;
   return bcrypt.compare(String(password || ''), row.password_hash);
 }
 

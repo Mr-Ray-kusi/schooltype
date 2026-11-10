@@ -995,8 +995,9 @@ const StudentPortal = () => {
           onChange={(event) => setPassword(event.target.value.slice(0, 16))}
           autoComplete="current-password"
           type="password"
+          inputMode="numeric"
           className="mt-1 w-full rounded-xl border border-[var(--mk-line)] px-3 py-3 text-base"
-          placeholder="Enter password"
+          placeholder="4-digit password"
           required
         />
         {error ? <p className="mt-3 text-sm text-[#a3472a]">{error}</p> : null}

@@ -7,6 +7,7 @@ import {
   decryptPortalPassword,
   encryptPortalPassword,
   generatePortalPassword,
+  portalSecretMatchesSchool,
   recordStudentPortalFailure,
   studentPortalLocked,
 } from '../studentPortalStore.js';
@@ -73,12 +74,20 @@ test('the student portal shows the same personal details the school keeps on fil
   assert.deepEqual(details.extra_fees, [{ label: 'School bus', amount: 30 }]);
 });
 
-test('a student portal password is eight characters and is not reused in that school', () => {
+test('a student portal password is four digits and is not reused in that school', () => {
   const password = generatePortalPassword(['1234', '0000', '1111']);
-  assert.match(password, /^[A-HJ-NP-Za-hj-np-z2-9]{8}$/);
-  assert.notEqual(password, '1234');
+  assert.match(password, /^\d{4}$/);
+  assert.equal(['0000', '1111', '1234'].includes(password), false);
   const again = generatePortalPassword([password]);
   assert.notEqual(again, password);
+});
+
+test('a portal password from one school does not open another school', () => {
+  const secret = { student_id: 'stu-1', school_id: 'school-a' };
+  assert.equal(portalSecretMatchesSchool(secret, 'school-a'), true);
+  assert.equal(portalSecretMatchesSchool(secret, 'school-b'), false);
+  assert.equal(portalSecretMatchesSchool(secret, ''), false);
+  assert.equal(portalSecretMatchesSchool(null, 'school-a'), false);
 });
 
 test('the office can read back the password it issued', () => {
