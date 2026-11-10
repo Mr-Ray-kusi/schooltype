@@ -10,6 +10,7 @@ import { formatMoney, normalizeFeeCurrency } from '../utils/feeCurrency';
 import { downloadFeeReceiptPdf } from '../utils/feeReceiptPdf';
 import { formatExtraFees } from '../utils/extraFees';
 import { applyCsrfHeader, readCsrfToken, writeCsrfToken } from '../utils/csrf';
+import { collectPortalSchools } from '../utils/portalSchools';
 
 const TOKEN_KEY = 'studentPortalSession';
 
@@ -565,11 +566,22 @@ const StudentPortal = () => {
     let cancelled = false;
     setLoading(true);
     setSchoolsError('');
-    axios
-      .get('/api/student-portal/schools')
-      .then(({ data }) => {
-        if (!cancelled) setSchools(Array.isArray(data.schools) ? data.schools : []);
-      })
+    collectPortalSchools(
+      async (q) => {
+        const { data } = await axios.get(
+          '/api/student-portal/schools',
+          q ? { params: { q } } : undefined
+        );
+        return Array.isArray(data?.schools) ? data.schools : [];
+      },
+      {
+        onUpdate: (next) => {
+          if (cancelled) return;
+          setSchools(next);
+          if (next.length) setLoading(false);
+        },
+      }
+    )
       .catch((err) => {
         if (!cancelled) setSchoolsError(err.response?.data?.error || 'Could not load schools');
       })

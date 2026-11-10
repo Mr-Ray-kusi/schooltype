@@ -127,20 +127,18 @@ export function portalSchoolsSearchTerm(query) {
 async function pageSchoolRows(client, columns, q) {
   const pageSize = 1000;
   const rows = [];
-  let ordered = true;
   for (let from = 0; from < 20000; from += pageSize) {
     let query = client.from('schools').select(columns);
     if (q) query = query.ilike('name', `%${q}%`);
-    if (ordered) query = query.order('name', { ascending: true });
-    let { data, error } = await query.range(from, from + pageSize - 1);
-    if (error && ordered) {
-      ordered = false;
-      query = client.from('schools').select(columns);
-      if (q) query = query.ilike('name', `%${q}%`);
-      ({ data, error } = await query.range(from, from + pageSize - 1));
-    }
-    if (error) throw error;
-    const chunk = data || [];
+    // Same limit call the live API already uses for a name search. Offset with
+    // range only after the first page, and fall back to that one page if range fails.
+    let result =
+      from === 0
+        ? await query.limit(pageSize)
+        : await query.order('id', { ascending: true }).range(from, from + pageSize - 1);
+    if (result.error && from > 0) break;
+    if (result.error) throw result.error;
+    const chunk = result.data || [];
     rows.push(...chunk);
     if (chunk.length < pageSize) break;
   }
