@@ -31,8 +31,7 @@ export function sanitizePublicText(value, maxLen = 200, { multiline = false } = 
 
 const SECRET_TEXT = /sk_(?:live|test)_[A-Za-z0-9]+|postgres(?:ql)?:\/\/\S+|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{8,}|Bearer\s+\S+/gi;
 
-const DATABASE_LEAK = /postgres|supabase|pgrst|syntax error|violates|duplicate key|relation\b|column\b|econn|enotfound|service[_ ]role|sk_(?:live|test)_|password authentication|node_modules|\bat\s+\S+\s*\(/i;
-const LOG_LEAK = /syntax error|violates|duplicate key|password authentication|service[_ ]role|node_modules|\n\s*at\s+/i;
+const DATABASE_LEAK = /postgres|supabase|pgrst|jwt|\bsql\b|syntax error|violates|duplicate key|relation\b|column\b|econn|enotfound|service[_ ]role|sk_(?:live|test)_|password authentication|node_modules|\bat\s+\S+\s*\(/i;
 
 export function redactSecrets(value) {
   return String(value || '').replace(SECRET_TEXT, '[redacted]');
@@ -80,9 +79,8 @@ const LOG_METHODS = ['log', 'info', 'warn', 'error', 'debug'];
 
 function logText(value) {
   const text = redactSecrets(String(value || '')).replace(/\s+at\s+\S+\s*\([^)]*\)/g, '').trim();
-  if (!text) return 'Internal error';
-  if (LOG_LEAK.test(text)) return 'Internal error';
-  return text.slice(0, 500);
+  if (!text || shouldHideServerError(text)) return 'Internal error';
+  return text.slice(0, 240);
 }
 
 export function safeLogValue(value) {
@@ -91,11 +89,6 @@ export function safeLogValue(value) {
   }
   if (typeof value === 'string') return logText(value);
   if (value && typeof value === 'object') {
-    const message = value.message || value.error || value.details;
-    if (typeof message === 'string' && message.trim()) {
-      const code = value.code && String(value.code).length <= 16 ? ` (${value.code})` : '';
-      return logText(`${message}${code}`);
-    }
     try {
       return logText(JSON.stringify(value));
     } catch {

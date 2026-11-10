@@ -63,12 +63,13 @@ test('logs and responses never keep SQL text', () => {
   const sql = 'syntax error at or near "students" violates relation column';
   assert.equal(safeLogValue(sql), 'Internal error');
   assert.equal(safeLogValue(new Error(sql)), 'Internal error');
-  const config = 'JWT_SECRET is required to protect student portal passwords';
-  assert.equal(safeLogValue(config), config);
+  assert.equal(safeLogValue('JWT_SECRET is required'), 'Internal error');
   assert.equal(
     safeLogValue(new Error('Could not find the portal_password column of students')),
-    'Error: Could not find the portal_password column of students'
+    'Internal error'
   );
+  assert.equal(safeLogValue({ message: sql, details: 'select id from students' }), 'Internal error');
+  assert.equal(safeLogValue('Failed to load students'), 'Failed to load students');
   const leaked = scrubErrorResponse({ error: sql, code: '23505', hint: sql }, 500);
   assert.equal(leaked.error, 'Request failed');
   assert.equal(leaked.code, undefined);
