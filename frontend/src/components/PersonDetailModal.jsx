@@ -73,16 +73,18 @@ const PersonDetailModal = ({
         </div>
 
         <div className="max-h-[calc(90vh-8.5rem)] overflow-y-auto px-5 py-5 sm:px-6">
-          <div className="min-w-0">
-            <h2 className="text-2xl font-bold tracking-tight text-white">{name || 'Details'}</h2>
-            {badge ? (
-              <span className={`mt-3 inline-flex rounded-full px-3 py-1 text-xs font-medium ${colors.badge}`}>
-                {badge}
-              </span>
-            ) : null}
-          </div>
+          {name || badge ? (
+            <div className="min-w-0">
+              {name ? <h2 className="text-2xl font-bold tracking-tight text-white">{name}</h2> : null}
+              {badge ? (
+                <span className={`mt-3 inline-flex rounded-full px-3 py-1 text-xs font-medium ${colors.badge}`}>
+                  {badge}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
 
-          <div className="mt-6 space-y-6">
+          <div className={`${name || badge ? 'mt-6' : ''} space-y-6`}>
             {groups.map((group) => (
               <section key={group.title || 'details'}>
                 {group.title ? (

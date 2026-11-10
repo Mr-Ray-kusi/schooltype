@@ -76,13 +76,6 @@ const statusLabel = (status) => {
   return 'Early';
 };
 
-const formatMarkTime = (timestamp) => {
-  if (!timestamp) return '—';
-  const parsed = new Date(timestamp);
-  if (Number.isNaN(parsed.getTime())) return '—';
-  return format(parsed, 'hh:mm a');
-};
-
 const personKey = (record) => `${record.user_type || 'student'}:${record.user_id || record.id}`;
 
 const fallbackTermAttendance = (record, selectedDate) => {
@@ -668,33 +661,9 @@ const Attendance = () => {
 
       <PersonDetailModal
         open={Boolean(viewing)}
-        name={viewing ? getPersonName(viewing) : ''}
-        badge={viewing ? typeLabel(normalizeType(viewing)) : ''}
-        accent={
-          viewing && normalizeType(viewing) === 'staff'
-            ? 'emerald'
-            : viewing && normalizeType(viewing) === 'non-staff'
-              ? 'violet'
-              : 'sky'
-        }
         fields={
           viewing
             ? [
-                {
-                  group: 'Today',
-                  label: 'Action',
-                  value: isMarked(viewing) ? 'Marked' : 'Unmarked',
-                },
-                {
-                  group: 'Today',
-                  label: normalizeType(viewing) === 'student' ? 'Class' : 'Role',
-                  value: getPersonLabel(viewing),
-                },
-                {
-                  group: 'Today',
-                  label: 'Time',
-                  value: isMarked(viewing) ? formatMarkTime(viewing.timestamp) : '—',
-                },
                 {
                   group: 'This term',
                   label: 'Term',
