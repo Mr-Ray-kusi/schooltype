@@ -40,6 +40,8 @@ import {
   recordFeePayment,
   updateManualFeePayment,
   roundMoney,
+  schoolRevenueFigures,
+  reflectSchoolMoney,
   isSuccessfulFeeStatus,
   isManualFeePayment,
   creditCashedFeeToWallet,
@@ -737,8 +739,11 @@ export async function getFeeOverviewPayload(schoolId, query = {}) {
   const billed = rows.filter((row) => row.fee_amount > 0 || row.paid_amount > 0);
   const paid = billed.filter((row) => row.paid_amount > 0);
   const unpaid = billed.filter((row) => row.outstanding >= 0.01);
-  const paidAmount = paid.reduce((sum, row) => sum + Number(row.paid_amount || 0), 0);
-  const unpaidAmount = unpaid.reduce((sum, row) => sum + Number(row.outstanding || 0), 0);
+  const billedAmount = billed.reduce((sum, row) => sum + Number(row.fee_amount || 0), 0);
+  const collectedAmount = (payments || [])
+    .filter((row) => isSuccessfulFeeStatus(row.status))
+    .reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+  const revenue = schoolRevenueFigures({ billedAmount, collectedAmount });
 
   const classesChart = [...classFeeByName.keys()]
     .concat(billed.map((row) => row.class || 'Unassigned'))
@@ -803,8 +808,9 @@ export async function getFeeOverviewPayload(schoolId, query = {}) {
       billed: billed.length,
       paid: paid.length,
       unpaid: unpaid.length,
-      paid_amount: roundMoney(paidAmount),
-      unpaid_amount: roundMoney(unpaidAmount),
+      paid_amount: revenue.feesPaid,
+      unpaid_amount: revenue.unpaidRevenue,
+      billed_amount: revenue.totalRevenue,
       year_collected: yearCollected,
     },
     chart: { classes: classesChart },
@@ -1387,6 +1393,7 @@ export function registerFeeRoutes(app, { authenticateToken, enforcePlanApproval 
   app.put('/api/academic-terms', authenticateToken, enforcePlanApproval, async (req, res) => {
     try {
       const terms = await replaceAcademicTerms(req.user.schoolId, req.body?.terms || []);
+      reflectSchoolMoney(req.user.schoolId);
       const current = await resolveFeePeriod(req.user.schoolId);
       res.json({ terms, current });
     } catch (err) {

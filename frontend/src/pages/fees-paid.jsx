@@ -7,7 +7,15 @@ import RecordFeePaymentModal from '../components/RecordFeePaymentModal';
 import FeePaymentReceiptModal from '../components/FeePaymentReceiptModal';
 import PaginationBar from '../components/PaginationBar';
 import { LIST_PAGE_SIZE } from '../utils/listApi.js';
-import { invalidateCache, peekCache, rememberSession, sessionGet } from '../utils/requestCache';
+import {
+  invalidateCache,
+  notifySchoolDataChanged,
+  onSchoolDataChanged,
+  peekCache,
+  rememberSession,
+  sessionGet,
+} from '../utils/requestCache';
+import { useLivePoll } from '../hooks/useLivePoll';
 
 const FEES_VIEW_KEY = 'view:fees-admin';
 
@@ -39,6 +47,7 @@ const Fees = () => {
   const [searchTerm, setSearchTerm] = useState(initialQuery.search);
   const [page, setPage] = useState(initialQuery.page);
   const filterRef = useRef({ tab: initialQuery.tab, search: initialQuery.search });
+  const shownRef = useRef(Boolean(cached));
 
   const load = useCallback(async ({ fresh = false, spin = false } = {}) => {
     const key = feesCacheKey({ page, tab, search: searchTerm });
@@ -46,11 +55,12 @@ const Fees = () => {
       const hit = peekCache(key);
       if (hit) {
         setData(hit);
+        shownRef.current = true;
         setLoading(false);
         return;
       }
     }
-    if (spin || !peekCache(key)) setLoading(true);
+    if (spin || (!peekCache(key) && !shownRef.current)) setLoading(true);
     try {
       if (fresh) invalidateCache('fees:admin:');
       const payload = await sessionGet(key, () =>
@@ -61,6 +71,7 @@ const Fees = () => {
           .then((response) => response.data)
       );
       setData(payload);
+      shownRef.current = true;
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to load fees');
     } finally {
@@ -69,8 +80,20 @@ const Fees = () => {
   }, [page, tab, searchTerm]);
 
   useEffect(() => {
-    load();
+    const hasCache = Boolean(peekCache(feesCacheKey({ page, tab, search: searchTerm })));
+    load(hasCache ? { fresh: true } : {});
+  }, [load, page, tab, searchTerm]);
+
+  useEffect(() => {
+    return onSchoolDataChanged((prefixes) => {
+      if (prefixes.includes('visible')) return;
+      if (prefixes.some((prefix) => !prefix || prefix === 'fees' || prefix === 'dashboard' || prefix === 'wallet')) {
+        load({ fresh: true });
+      }
+    });
   }, [load]);
+
+  useLivePoll(() => load({ fresh: true }), 45000, !loading);
 
   useEffect(() => {
     if (filterRef.current.tab === tab && filterRef.current.search === searchTerm) return;
@@ -181,7 +204,9 @@ const Fees = () => {
         <div className="min-w-0 rounded-xl border border-slate-700 bg-slate-800 p-3">
           <p className="text-[10px] uppercase leading-tight tracking-wide text-slate-300">Term fee billed</p>
           <p className="mt-1.5 break-words text-lg font-extrabold text-white lg:text-xl xl:text-2xl">
-            {formatGhs(Number(totals.paid_amount || 0) + Number(totals.unpaid_amount || 0))}
+            {formatGhs(
+              totals.billed_amount ?? Number(totals.paid_amount || 0) + Number(totals.unpaid_amount || 0)
+            )}
           </p>
           <p className="mt-0.5 text-xs text-slate-400">{totals.billed || 0} billed student{(totals.billed || 0) === 1 ? '' : 's'}</p>
         </div>
@@ -373,7 +398,7 @@ const Fees = () => {
           month={data?.month}
           onClose={() => setShowManual(false)}
           onSaved={() => {
-            load({ fresh: true });
+            notifySchoolDataChanged(['fees', 'dashboard', 'wallet']);
           }}
         />
       ) : null}
@@ -386,7 +411,7 @@ const Fees = () => {
           schoolName={school?.name}
           onClose={() => setSelectedId(null)}
           onChanged={() => {
-            load({ fresh: true });
+            notifySchoolDataChanged(['fees', 'dashboard', 'wallet']);
           }}
         />
       ) : null}

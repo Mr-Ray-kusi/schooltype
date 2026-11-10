@@ -117,7 +117,7 @@ import { inspectScoreLock, loadScoreLocks } from './scorePublishStore.js';
 import { listClassRoster, listReportClasses } from './reportCardRoster.js';
 import { isProtectedStaffRole, staffPortalApiAllowed, staffPortalAsSchoolUser } from './staffSchoolAuth.js';
 import { parseRequiredGender, parseRequiredSalary } from './peopleCreate.js';
-import { extraFeesJson } from './feePayments.js';
+import { extraFeesJson, schoolRevenueFigures } from './feePayments.js';
 import { notifyParentsOfAbsence, sendAbsentParentSms } from './absentNotify.js';
 import { registerAlumniRoutes } from './alumniRoutes.js';
 import { applyTermPromotion } from './studentPromotion.js';
@@ -309,7 +309,11 @@ const generateStrongPassword = (length = 16) => {
 
 const bumpSchoolCaches = (schoolId) => {
   if (!schoolId) return;
-  cacheInvalidate(String(schoolId));
+  const id = String(schoolId);
+  cacheInvalidate(id);
+  cacheInvalidate(`dash:${id}`);
+  cacheInvalidate(`fee-dash:${id}`);
+  cacheInvalidate(`analytics:${id}`);
 };
 
 const SCHOOL_PLAN_COLUMNS = [
@@ -7412,8 +7416,12 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
     cacheSet(`att-sum:${schoolId}:${selectedDate}`, attendanceSummary, DASHBOARD_TTL_MS);
 
     const feeTotals = feeGlance?.totals || {};
-    const feesPaid = Number(feeTotals.paid_amount) || 0;
-    const unpaidRevenue = Number(feeTotals.unpaid_amount) || 0;
+    const collectedFees = Number(feeTotals.paid_amount) || 0;
+    const billedFees = Number(feeTotals.billed_amount);
+    const revenue = schoolRevenueFigures({
+      billedAmount: Number.isFinite(billedFees) ? billedFees : collectedFees + (Number(feeTotals.unpaid_amount) || 0),
+      collectedAmount: collectedFees,
+    });
     const payload = {
       totalStudents: totals.students,
       totalStaff: totals.staff,
@@ -7421,9 +7429,9 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
       unreadMessages: messages.count || 0,
       todayAttendance: presentStudents + presentStaff + presentNonStaff,
       attendance: attendanceSummary,
-      totalRevenue: feesPaid + unpaidRevenue,
-      feesPaid,
-      unpaidRevenue,
+      totalRevenue: revenue.totalRevenue,
+      feesPaid: revenue.feesPaid,
+      unpaidRevenue: revenue.unpaidRevenue,
       yearCollected: Number(feeTotals.year_collected) || 0,
       billedStudents: Number(feeTotals.billed) || 0,
       paidStudents: Number(feeTotals.paid) || 0,

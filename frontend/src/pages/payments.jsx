@@ -190,6 +190,7 @@ const Payments = () => {
       }
       setPending(null);
       setWallet(data.wallet || wallet);
+      notifySchoolDataChanged(['wallet', 'dashboard', 'staff']);
       await load({ fresh: true });
     } catch (err) {
       toast.error(err.response?.data?.error || 'Could not confirm salary payment');

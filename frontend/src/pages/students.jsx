@@ -193,7 +193,7 @@ const Students = () => {
     try {
       await axios.delete(`/api/students/${student.id}`);
       toast.success('Student and related records removed');
-      notifySchoolDataChanged(['students', 'dashboard', 'attendance']);
+      notifySchoolDataChanged(['students', 'fees', 'dashboard', 'wallet', 'attendance']);
       setPendingDelete(null);
       setViewingStudent(null);
       fetchStudents();
@@ -232,7 +232,7 @@ const Students = () => {
         extraFees: extraFeesPayload(editingStudent.extraFees),
         rollNumber: editingStudent.roll_number,
       });
-      notifySchoolDataChanged(['students', 'dashboard']);
+      notifySchoolDataChanged(['students', 'fees', 'dashboard', 'wallet']);
       setEditingStudent(null);
       if (data) setViewingStudent(data);
       toast.success('Student updated');

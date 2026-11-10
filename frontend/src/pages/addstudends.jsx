@@ -70,7 +70,7 @@ const AddStudent = ({ onClose } = {}) => {
         ...formData,
         extraFees: extraFeesPayload(formData.extraFees),
       });
-      notifySchoolDataChanged(['students', 'dashboard']);
+      notifySchoolDataChanged(['students', 'fees', 'dashboard', 'wallet']);
       if (data?.warning) toast.error(data.warning);
       if (data?.roll_number && data?.portal_password) {
         setIssued({ name: data.name, id: data.roll_number, password: data.portal_password });

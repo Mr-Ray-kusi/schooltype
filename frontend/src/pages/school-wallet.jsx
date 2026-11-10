@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -15,7 +15,8 @@ import {
   Wallet,
 } from 'lucide-react';
 import { useAuth } from '../contexts/authcontext';
-import { forceGet, peekCache, rememberSession, sessionGet } from '../utils/requestCache';
+import { forceGet, onSchoolDataChanged, peekCache, rememberSession, sessionGet } from '../utils/requestCache';
+import { useLivePoll } from '../hooks/useLivePoll';
 
 const formatGhs = (value) =>
   `GHS ${Number(value || 0).toLocaleString(undefined, {
@@ -107,6 +108,7 @@ const SchoolWallet = ({ viewOnly = false } = {}) => {
   const [downloading, setDownloading] = useState(false);
   const [pendingWithdraw, setPendingWithdraw] = useState(null);
   const [txFilter, setTxFilter] = useState(savedView.txFilter || 'all');
+  const shownRef = useRef(Boolean(cachedWallet));
 
   const selectedAccount = useMemo(
     () => accounts.find((a) => a.id === accountId) || null,
@@ -152,15 +154,17 @@ const SchoolWallet = ({ viewOnly = false } = {}) => {
       const hit = peekCache(walletKey);
       if (hit) {
         applyWallet(hit);
+        shownRef.current = true;
         setLoading(false);
         return;
       }
     }
-    if (spin || !peekCache(walletKey)) setLoading(true);
+    if (spin || (!peekCache(walletKey) && !shownRef.current)) setLoading(true);
     try {
       const fetchWallet = () => axios.get('/api/wallet').then((response) => response.data);
       const data = fresh ? await forceGet(walletKey, fetchWallet) : await sessionGet(walletKey, fetchWallet);
       applyWallet(data);
+      shownRef.current = true;
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to load wallet');
     } finally {
@@ -173,8 +177,20 @@ const SchoolWallet = ({ viewOnly = false } = {}) => {
   }, [txFilter, walletKey]);
 
   useEffect(() => {
-    loadWallet();
+    const hasCache = Boolean(peekCache(walletKey));
+    loadWallet(hasCache ? { fresh: true } : {});
+  }, [loadWallet, walletKey]);
+
+  useEffect(() => {
+    return onSchoolDataChanged((prefixes) => {
+      if (prefixes.includes('visible')) return;
+      if (prefixes.some((prefix) => !prefix || prefix === 'fees' || prefix === 'wallet' || prefix === 'dashboard')) {
+        loadWallet({ fresh: true });
+      }
+    });
   }, [loadWallet]);
+
+  useLivePoll(() => loadWallet({ fresh: true }), 45000, !loading);
 
   useEffect(() => {
     const ref = searchParams.get('reference') || searchParams.get('trxref');

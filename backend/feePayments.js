@@ -1,6 +1,7 @@
 import { supabase } from './supabaseClient.js';
 import { creditInternalFunds, listWalletAccounts, updateWalletAccount } from './schoolWalletStore.js';
 import { createSubaccount, fromMinorUnits, initiateTransfer, toMinorUnits } from './paystack.js';
+import { cacheInvalidate } from './ttlCache.js';
 
 export function currentFeeMonth() {
   const parts = new Intl.DateTimeFormat('en-GB', {
@@ -108,6 +109,22 @@ export function resolveStudentFeeAmount(student, classFee) {
 
 export function roundMoney(value) {
   return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+/** School unpaid revenue is billed fees minus money already collected. */
+export function schoolRevenueFigures({ billedAmount = 0, collectedAmount = 0 } = {}) {
+  const totalRevenue = roundMoney(billedAmount);
+  const feesPaid = roundMoney(collectedAmount);
+  const unpaidRevenue = roundMoney(Math.max(0, totalRevenue - feesPaid));
+  return { totalRevenue, feesPaid, unpaidRevenue };
+}
+
+export function reflectSchoolMoney(schoolId) {
+  if (!schoolId) return;
+  const id = String(schoolId);
+  cacheInvalidate(`dash:${id}`);
+  cacheInvalidate(`fee-dash:${id}`);
+  cacheInvalidate(`analytics:${id}`);
 }
 
 export function isSuccessfulFeeStatus(status) {
@@ -291,7 +308,10 @@ export async function recordFeePayment(row) {
   let attempt = { ...payload };
   for (let i = 0; i <= optional.length; i++) {
     const { data, error } = await supabase.from('fee_payments').insert([attempt]).select().maybeSingle();
-    if (!error) return data;
+    if (!error) {
+      reflectSchoolMoney(payload.school_id);
+      return data;
+    }
     if (isMissingTable(error)) {
       const err = new Error(
         'fee_payments table is missing. Run database/migrations.sql in the Supabase SQL editor.'
@@ -305,6 +325,7 @@ export async function recordFeePayment(row) {
         .select('*')
         .eq('payment_reference', payload.payment_reference)
         .maybeSingle();
+      reflectSchoolMoney(payload.school_id || existing?.school_id);
       return existing;
     }
     const missing = optional.find(
@@ -368,6 +389,7 @@ export async function updateManualFeePayment({ schoolId, paymentId, amount, meth
     .select()
     .maybeSingle();
   if (updateError) throw updateError;
+  reflectSchoolMoney(schoolId);
   return { payment: data || { ...existing, ...next }, previousAmount: Number(existing.amount) || 0 };
 }
 

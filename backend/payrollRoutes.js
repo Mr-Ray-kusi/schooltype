@@ -335,6 +335,10 @@ export function registerPayrollRoutes(app, { authenticateToken, enforcePlanAppro
         }
       }
 
+      if (paid.length) {
+        cacheInvalidate(`dash:${approval.schoolId}`);
+        cacheInvalidate(`analytics:${approval.schoolId}`);
+      }
       res.json({
         status: failed.length && !paid.length ? 'failed' : failed.length ? 'partial' : 'success',
         paid,

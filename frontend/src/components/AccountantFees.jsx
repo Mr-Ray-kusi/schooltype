@@ -7,7 +7,15 @@ import FeePaymentReceiptModal from './FeePaymentReceiptModal';
 import { formatGhs } from '../utils/feeReceiptPdf';
 import { downloadTableXlsx } from '../utils/tableXlsx';
 import { useAuth } from '../contexts/authcontext';
-import { forceGet, peekCache, rememberSession, sessionGet } from '../utils/requestCache';
+import {
+  forceGet,
+  notifySchoolDataChanged,
+  onSchoolDataChanged,
+  peekCache,
+  rememberSession,
+  sessionGet,
+} from '../utils/requestCache';
+import { useLivePoll } from '../hooks/useLivePoll';
 
 const STAFF_FEES_KEY = 'fees:staff-overview';
 const STAFF_FEES_VIEW_KEY = 'view:fees-accountant';
@@ -334,22 +342,25 @@ const AccountantFees = ({
   const [smsQuote, setSmsQuote] = useState(null);
   const [sending, setSending] = useState(false);
   const [exporting, setExporting] = useState('');
+  const shownRef = useRef(Boolean(cachedFees));
 
   const load = useCallback(async ({ fresh = false, spin = false } = {}) => {
     if (!fresh) {
       const hit = peekCache(STAFF_FEES_KEY);
       if (hit) {
         setData(hit);
+        shownRef.current = true;
         setLoading(false);
         return;
       }
     }
-    if (spin || !peekCache(STAFF_FEES_KEY)) setLoading(true);
+    if (spin || (!peekCache(STAFF_FEES_KEY) && !shownRef.current)) setLoading(true);
     try {
       const payload = await (fresh ? forceGet : sessionGet)(STAFF_FEES_KEY, () =>
         axios.get('/api/staff-portal/session/fees/overview', requestConfig).then((response) => response.data)
       );
       setData(payload);
+      shownRef.current = true;
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to load fees');
       throw err;
@@ -359,8 +370,20 @@ const AccountantFees = ({
   }, [requestConfig]);
 
   useEffect(() => {
-    load().catch(() => {});
+    const hasCache = Boolean(peekCache(STAFF_FEES_KEY));
+    load(hasCache ? { fresh: true } : {}).catch(() => {});
   }, [load]);
+
+  useEffect(() => {
+    return onSchoolDataChanged((prefixes) => {
+      if (prefixes.includes('visible')) return;
+      if (prefixes.some((prefix) => !prefix || prefix === 'fees' || prefix === 'dashboard' || prefix === 'wallet')) {
+        load({ fresh: true }).catch(() => {});
+      }
+    });
+  }, [load]);
+
+  useLivePoll(() => load({ fresh: true }), 45000, !loading);
 
   useEffect(() => {
     rememberSession(STAFF_FEES_VIEW_KEY, { tab, classFilter });
@@ -437,7 +460,9 @@ const AccountantFees = ({
   const totals = data?.totals || {};
   const collectedTerm = Number(totals.paid_amount) || 0;
   const unpaidAmount = Number(totals.unpaid_amount) || 0;
-  const billedAmount = collectedTerm + unpaidAmount;
+  const billedAmount = Number.isFinite(Number(totals.billed_amount))
+    ? Number(totals.billed_amount)
+    : collectedTerm + unpaidAmount;
   const collectedShare = billedAmount > 0 ? Math.min(100, (collectedTerm / billedAmount) * 100) : 0;
   const owingCount = Number(totals.unpaid) || 0;
   const yearCollected = Number(totals.year_collected) || 0;
@@ -691,7 +716,7 @@ const AccountantFees = ({
           momoCheckoutUrl="/api/staff-portal/session/fees/checkout"
           onClose={() => setShowManual(false)}
           onSaved={() => {
-            load({ fresh: true }).catch(() => {});
+            notifySchoolDataChanged(['fees', 'dashboard', 'wallet']);
           }}
         />
       ) : null}
@@ -706,7 +731,7 @@ const AccountantFees = ({
           patchUrl={(id) => `/api/staff-portal/session/fees/manual/${encodeURIComponent(id)}`}
           onClose={() => setSelectedId(null)}
           onChanged={() => {
-            load({ fresh: true }).catch(() => {});
+            notifySchoolDataChanged(['fees', 'dashboard', 'wallet']);
           }}
         />
       ) : null}

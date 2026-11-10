@@ -3,7 +3,7 @@ import axios from 'axios';
 import { Banknote, BookOpen, Calendar, GraduationCap, ImagePlus, Plus, RefreshCw, Save, Trash2, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/authcontext';
-import { forceGet, invalidateCache, peekCache, staleGet } from '../utils/requestCache';
+import { forceGet, invalidateCache, notifySchoolDataChanged, peekCache, staleGet } from '../utils/requestCache';
 import MultiSelectDropdown from '../components/MultiSelectDropdown';
 import PersonRecordTable from '../components/PersonRecordTable';
 import PaginationBar from '../components/PaginationBar';
@@ -241,6 +241,7 @@ const Setup = () => {
       });
       applyTerms(data.terms || toSave);
       setCurrentTerm(data.current || null);
+      notifySchoolDataChanged(['fees', 'dashboard', 'wallet']);
       toast.success(successMessage || 'Academic terms saved');
       return true;
     } catch (error) {
@@ -358,11 +359,7 @@ const Setup = () => {
         await axios.post('/api/classes', payload);
         toast.success('Class added');
       }
-      invalidateCache('classes');
-      invalidateCache('staff');
-      invalidateCache('students');
-      invalidateCache('dashboard');
-      invalidateCache('attendance');
+      notifySchoolDataChanged(['classes', 'staff', 'students', 'fees', 'dashboard', 'wallet', 'attendance']);
       setClassModal(null);
       await load();
     } catch (error) {
@@ -493,7 +490,7 @@ const Setup = () => {
       if (pendingDelete.kind === 'class') {
         await axios.delete(`/api/classes/${pendingDelete.id}`);
         if (classModal?.id === pendingDelete.id) setClassModal(null);
-        invalidateCache('classes');
+        notifySchoolDataChanged(['classes', 'fees', 'dashboard', 'wallet']);
         setPendingDelete(null);
         load();
         return;

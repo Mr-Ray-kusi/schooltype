@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import PlanPendingBanner from '../components/PlanPendingBanner';
 import axios from 'axios';
 import { useAuth } from '../contexts/authcontext';
-import { DASHBOARD_CACHE_MS, peekCache, staleGet } from '../utils/requestCache';
+import { DASHBOARD_CACHE_MS, onSchoolDataChanged, peekCache, staleGet } from '../utils/requestCache';
 import { schoolLocalDate, schoolLocalDateLabel } from '../utils/schoolDate';
 import { useLivePoll } from '../hooks/useLivePoll';
 import SchoolAnalyticsChart from '../components/SchoolAnalyticsChart';
@@ -86,8 +86,22 @@ const Dashboard = () => {
   }, []);
 
   useEffect(() => {
-    fetchDashboardData(selectedDate, { silent: false });
+    const cached = peekCache(`dashboard:${selectedDate}`);
+    fetchDashboardData(selectedDate, { silent: Boolean(cached) });
   }, [selectedDate, isPlanApproved, fetchDashboardData]);
+
+  useEffect(() => {
+    return onSchoolDataChanged((prefixes) => {
+      if (prefixes.includes('visible')) return;
+      if (
+        prefixes.some(
+          (prefix) => !prefix || prefix === 'fees' || prefix === 'dashboard' || prefix === 'wallet'
+        )
+      ) {
+        fetchDashboardData(selectedDate, { silent: true });
+      }
+    });
+  }, [fetchDashboardData, selectedDate]);
 
   useLivePoll(() => fetchDashboardData(selectedDate, { silent: true }), 45000, !loading);
 
