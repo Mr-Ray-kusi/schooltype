@@ -267,7 +267,7 @@ const FeeOverviewPanel = ({
           {formatGhs(allClear ? collectedTerm : unpaidAmount)}
         </p>
         <p className={`mt-2 text-sm font-medium ${allClear ? 'text-emerald-300' : 'text-amber-300'}`}>
-          {allClear ? 'Collected this term' : 'Unpaid this term'}
+          {allClear ? 'Collected this term' : 'Unpaid revenue'}
         </p>
         {billedAmount >= 0.01 ? (
           <div className="mt-4 max-w-md">

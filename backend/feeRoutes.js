@@ -743,7 +743,12 @@ export async function getFeeOverviewPayload(schoolId, query = {}) {
   const collectedAmount = (payments || [])
     .filter((row) => isSuccessfulFeeStatus(row.status))
     .reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
-  const revenue = schoolRevenueFigures({ billedAmount, collectedAmount });
+  const yearCollected = roundMoney(
+    (yearPayments || [])
+      .filter((row) => isSuccessfulFeeStatus(row.status))
+      .reduce((sum, row) => sum + (Number(row.amount) || 0), 0)
+  );
+  const revenue = schoolRevenueFigures({ billedAmount, collectedAmount, yearCollected });
 
   const classesChart = [...classFeeByName.keys()]
     .concat(billed.map((row) => row.class || 'Unassigned'))
@@ -758,10 +763,6 @@ export async function getFeeOverviewPayload(schoolId, query = {}) {
       };
     })
     .filter((row) => row.students > 0);
-
-  const yearCollected = roundMoney(
-    yearPayments.filter((row) => isSuccessfulFeeStatus(row.status)).reduce((sum, row) => sum + (Number(row.amount) || 0), 0)
-  );
 
   const yearLedgerRes = await supabase
     .from('fee_payments')
@@ -811,7 +812,7 @@ export async function getFeeOverviewPayload(schoolId, query = {}) {
       paid_amount: revenue.feesPaid,
       unpaid_amount: revenue.unpaidRevenue,
       billed_amount: revenue.totalRevenue,
-      year_collected: yearCollected,
+      year_collected: revenue.yearCollected,
     },
     chart: { classes: classesChart },
     paid: tab === 'unpaid' && pagedMode ? [] : pagedMode ? paged : paid,

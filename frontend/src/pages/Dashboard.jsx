@@ -161,7 +161,7 @@ const Dashboard = () => {
     },
     {
       title: 'Unpaid revenue',
-      hint: locked ? null : `${Number(stats.unpaidStudents || 0).toLocaleString()} outstanding`,
+      hint: locked ? null : 'Total revenue − year collected',
       value: formatGlanceMoney(stats.unpaidRevenue),
       icon: Receipt,
       accent: 'text-amber-300 bg-amber-500/15 border-amber-500/25',

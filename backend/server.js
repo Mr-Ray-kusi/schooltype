@@ -7418,9 +7418,11 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
     const feeTotals = feeGlance?.totals || {};
     const collectedFees = Number(feeTotals.paid_amount) || 0;
     const billedFees = Number(feeTotals.billed_amount);
+    const yearCollected = Number(feeTotals.year_collected) || 0;
     const revenue = schoolRevenueFigures({
       billedAmount: Number.isFinite(billedFees) ? billedFees : collectedFees + (Number(feeTotals.unpaid_amount) || 0),
       collectedAmount: collectedFees,
+      yearCollected,
     });
     const payload = {
       totalStudents: totals.students,
@@ -7432,7 +7434,7 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
       totalRevenue: revenue.totalRevenue,
       feesPaid: revenue.feesPaid,
       unpaidRevenue: revenue.unpaidRevenue,
-      yearCollected: Number(feeTotals.year_collected) || 0,
+      yearCollected: revenue.yearCollected,
       billedStudents: Number(feeTotals.billed) || 0,
       paidStudents: Number(feeTotals.paid) || 0,
       unpaidStudents: Number(feeTotals.unpaid) || 0,

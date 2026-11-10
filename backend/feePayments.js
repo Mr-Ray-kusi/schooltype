@@ -111,12 +111,13 @@ export function roundMoney(value) {
   return Math.round((Number(value) || 0) * 100) / 100;
 }
 
-/** School unpaid revenue is billed fees minus money already collected. */
-export function schoolRevenueFigures({ billedAmount = 0, collectedAmount = 0 } = {}) {
+/** Unpaid revenue is total revenue minus fees collected this year. */
+export function schoolRevenueFigures({ billedAmount = 0, collectedAmount = 0, yearCollected = 0 } = {}) {
   const totalRevenue = roundMoney(billedAmount);
   const feesPaid = roundMoney(collectedAmount);
-  const unpaidRevenue = roundMoney(Math.max(0, totalRevenue - feesPaid));
-  return { totalRevenue, feesPaid, unpaidRevenue };
+  const collectedThisYear = roundMoney(yearCollected);
+  const unpaidRevenue = roundMoney(Math.max(0, totalRevenue - collectedThisYear));
+  return { totalRevenue, feesPaid, yearCollected: collectedThisYear, unpaidRevenue };
 }
 
 export function reflectSchoolMoney(schoolId) {

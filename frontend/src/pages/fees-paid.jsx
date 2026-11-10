@@ -195,7 +195,7 @@ const Fees = () => {
           <p className="mt-0.5 text-xs text-slate-400">{totals.paid || 0} student{(totals.paid || 0) === 1 ? '' : 's'}</p>
         </div>
         <div className="min-w-0 rounded-xl border border-slate-700 bg-slate-800 p-3">
-          <p className="text-[10px] uppercase leading-tight tracking-wide text-slate-300">Outstanding</p>
+          <p className="text-[10px] uppercase leading-tight tracking-wide text-slate-300">Unpaid revenue</p>
           <p className="mt-1.5 break-words text-lg font-extrabold text-amber-300 lg:text-xl xl:text-2xl">
             {formatGhs(totals.unpaid_amount)}
           </p>
