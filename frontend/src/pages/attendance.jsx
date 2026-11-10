@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { AlertTriangle, ChevronDown, Clock, Download, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { Download, RefreshCw, Search } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { cachedGet, invalidateCache, peekCache, staleGet } from '../utils/requestCache';
@@ -10,24 +10,27 @@ import { useAuth } from '../contexts/authcontext';
 import { downloadAllStudentAttendanceZip, downloadTermAttendancePdf } from '../utils/attendanceTermPdf';
 import PaginationBar from '../components/PaginationBar';
 import ConfirmTypedDeleteModal from '../components/ConfirmTypedDeleteModal';
-
-const ATTENDANCE_ROW_HEIGHT = 56;
+import PersonRecordTable from '../components/PersonRecordTable';
+import PersonDetailModal from '../components/PersonDetailModal';
+import { LIST_PAGE_SIZE } from '../utils/listApi';
 
 const fieldClass =
   'h-9 min-h-9 w-full rounded-lg border border-slate-600 bg-slate-900 px-2.5 text-sm text-white outline-none focus:ring-2 focus:ring-primary-500';
 
-const typeBadge = (type) => {
-  switch (type) {
-    case 'student':
-      return 'bg-sky-500/15 text-sky-200';
-    case 'staff':
-      return 'bg-emerald-500/15 text-emerald-200';
-    case 'non-staff':
-      return 'bg-slate-600/40 text-slate-200';
-    default:
-      return 'bg-slate-600/40 text-slate-200';
-  }
+const normalizeType = (record) => {
+  const type = record?.user_type;
+  if (type === 'nonstaff' || type === 'non_staff') return 'non-staff';
+  if (type === 'staff') return 'staff';
+  return 'student';
 };
+
+const typeLabel = (type) => {
+  if (type === 'staff') return 'Staff';
+  if (type === 'non-staff') return 'Non-staff';
+  return 'Student';
+};
+
+const isMarked = (record) => Boolean(record?.timestamp) && !String(record?.id || '').startsWith('unmarked:');
 
 const getPersonLabel = (record) => {
   if (record.user_type === 'student') {
@@ -117,131 +120,46 @@ const fallbackTermAttendance = (record, selectedDate) => {
   };
 };
 
-const TermRecords = ({
-  data,
-  loading,
-  schoolName,
-  personName,
-  personLabel,
-  userType,
-  onDelete,
-  deleting,
-  onClose,
-  seed,
-  selectedDate,
-}) => {
-  const { canDownload } = useAuth();
+const AttendanceRecords = ({ data, loading, seed, selectedDate }) => {
   const fallback = seed ? fallbackTermAttendance(seed, selectedDate) : null;
   const pack = Array.isArray(data?.records) && data.records.length ? data : fallback;
   const records = pack?.records || [];
 
   if (loading && !records.length) {
-    return <p className="px-3 py-2 text-xs text-slate-400">Loading this term…</p>;
+    return <p className="text-sm text-slate-400">Loading attendance records…</p>;
+  }
+
+  if (!records.length) {
+    return <p className="text-sm text-slate-400">No attendance records for this term yet.</p>;
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-slate-900 px-3 py-2">
-      <div className="flex shrink-0 items-center justify-between gap-2">
-        <p className="truncate text-xs text-slate-400">
-          {personName}
-          {personLabel ? ` · ${personLabel}` : ''}
-          {pack?.term?.name ? ` · ${pack.term.name}` : ''}
-          {pack?.summary
-            ? ` · ${pack.summary.days} days · ${pack.summary.early} early · ${pack.summary.late} late${
-                pack.summary.absent ? ` · ${pack.summary.absent} absent` : ''
-              }`
-            : ''}
-        </p>
-        <div className="flex shrink-0 gap-2">
-          <button
-            type="button"
-            disabled={!canDownload}
-            onClick={(event) => {
-              event.stopPropagation();
-              if (!canDownload) {
-                toast.error('Downloads are locked until the term plan is renewed.');
-                return;
-              }
-              try {
-                downloadTermAttendancePdf({
-                  schoolName,
-                  personName,
-                  personLabel,
-                  userType,
-                  term: pack?.term,
-                  records,
-                  summary: pack?.summary,
-                });
-              } catch {
-                toast.error('Could not download this attendance record');
-              }
-            }}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-600 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-800"
-          >
-            <Download className="h-3.5 w-3.5" />
-            Download
-          </button>
-          {onDelete ? (
-            <button
-              type="button"
-              disabled={deleting}
-              onClick={(event) => {
-                event.stopPropagation();
-                onDelete();
-              }}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/40 px-2.5 py-1 text-xs text-rose-200 hover:bg-rose-500/10 disabled:opacity-50"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              {deleting ? 'Deleting…' : 'Delete'}
-            </button>
-          ) : null}
-          {onClose ? (
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                onClose();
-              }}
-              className="rounded-lg border border-slate-600 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-800"
-            >
-              Close
-            </button>
-          ) : null}
-        </div>
-      </div>
-      {records.length === 0 ? (
-        <p className="mt-3 text-xs text-slate-500">No records for this term yet.</p>
-      ) : (
-        <div className="mt-2 min-h-0 flex-1 overflow-y-auto overscroll-contain">
-          <table className="w-full text-left text-xs">
-            <thead className="sticky top-0 z-10 bg-slate-900 text-slate-400">
-              <tr>
-                <th className="px-2 py-1 font-medium">Date</th>
-                <th className="px-2 py-1 font-medium">Time</th>
-                <th className="px-2 py-1 font-medium">Status</th>
+    <div className="overflow-hidden rounded-2xl border border-slate-800">
+      <table className="w-full text-left text-sm">
+        <thead className="bg-slate-950/70 text-slate-400">
+          <tr>
+            <th className="px-4 py-2 font-medium">Date</th>
+            <th className="px-4 py-2 font-medium">Time</th>
+            <th className="px-4 py-2 font-medium">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {records.map((row) => {
+            const status = getPunctuality(row);
+            return (
+              <tr key={row.id || row.date} className="border-t border-slate-800">
+                <td className="px-4 py-2 text-slate-100">
+                  {row.date ? format(new Date(`${row.date}T12:00:00`), 'EEE d MMM') : '—'}
+                </td>
+                <td className="px-4 py-2 tabular-nums text-slate-300">
+                  {status === 'absent' ? '—' : row.timestamp ? format(new Date(row.timestamp), 'hh:mm a') : '—'}
+                </td>
+                <td className={`px-4 py-2 ${statusTone(status)}`}>{statusLabel(status)}</td>
               </tr>
-            </thead>
-            <tbody>
-              {records.map((row) => {
-                const status = getPunctuality(row);
-                return (
-                  <tr key={row.id || row.date} className="border-t border-slate-800">
-                    <td className="px-2 py-1 text-slate-200">
-                      {row.date ? format(new Date(`${row.date}T12:00:00`), 'EEE d MMM') : '—'}
-                    </td>
-                    <td className="px-2 py-1 tabular-nums text-slate-300">
-                      {status === 'absent' ? '—' : row.timestamp ? format(new Date(row.timestamp), 'hh:mm a') : '—'}
-                    </td>
-                    <td className={`px-2 py-1 ${statusTone(status)}`}>
-                      {statusLabel(status)}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 };
@@ -249,7 +167,7 @@ const TermRecords = ({
 const Attendance = () => {
   const { school, canDownload } = useAuth();
   const [attendanceRecords, setAttendanceRecords] = useState([]);
-  const [openKey, setOpenKey] = useState(null);
+  const [viewing, setViewing] = useState(null);
   const [termCache, setTermCache] = useState({});
   const [termLoading, setTermLoading] = useState(false);
   const [selectedDate, setSelectedDate] = useState(schoolLocalDate());
@@ -265,8 +183,6 @@ const Attendance = () => {
   const [pendingDelete, setPendingDelete] = useState(null);
   const [bulkBusy, setBulkBusy] = useState('');
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(8);
-  const listRef = useRef(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchLateSettings = async () => {
@@ -386,7 +302,7 @@ const Attendance = () => {
 
   const filteredRecords = useMemo(() => {
     return attendanceRecords.filter((record) => {
-      const type = record.user_type === 'nonstaff' || record.user_type === 'non_staff' ? 'non-staff' : record.user_type;
+      const type = normalizeType(record);
       if (selectedType !== 'all' && type !== selectedType) return false;
       if (selectedClass !== 'all') {
         if (type === 'student' || selectedType === 'staff' || selectedType === 'non-staff') {
@@ -411,34 +327,27 @@ const Attendance = () => {
     setPage(1);
   }, [selectedType, selectedClass, searchQuery, selectedDate]);
 
-  useEffect(() => {
-    const el = listRef.current;
-    if (!el) return undefined;
-    const measure = () => {
-      const next = Math.max(1, Math.floor(el.clientHeight / ATTENDANCE_ROW_HEIGHT));
-      setPageSize((current) => (current === next ? current : next));
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [openKey, filteredRecords.length]);
-
-  const pageCount = Math.max(1, Math.ceil(filteredRecords.length / pageSize));
+  const pageCount = Math.max(1, Math.ceil(filteredRecords.length / LIST_PAGE_SIZE));
   const safePage = Math.min(page, pageCount);
   const pagedRecords = useMemo(
-    () => filteredRecords.slice((safePage - 1) * pageSize, safePage * pageSize),
-    [filteredRecords, safePage, pageSize]
+    () => filteredRecords.slice((safePage - 1) * LIST_PAGE_SIZE, safePage * LIST_PAGE_SIZE),
+    [filteredRecords, safePage]
   );
-  const openRecord = useMemo(
-    () => (openKey ? filteredRecords.find((record) => personKey(record) === openKey) || null : null),
-    [openKey, filteredRecords]
+  const tableRows = useMemo(
+    () =>
+      pagedRecords.map((record) => {
+        const type = normalizeType(record);
+        return {
+          id: record.user_id || record.id,
+          kind: type,
+          name: getPersonName(record),
+          typeLabel: typeLabel(type),
+          marked: isMarked(record),
+          record,
+        };
+      }),
+    [pagedRecords]
   );
-  const visibleRecords = useMemo(() => {
-    if (!openRecord) return pagedRecords;
-    if (pagedRecords.some((record) => personKey(record) === openKey)) return pagedRecords;
-    return [openRecord, ...pagedRecords];
-  }, [openKey, openRecord, pagedRecords]);
 
   const refresh = async () => {
     if (refreshing) return;
@@ -446,7 +355,7 @@ const Attendance = () => {
     setLoading(true);
     invalidateCache('attendance');
     setTermCache({});
-    setOpenKey(null);
+    setViewing(null);
     try {
       await Promise.all([fetchAttendance({ silent: false }), fetchSummary({ silent: false })]);
     } finally {
@@ -469,7 +378,7 @@ const Attendance = () => {
         delete next[key];
         return next;
       });
-      setOpenKey(null);
+      setViewing(null);
       setPendingDelete(null);
       refresh();
     } catch (error) {
@@ -538,32 +447,11 @@ const Attendance = () => {
     }
   };
 
-  const termRecordProps = (record) => {
-    const key = personKey(record);
-    const isStudent = (record.user_type || 'student') === 'student';
-    return {
-      data: termCache[key],
-      loading: termLoading,
-      schoolName: school?.name || 'School',
-      personName: getPersonName(record),
-      personLabel: getPersonLabel(record),
-      userType: record.user_type,
-      seed: record,
-      selectedDate,
-      onDelete: isStudent ? () => setPendingDelete(record) : undefined,
-      deleting: deletingKey === key,
-      onClose: () => setOpenKey(null),
-    };
-  };
-
-  const togglePerson = async (record) => {
+  const openPerson = async (row) => {
+    const record = row?.record;
     if (!record?.user_id) return;
+    setViewing(record);
     const key = personKey(record);
-    if (openKey === key) {
-      setOpenKey(null);
-      return;
-    }
-    setOpenKey(key);
     if (Array.isArray(termCache[key]?.records) && termCache[key].records.length) return;
     setTermLoading(true);
     try {
@@ -579,6 +467,29 @@ const Attendance = () => {
       setTermCache((prev) => ({ ...prev, [key]: fallbackTermAttendance(record, selectedDate) }));
     } finally {
       setTermLoading(false);
+    }
+  };
+
+  const downloadViewingRecord = () => {
+    if (!viewing) return;
+    if (!canDownload) {
+      toast.error('Downloads are locked until the term plan is renewed.');
+      return;
+    }
+    const key = personKey(viewing);
+    const pack = termCache[key] || fallbackTermAttendance(viewing, selectedDate);
+    try {
+      downloadTermAttendancePdf({
+        schoolName: school?.name || 'School',
+        personName: getPersonName(viewing),
+        personLabel: getPersonLabel(viewing),
+        userType: viewing.user_type,
+        term: pack?.term,
+        records: pack?.records || [],
+        summary: pack?.summary,
+      });
+    } catch {
+      toast.error('Could not download this attendance record');
     }
   };
 
@@ -713,79 +624,35 @@ const Attendance = () => {
         </button>
       </div>
 
-      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-700 bg-slate-800 lg:flex-row">
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <PersonRecordTable
+          rows={tableRows}
+          minWidth="520px"
+          compact
+          onSelect={openPerson}
+          columns={[
+            { key: 'name', header: 'Name' },
+            { key: 'typeLabel', header: 'Type' },
+            {
+              key: 'action',
+              header: 'Action',
+              render: (row) => (
+                <span className={row.marked ? 'font-medium text-emerald-300' : 'font-medium text-slate-400'}>
+                  {row.marked ? 'Marked' : 'Unmarked'}
+                </span>
+              ),
+            },
+          ]}
+        />
         {filteredRecords.length === 0 ? (
-          <div className="flex h-full flex-1 items-center justify-center px-4 text-center text-sm text-slate-400">
-            {searchQuery.trim()
-              ? 'No one matches that name or ID for this date.'
-              : 'No students, staff, or non-staff for this date.'}
+          <div className="rounded-2xl border border-dashed border-slate-600 bg-slate-800/50 py-16 text-center">
+            <p className="text-slate-300">
+              {searchQuery.trim()
+                ? 'No one matches that name or ID for this date.'
+                : 'No students, staff, or non-staff for this date.'}
+            </p>
           </div>
-        ) : (
-          <>
-            <div
-              ref={listRef}
-              className={`min-h-0 overflow-y-auto overscroll-contain ${
-                openKey
-                  ? 'flex-1 border-b border-slate-700 lg:w-[22rem] lg:flex-none lg:border-b-0 lg:border-r'
-                  : 'flex-1'
-              }`}
-              onWheel={(event) => event.stopPropagation()}
-            >
-              {visibleRecords.map((record) => {
-                const status = getPunctuality(record);
-                const key = personKey(record);
-                const isOpen = openKey === key;
-                return (
-                  <div
-                    key={record.id || key}
-                    className={`border-b border-slate-700 last:border-b-0 ${isOpen ? 'bg-slate-900/70' : ''}`}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => togglePerson(record)}
-                      className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-slate-700/40"
-                      aria-expanded={isOpen}
-                    >
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-white">{getPersonName(record)}</p>
-                        <p className="truncate text-xs text-slate-400">
-                          {record.user_type} · {getPersonLabel(record)}
-                          <span className={`ml-2 capitalize ${typeBadge(record.user_type)} rounded-full px-1.5 py-0.5`}>
-                            {record.user_type}
-                          </span>
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-3">
-                        <div className="text-right">
-                          <p className="text-xs tabular-nums text-slate-300">{formatMarkTime(record.timestamp)}</p>
-                          <p className={`inline-flex items-center gap-1 text-xs ${statusTone(status)}`}>
-                            {status === 'late' || status === 'absent' ? (
-                              <AlertTriangle className="h-3.5 w-3.5" />
-                            ) : (
-                              <Clock className="h-3.5 w-3.5" />
-                            )}
-                            {statusLabel(status)}
-                          </p>
-                        </div>
-                        <ChevronDown
-                          className={`h-4 w-4 text-slate-400 transition ${isOpen ? 'rotate-180' : ''}`}
-                        />
-                      </div>
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-            {openRecord ? (
-              <div
-                className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
-                onWheel={(event) => event.stopPropagation()}
-              >
-                <TermRecords {...termRecordProps(openRecord)} />
-              </div>
-            ) : null}
-          </>
-        )}
+        ) : null}
       </div>
 
       {filteredRecords.length > 0 ? (
@@ -793,11 +660,89 @@ const Attendance = () => {
           <PaginationBar
             page={safePage}
             total={filteredRecords.length}
-            limit={pageSize}
+            limit={LIST_PAGE_SIZE}
             onPageChange={setPage}
           />
         </div>
       ) : null}
+
+      <PersonDetailModal
+        open={Boolean(viewing)}
+        name={viewing ? getPersonName(viewing) : ''}
+        badge={viewing ? typeLabel(normalizeType(viewing)) : ''}
+        accent={
+          viewing && normalizeType(viewing) === 'staff'
+            ? 'emerald'
+            : viewing && normalizeType(viewing) === 'non-staff'
+              ? 'violet'
+              : 'sky'
+        }
+        fields={
+          viewing
+            ? [
+                {
+                  group: 'Today',
+                  label: 'Action',
+                  value: isMarked(viewing) ? 'Marked' : 'Unmarked',
+                },
+                {
+                  group: 'Today',
+                  label: normalizeType(viewing) === 'student' ? 'Class' : 'Role',
+                  value: getPersonLabel(viewing),
+                },
+                {
+                  group: 'Today',
+                  label: 'Time',
+                  value: isMarked(viewing) ? formatMarkTime(viewing.timestamp) : '—',
+                },
+                {
+                  group: 'This term',
+                  label: 'Term',
+                  value: (termCache[personKey(viewing)] || fallbackTermAttendance(viewing, selectedDate))?.term?.name,
+                },
+                {
+                  group: 'This term',
+                  label: 'Early',
+                  value: String(
+                    (termCache[personKey(viewing)] || fallbackTermAttendance(viewing, selectedDate))?.summary?.early ?? 0
+                  ),
+                },
+                {
+                  group: 'This term',
+                  label: 'Late',
+                  value: String(
+                    (termCache[personKey(viewing)] || fallbackTermAttendance(viewing, selectedDate))?.summary?.late ?? 0
+                  ),
+                },
+                {
+                  group: 'This term',
+                  label: 'Absent',
+                  value: String(
+                    (termCache[personKey(viewing)] || fallbackTermAttendance(viewing, selectedDate))?.summary?.absent ?? 0
+                  ),
+                },
+              ]
+            : []
+        }
+        onClose={() => setViewing(null)}
+        onDownload={viewing ? downloadViewingRecord : undefined}
+        downloadLabel="Download record"
+        onDelete={viewing && normalizeType(viewing) === 'student' ? () => setPendingDelete(viewing) : undefined}
+      >
+        {viewing ? (
+          <section>
+            <h3 className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+              Attendance records
+            </h3>
+            <AttendanceRecords
+              data={termCache[personKey(viewing)]}
+              loading={termLoading}
+              seed={viewing}
+              selectedDate={selectedDate}
+            />
+          </section>
+        ) : null}
+      </PersonDetailModal>
 
       <ConfirmTypedDeleteModal
         open={Boolean(pendingDelete)}

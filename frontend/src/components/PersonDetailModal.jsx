@@ -25,6 +25,7 @@ const PersonDetailModal = ({
   onDelete,
   onDownload,
   downloadLabel = 'Download pack',
+  children,
 }) => {
   const [downloading, setDownloading] = useState(false);
   const colors = ACCENTS[accent] || ACCENTS.sky;
@@ -111,6 +112,7 @@ const PersonDetailModal = ({
                 </dl>
               </section>
             ))}
+            {children}
           </div>
         </div>
 
