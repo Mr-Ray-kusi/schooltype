@@ -189,6 +189,7 @@ const Dashboard = () => {
       value: locked ? '—' : formatGlanceMoney(stats.walletBalance),
       icon: Wallet,
       feature: 'school-wallet',
+      money: true,
     },
     {
       label: 'SMS units',
@@ -201,6 +202,7 @@ const Dashboard = () => {
       value: locked ? '—' : formatGlanceMoney(stats.yearCollected),
       icon: DollarSign,
       feature: 'fees-paid',
+      money: true,
     },
     {
       label: 'Report cards',
@@ -311,7 +313,7 @@ const Dashboard = () => {
                         <Icon className="h-3.5 w-3.5" />
                       </div>
                     </div>
-                    <p className="mt-2 font-display text-xl font-extrabold tabular-nums tracking-tight text-white sm:text-2xl xl:text-3xl">
+                    <p className="mt-2 font-money text-xl font-extrabold tabular-nums tracking-tight text-white sm:text-2xl xl:text-3xl">
                       {locked ? '—' : stat.value}
                     </p>
                     <p className="mt-1 truncate text-[11px] text-slate-500">
@@ -334,7 +336,7 @@ const Dashboard = () => {
                       <p className="truncate text-[10px] uppercase tracking-[0.08em] text-slate-500">
                         {item.label}
                       </p>
-                      <p className="truncate text-sm font-bold tabular-nums text-slate-100 xl:text-base">
+                      <p className={`truncate text-sm font-bold tabular-nums text-slate-100 xl:text-base ${item.money ? 'font-money' : ''}`}>
                         {item.value}
                       </p>
                     </div>

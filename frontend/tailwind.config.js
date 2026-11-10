@@ -69,6 +69,7 @@ module.exports = {
       },
       fontFamily: {
         display: ['Syne', 'system-ui', 'sans-serif'],
+        money: ['"Noto Sans"', 'system-ui', 'sans-serif'],
         sans: ['DM Sans', 'system-ui', 'sans-serif'],
         serif: ['Playfair Display', 'Georgia', 'serif'],
         dashboard: ['"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
